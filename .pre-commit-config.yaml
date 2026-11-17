@@ -69,9 +69,6 @@ repos:
   - id: detect-secrets
     args:
     - --no-verify
-    exclude_types:
-    - json
-    exclude: README.md
 - repo: https://github.com/phantomcyber/dev-cicd-tools
   rev: 556891bcbef1c29df9ab7dfd8e6e9db7582ab4a9  # pragma: allowlist secret -- public upstream commit
   hooks:
