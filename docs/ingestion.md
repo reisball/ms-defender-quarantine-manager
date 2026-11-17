@@ -6,7 +6,7 @@ Configure the schedule and container label in native **Ingest Settings**, or use
 
 Use one ingesting asset per tenant. Its state and locks are asset-specific; separate assets can admit the same source message. Select the tenant, Exchange organization, source mode and target before starting. Changing that scope while state exists is rejected. Do not delete state to bypass the check.
 
-Native email import requires authenticated local SOAR REST access. Automation Broker is unsupported; Native SOAR Cloud execution has been pilot-tested. Automation Broker remains unsupported. The optional `es_soar_base_url` overrides the trusted HTTPS endpoint for both SOAR and ES import. Native runtime authentication may supply its own URL. Azure TLS verification remains enforced independently of the SOAR platform's local transport policy.
+Native email import requires authenticated local SOAR REST access. The connector has been piloted successfully on Splunk SOAR Cloud. Automation Broker remains unsupported. The optional `es_soar_base_url` overrides the trusted HTTPS endpoint for both SOAR and ES import. Native runtime authentication may supply its own URL. Azure TLS verification remains enforced independently of the SOAR platform's local transport policy.
 
 | Selection | Microsoft source status |
 |---|---|
