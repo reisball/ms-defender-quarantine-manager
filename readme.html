@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>MS Quarantine for Splunk SOAR 3.7.4</title></head>
+<body>
+<h1>MS Quarantine for Splunk SOAR 3.7.4</h1>
+<p>Publisher: Kai Seidenschnur. Copyright 2026 Kai Seidenschnur.
+Apache-2.0; see the included <a href="LICENSE">LICENSE</a>.</p>
+<h2>Overview</h2>
+<p>Import Microsoft Defender quarantined email into Splunk SOAR or Enterprise
+Security through Azure Automation. Each message includes its original email,
+attachments and selected metadata. Importing a message does not release or deny it.</p>
+<p>This distribution has its own app UUID and package identity. It does not
+convert assets belonging to another app. Configure one ingesting asset per tenant;
+pause previous intake before a controlled replacement.</p>
+<h2>Requirements and setup</h2>
+<ol>
+<li>Deploy the companion Azure Automation Runbook 3.4.5 separately. Enable the
+Automation Account's system-assigned Managed Identity and install the
+ExchangeOnlineManagement module in its PowerShell runtime.</li>
+<li>Grant the Managed Identity <code>Exchange.ManageAsApp</code> and the
+Exchange/Defender permissions for the quarantine actions you intend to use.
+Exchange sign-in uses Managed Identity, not the asset's client secret.</li>
+<li>Create a runbook webhook. Enter its direct HTTPS URL and the Automation
+Account coordinates in the asset. Configure a separate App Registration with
+Automation Job Operator access on that account for reading Azure job status
+and output. Enter its tenant ID, client ID and client secret value.</li>
+<li>Set the Exchange tenant domain in the asset or in the Automation Variable
+<code>ExchangeOrganization</code>; the asset value takes precedence.</li>
+<li>Use one ingesting asset per tenant. Select the source mode and target before
+starting intake. Configure the container label and schedule in Ingest Settings;
+disable the schedule to pause automatic imports. Use Poll Now for a manual import. For ES, use the native ES ingest settings
+and register the five additional fields below.</li>
+<li>Configure the analysis playbook's asset bindings, analyst/approver settings,
+notification recipients, portal links and routing label before activation.
+For SOAR, start analysis from the completed mail's ready artifact.</li>
+</ol>
+<p>Native email import requires authenticated local SOAR REST access, including
+when importing into SOAR rather than ES. Automation Broker is not supported;
+SOAR Cloud compatibility has not been verified.</p>
+<h2>Email import</h2>
+<p><code>on_poll_max_containers</code> is a maximum of simultaneously unresolved
+Microsoft quarantine identities, configurable 1–50 and default 10. It is not a
+per-poll increment. The app checks tracked IDs read-only; exact
+<code>Released</code> or <code>Denied</code> frees slots. It fills free slots from
+the existing first 50 source-status candidates. Missing IDs, errors, other
+statuses and analysis completion do not free slots. An empty import does not
+prove an empty backlog; no pagination or stable ordering is promised.</p>
+<p>Selection <code>release_requested</code> means Microsoft <code>Requested</code>;
+<code>needs_review</code> means <code>NotReleased</code>. Needs review is explicit
+opt-in and may process mail without a recipient request. Check your tenant's Deny eligibility before using it with NotReleased messages. A mail intentionally left unchanged can occupy
+a slot indefinitely.</p>
+<p>Original email and attachments are saved automatically to the container's
+Vault. Selected mail fields are always added as artifacts, using the chosen
+combined/separate layout.
+All preparation suppresses automation. SOAR publishes a final
+ready artifact only after preparation; use its <code>ingestionReady=true</code>,
+<code>quarantineIdentity</code> and original-mail <code>vaultId</code>.
+ES uses the configured native threat-analysis and automation settings instead;
+publication acceptance does not prove that an analysis workflow finished.</p>
+<h2>Native ES prerequisites</h2>
+<p>Register <code>quarantine_identity</code>, <code>work_item_id</code>,
+<code>source_data_identifier</code>, <code>quarantine</code> and
+<code>eml_sha256</code> as accepted additional fields in the target ES environment.
+The app does not register them. Configure a valid security domain; urgency and
+investigation type are optional native settings. Analyst download links use the
+validated external HTTPS base URL from SOAR system information. Test their
+reachability and mail/attachment rendering from the analyst interface. ES is a
+lossy projection: the outer message body prefers plain text, then HTML;
+attachment-marked parts, file-named parts and attached-message descendants are
+excluded. Related MIME uses its declared root (or first part). Header values are limited to 8192 characters
+and body to 256000 characters. The 2 MiB metadata check precedes attachment-link
+entries and is not a complete final-request size guarantee. The original EML in
+Vault remains authoritative.</p>
+<h2>Configuration</h2>
+<p>Configure the Azure connection, email selection and active-message limit,
+selected mail fields, and advanced job settings below. The ingest schedule is
+set in SOAR/ES Ingest Settings; the Azure polling interval and timeout monitor
+individual Azure jobs, not the mail-import schedule.</p>
+<p>The SOAR URL override applies to both SOAR and ES email import. Azure
+connections require HTTPS and certificate verification; webhook redirects are
+not followed. Configure the platform's trusted CA store for private certificates.</p>
+<table><thead><tr><th>Field</th><th>Required</th><th>Default</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>webhook_url</code></td><td>yes</td><td><code>not set</code></td><td>Connection: HTTPS webhook URL with token; no redirects</td></tr>
+<tr><td><code>azure_subscription_id</code></td><td>yes</td><td><code>not set</code></td><td>Connection: Azure subscription ID</td></tr>
+<tr><td><code>azure_resource_group</code></td><td>yes</td><td><code>not set</code></td><td>Connection: Azure resource group</td></tr>
+<tr><td><code>azure_automation_account</code></td><td>yes</td><td><code>not set</code></td><td>Connection: Azure Automation Account</td></tr>
+<tr><td><code>azure_tenant_id</code></td><td>yes</td><td><code>not set</code></td><td>Connection: Azure API tenant ID (not Exchange)</td></tr>
+<tr><td><code>azure_client_id</code></td><td>yes</td><td><code>not set</code></td><td>Connection: Azure API client ID (not Exchange)</td></tr>
+<tr><td><code>azure_client_secret</code></td><td>yes</td><td><code>not set</code></td><td>Connection: Azure API secret VALUE (not Exchange)</td></tr>
+<tr><td><code>exchange_organization</code></td><td>no</td><td><code>not set</code></td><td>Connection: Exchange domain (blank = variable)</td></tr>
+<tr><td><code>quarantine_selection_mode</code></td><td>no</td><td><code>&quot;release_requested&quot;</code></td><td>Email import: Selection: release_requested or needs_review Choices: <code>release_requested</code>, <code>needs_review</code>.</td></tr>
+<tr><td><code>on_poll_max_containers</code></td><td>no</td><td><code>10</code></td><td>Email import: Maximum active messages (1-50; default 10)</td></tr>
+<tr><td><code>worker_terminal_retention_days</code></td><td>no</td><td><code>30</code></td><td>Email import: Completed-entry retention (whole days, 1-365)</td></tr>
+<tr><td><code>artifact_layout</code></td><td>no</td><td><code>&quot;combined&quot;</code></td><td>Mail fields: Group selected fields: combined or separate Choices: <code>combined</code>, <code>separate</code>.</td></tr>
+<tr><td><code>artifact_field_from</code></td><td>no</td><td><code>true</code></td><td>Mail fields: From</td></tr>
+<tr><td><code>artifact_field_to</code></td><td>no</td><td><code>true</code></td><td>Mail fields: To</td></tr>
+<tr><td><code>artifact_field_cc</code></td><td>no</td><td><code>false</code></td><td>Mail fields: Cc</td></tr>
+<tr><td><code>artifact_field_reply_to</code></td><td>no</td><td><code>false</code></td><td>Mail fields: Reply-To</td></tr>
+<tr><td><code>artifact_field_sender_address</code></td><td>no</td><td><code>false</code></td><td>Mail fields: Sender</td></tr>
+<tr><td><code>artifact_field_recipient_address</code></td><td>no</td><td><code>false</code></td><td>Mail fields: original recipient</td></tr>
+<tr><td><code>artifact_field_subject</code></td><td>no</td><td><code>true</code></td><td>Mail fields: Subject</td></tr>
+<tr><td><code>artifact_field_email_date</code></td><td>no</td><td><code>true</code></td><td>Mail fields: email date</td></tr>
+<tr><td><code>artifact_field_received_date</code></td><td>no</td><td><code>false</code></td><td>Mail fields: received date</td></tr>
+<tr><td><code>artifact_field_message_id</code></td><td>no</td><td><code>true</code></td><td>Mail fields: Message-ID</td></tr>
+<tr><td><code>artifact_field_quarantine_identity</code></td><td>no</td><td><code>false</code></td><td>Mail fields: quarantine identity</td></tr>
+<tr><td><code>artifact_field_vault_id</code></td><td>no</td><td><code>false</code></td><td>Mail fields: Vault ID</td></tr>
+<tr><td><code>poll_interval_seconds</code></td><td>no</td><td><code>5</code></td><td>Advanced: Job status check (whole seconds, 1-60; default 5)</td></tr>
+<tr><td><code>poll_timeout_seconds</code></td><td>no</td><td><code>600</code></td><td>Advanced: Job timeout (whole seconds, 600-3600; default 600)</td></tr>
+<tr><td><code>es_soar_base_url</code></td><td>no</td><td><code>not set</code></td><td>Advanced: SOAR URL override (optional; SOAR and ES)</td></tr>
+<tr><td><code>include_verbose_action_diagnostics</code></td><td>no</td><td><code>false</code></td><td>Advanced: Verbose diagnostics for successful actions</td></tr>
+</tbody></table>
+<h2>Available actions</h2>
+<p>Release and Deny run only when invoked by an operator or playbook. The app
+confirms the resulting Microsoft status before reporting a successful disposition.</p>
+<h3>test connectivity</h3><p>Validates webhook reachability and Azure AD token acquisition</p><p>No parameters.</p>
+<h3>on poll</h3><p>Email import: save complete quarantine emails and attachments in SOAR containers. Check Microsoft status and refill the active-message window.</p><ul><li><code>start_time</code> (optional): Ignored.</li><li><code>end_time</code> (optional): Ignored.</li><li><code>container_count</code> (optional): Maximum containers for Poll Now (1-50).</li><li><code>artifact_count</code> (optional): Ignored.</li><li><code>container_id</code> (optional): Ignored.</li></ul>
+<h3>recover quarantine ingestion</h3><p>Import recovery: retry blocked preparation or confirm an uncertain publication.</p><ul><li><code>identity</code> (required): Quarantine message Identity.</li><li><code>resolution</code> (required): Explicit ingestion recovery resolution. Choices: <code>retry_preparation</code>, <code>confirm_published</code>.</li><li><code>operator_note</code> (required): Operator recovery rationale and publication verification evidence.</li></ul>
+<h3>inspect release environment</h3><p>Read-only inspection of the deployed runbook, loaded Exchange cmdlet contract, and one exact quarantine identity; optional tenant RBAC inspection requires explicit opt-in</p><ul><li><code>identity</code> (required): Exact quarantine Identity in GUID1\GUID2 form. The diagnose action reads this identity but never releases or denies it.</li><li><code>include_rbac</code> (optional): Explicitly opt in to tenant-wide read-only RBAC and role-group diagnostics after the exact quarantine identity has been bound. Defaults to false.</li></ul>
+<h3>release quarantine message</h3><p>Release a quarantined message to all original recipients</p><ul><li><code>identity</code> (required): Quarantine message Identity in the exact format GUID1\GUID2 (e.g. c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7). Use cef.quarantineIdentity from the ingested SOAR ready artifact or quarantine_identity from the ES finding. The format is validated before the webhook fires - malformed values fail immediately without starting a runbook job.</li><li><code>operation_id</code> (optional): Stable idempotency key for this logical release. Reusing the same value suppresses another webhook while its operation record is retained. Terminal records may be evicted at the 50-record registry limit; this is not permanent idempotency protection. If omitted, the connector derives a stable key from the SOAR container, action, and identity.</li></ul>
+<h3>deny quarantine release</h3><p>Deny a user&#x27;s request to release a quarantined message</p><ul><li><code>identity</code> (required): Quarantine message Identity in the exact format GUID1\GUID2 (e.g. c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7). Use cef.quarantineIdentity from the ingested SOAR ready artifact or quarantine_identity from the ES finding. The format is validated before the webhook fires - malformed values fail immediately without starting a runbook job.</li><li><code>operation_id</code> (optional): Stable idempotency key for this logical deny. Reusing the same value suppresses another webhook while its operation record is retained. Terminal records may be evicted at the 50-record registry limit; this is not permanent idempotency protection. If omitted, the connector derives a stable key from the SOAR container, action, and identity.</li></ul>
+<h3>reconcile quarantine operation</h3><p>Read an existing Azure job and optionally refresh the exact Exchange status without a disposition call</p><ul><li><code>azure_job_id</code> (required): Existing Azure Automation job UUID recorded by the original release or deny action.</li><li><code>expected_action</code> (required): Irreversible action the existing job was expected to execute. Choices: <code>release</code>, <code>deny</code>.</li><li><code>expected_identity</code> (required): Exact quarantine identity expected in the validated runbook result.</li><li><code>operation_id</code> (optional): Optional stable operation ID from the original action. When omitted, the connector resolves it from the Azure job ID or creates a durable read-only observation.</li><li><code>refresh_exchange_status</code> (optional): Explicitly start one read-only runbook reconciliation to obtain a fresh exact Exchange ReleaseStatus. No release or deny cmdlet is permitted.</li></ul>
+<h3>on es poll</h3><p>Email import: publish to ES with app-managed Microsoft status checks and active-message limits.</p><ul><li><code>start_time</code> (optional): Ignored.</li><li><code>end_time</code> (optional): Ignored.</li><li><code>container_count</code> (optional): Maximum containers for Poll Now (1-50).</li><li><code>artifact_count</code> (optional): Ignored.</li><li><code>container_id</code> (optional): Ignored.</li></ul>
+<h2>Maintenance and removal</h2>
+<p>Back up the app, asset configuration and app state using the platform backup
+procedure. Stop ingestion and dependent automation before removing the app.
+Resolve pending operations before restoring a backup; do not clear state to
+restart processing or resubmit an operation with an unknown outcome.</p>
+<h2>Failures and recovery</h2>
+<p>Retryable preparation and definitive publication rejection can retry on a later
+poll. Timeout, lost or mismatched receipt, server failure and unknown acceptance
+remain <code>publishing</code>; no blind resubmission. Deterministic MIME/size
+failures remain <code>blocked</code>. Use <b>recover quarantine ingestion</b> with
+an exact identity and an evidence-based operator note. Retry preparation only
+after its underlying problem is fixed; confirm published only after independently
+verifying the existing exact artifact/finding and workflow. Recovery does not
+free a Microsoft-status-controlled slot or dispatch analysis by itself.</p>
+<ul><li><code>retry_preparation</code> is allowed only from <code>blocked</code>,
+<code>reserved</code>, <code>preparing</code> or <code>ready</code>. It resets to
+<code>preparing</code> with a bound container, otherwise <code>reserved</code>;
+a later poll resumes preparation. It cannot reset publishing or published items.</li>
+<li><code>confirm_published</code> is allowed only from <code>publishing</code>.
+Verify the existing exact ready artifact or ES finding, linked container and
+native automation execution independently, and record evidence in the required
+operator note. This operator assertion marks <code>published</code> without
+sending another submission; the app does not verify that evidence itself.</li></ul>
+<p>For uncertain Release/Deny outcomes use read-only reconciliation before any
+new write. A genuine Microsoft error is not proof that no effect occurred.
+No polling operation calls Release/Deny.</p>
+<h2>Limits and data handling</h2>
+<p>EML cap: 24 MiB. MIME limits: 200 parts, nesting depth 30, 100 attachments,
+48 MiB combined decoded attachments. Native ledger cap: 1000 records; active
+items are not evicted. Terminal retention is configurable 1–365 days, default
+30. Retention expiry can allow reappearing source records to be admitted again;
+there is no global exactly-once guarantee. A 600-second between-call poll budget
+defers remaining work; one in-flight operation may run longer.</p>
+<p>Mail and attachments may contain sensitive content or malware. Original mail
+travels from Exchange through Azure Automation to SOAR/Vault; ES receives finding
+metadata and mail/file links. Apply platform permissions, retention and handling
+policies to jobs, Vault, state and evidence. No credentials are stored in this
+help. Do not include message bodies, tokens or webhook URLs in support reports.</p>
+<h2>Troubleshooting and support</h2>
+<p>If an action fails, record the app and runbook versions, SOAR/ES versions,
+selection mode, action error and Azure job ID. Check the job output and use
+read-only reconciliation for an uncertain disposition. Do not include client
+secrets, webhook tokens or message contents in support reports.</p>
+</body></html>

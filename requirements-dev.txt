@@ -1,0 +1,4 @@
+# Test-only dependencies. Runtime dependencies remain declared in the SOAR
+# app manifest; install this file only for local development and CI.
+pytest>=8,<10
+requests-mock>=1.12,<2

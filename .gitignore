@@ -1,0 +1,31 @@
+# Python bytecode and test tooling
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments and build outputs
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+
+# Local configuration and editor metadata
+.env
+.env.*
+.vscode/
+.idea/
+*.swp
+
+# Local release and test artifacts
+*.tgz
+*.zip
+
+# Local validation output (not release source)
+release-artifacts/
+.ruff_cache/
+.mypy_cache/
