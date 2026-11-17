@@ -4,7 +4,7 @@ App **3.7.4** / companion Runbook **3.4.5**. [Documentation index](README.md).
 
 ## Requirements
 
-- Native Splunk SOAR execution with authenticated access to its local REST API. Automation Broker is not supported. The connector has been piloted successfully on Splunk SOAR Cloud.
+- Native Splunk SOAR execution with authenticated access to its local REST API. Automation Broker is not supported. The connector has been piloted successfully on Splunk SOAR Cloud. This native pilot is not certification for every SOAR version or tenant.
 - An Azure Automation Account with a system-assigned Managed Identity, a PowerShell runtime with ExchangeOnlineManagement, and the companion runbook.
 - An App Registration for reading Azure Automation job status and output.
 - Exchange/Defender permissions for the quarantine operations you intend to perform.

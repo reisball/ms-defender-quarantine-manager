@@ -97,8 +97,8 @@ notification recipients, portal links and routing label before activation.
 For SOAR, start analysis from the completed mail's ready artifact.</li>
 </ol>
 <p>Native email import requires authenticated local SOAR REST access, including
-when importing into SOAR rather than ES. Automation Broker is not supported;
-The connector has been piloted successfully on Splunk SOAR Cloud.</p>
+when importing into SOAR rather than ES. Automation Broker is not supported.
+The connector has been piloted successfully on Splunk SOAR Cloud. This native pilot is not certification for every SOAR version or tenant.</p>
 <h2>Email import</h2>
 <p><code>on_poll_max_containers</code> is a maximum of simultaneously unresolved
 Microsoft quarantine identities, configurable 1–50 and default 10. It is not a

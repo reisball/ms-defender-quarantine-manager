@@ -62,6 +62,7 @@ repos:
     args:
     - --config
     - p/python
+    - --metrics=off
     - --error
 - repo: https://github.com/Yelp/detect-secrets
   rev: 01886c8a910c64595c47f186ca1ffc0b77fa5458  # pragma: allowlist secret -- public upstream commit

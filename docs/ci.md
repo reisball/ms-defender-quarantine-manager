@@ -61,6 +61,14 @@ never change them to bypass these checks. In the dev-cicd-tools hook environment
 `python tools/soar_checks.py static-strict` also fails on pending registration.
 Upstream compilation, packaging, review and platform validation are separate gates.
 
+The upstream registry checks attempt to download the live GitHub registry and
+silently fall back to the registry bundled with the pinned tooling on fetch errors.
+The diagnostic path does not distinguish these cases. An offline or fallback run
+cannot rule out registrations added since that tooling revision. Use the hosted
+job with network access for submission evidence, and have Splunk confirm the live
+UUID/name/package registration during onboarding; a pending result alone does not
+prove registry freshness.
+
 ### Documentation, attribution and scoped findings
 
 Edit [manual_readme_content.md](../manual_readme_content.md), not the generated

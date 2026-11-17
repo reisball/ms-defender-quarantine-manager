@@ -16,7 +16,7 @@ MS Quarantine for Splunk SOAR imports quarantined email through an Azure Automat
 
 This project is for teams operating Microsoft Defender quarantine, Azure Automation and native Splunk SOAR, with optional native ES ingestion. It is a community-maintained connector, not a Splunk or Microsoft support offering.
 
-Native SOAR execution is required. Automation Broker is unsupported. The connector has been piloted successfully on Splunk SOAR Cloud. Azure job access and Exchange permissions are separate prerequisites. See [installation and compatibility](docs/installation.md).
+Native SOAR execution is required. Automation Broker is unsupported. The connector has been piloted successfully on Splunk SOAR Cloud. This native pilot is not certification for every SOAR version or tenant. Azure job access and Exchange permissions are separate prerequisites. See [installation and compatibility](docs/installation.md).
 
 Intake examines the first 50 matching source candidates; it is not a complete paginated mailbox export. Analysis completion alone does not free an intake slot: Microsoft must report `Released` or `Denied`. See [limits and recovery](docs/operations.md).
 
@@ -61,7 +61,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing code and [SECURITY.md](S
 
 ## Requirements
 
-- Native Splunk SOAR execution with authenticated access to its local REST API. Automation Broker is not supported. The connector has been piloted successfully on Splunk SOAR Cloud.
+- Native Splunk SOAR execution with authenticated access to its local REST API. Automation Broker is not supported. The connector has been piloted successfully on Splunk SOAR Cloud. This native pilot is not certification for every SOAR version or tenant.
 - An Azure Automation Account with a system-assigned Managed Identity, a PowerShell runtime with ExchangeOnlineManagement, and the companion runbook.
 - An App Registration for reading Azure Automation job status and output.
 - Exchange/Defender permissions for the quarantine operations you intend to perform.

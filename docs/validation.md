@@ -5,7 +5,7 @@ Use controlled test messages to verify the configuration before enabling regular
 ## Before the first import
 
 - Install App 3.7.4 and deploy companion Runbook 3.4.5 separately. Record the versions and use the release checksums to verify the files.
-- Use native SOAR execution. Automation Broker is unsupported. The connector has been piloted successfully on Splunk SOAR Cloud.
+- Use native SOAR execution. Automation Broker is unsupported. The connector has been piloted successfully on Splunk SOAR Cloud. This native pilot is not certification for every SOAR version or tenant.
 - Verify Azure job access for the App Registration and Exchange permissions for the Automation Account Managed Identity separately.
 - Configure one ingesting asset per tenant, select the source mode and set a small active-message limit.
 - For ES, register the five [additional fields](ingestion.md#enterprise-security-setup), set a security domain and verify the external HTTPS SOAR URL.
