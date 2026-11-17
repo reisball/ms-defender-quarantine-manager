@@ -1,22 +1,29 @@
+# Copyright (c) 2026 Kai Seidenschnur
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #!/usr/bin/env python3
 """Verify or update the normalized self-fingerprint in runbook.ps1."""
 
 import argparse
 import hashlib
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 
 
-SOURCE_LINE = re.compile(
-    r'(?m)^\$RunbookSourceRevision\s*=\s*"[^"]+"$'
-)
-BUILD_LINE = re.compile(
-    r'(?m)^\$RunbookBuildId\s*=\s*"[^"]+"$'
-)
-VERSION_LINE = re.compile(
-    r'(?m)^\$RunbookVersion\s*=\s*"(\d+\.\d+\.\d+)"$'
-)
+SOURCE_LINE = re.compile(r'(?m)^\$RunbookSourceRevision\s*=\s*"[^"]+"$')
+BUILD_LINE = re.compile(r'(?m)^\$RunbookBuildId\s*=\s*"[^"]+"$')
+VERSION_LINE = re.compile(r'(?m)^\$RunbookVersion\s*=\s*"(\d+\.\d+\.\d+)"$')
 
 
 def canonicalize(text: str) -> str:
@@ -29,9 +36,7 @@ def canonicalize(text: str) -> str:
         text,
     )
     if source_count != 1 or build_count != 1:
-        raise ValueError(
-            "runbook must contain exactly one source and one build fingerprint"
-        )
+        raise ValueError("runbook must contain exactly one source and one build fingerprint")
     return text
 
 

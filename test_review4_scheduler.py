@@ -1,10 +1,27 @@
+# Copyright (c) 2026 Kai Seidenschnur
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Pending preparation must not reset unrelated status reconciliation progress."""
+
 import pytest
+
+
 if __package__:
-    from .test_native_ingestion import setup, poll
+    from .test_native_ingestion import poll, setup
 else:
-    from test_native_ingestion import setup, poll
+    from test_native_ingestion import poll, setup
 import ms_quarantine_for_splunk_soar_ingestion as ingestion
+
 
 @pytest.mark.parametrize("target", ["soar", "es"])
 def test_failed_pending_import_does_not_starve_terminal_status(tmp_path, monkeypatch, target):
@@ -12,10 +29,12 @@ def test_failed_pending_import_does_not_starve_terminal_status(tmp_path, monkeyp
     first = c.candidates[0]["Identity"].lower()
     last = c.candidates[9]["Identity"].lower()
     store = c._store_in_vault
+
     def fail_first(content, identity, **kwargs):
         if identity == first:
             return False, {}
         return store(content, identity, **kwargs)
+
     c._store_in_vault = fail_first
     poll(c)
     rows = c._ingest_records()
@@ -25,11 +44,13 @@ def test_failed_pending_import_does_not_starve_terminal_status(tmp_path, monkeyp
     now = [0.0]
     monkeypatch.setattr(ingestion.time, "monotonic", lambda: now[0])
     run = c._utils.run_action
+
     def slow(action, **kwargs):
         result = run(action, **kwargs)
         if action == "reconcile":
             now[0] += 100
         return result
+
     c._utils.run_action = slow
     checked = set()
     for _ in range(4):
@@ -42,6 +63,7 @@ def test_failed_pending_import_does_not_starve_terminal_status(tmp_path, monkeyp
     assert next(r for r in rows.values() if r["identity"] == first)["phase"] == "preparing"
     assert sum(r["phase"] != "terminal" for r in rows.values()) == 9
     assert len([e for e in c.events if e[0] in {"publish", "es_publish"}]) == 9
+
 
 @pytest.mark.parametrize("target", ["soar", "es"])
 @pytest.mark.parametrize("failure", ["export", "vault"])
@@ -57,12 +79,13 @@ def test_slow_retry_does_not_skip_healthy_preparation(tmp_path, monkeypatch, tar
     original_eml = c.eml
     now = [0.0]
     monkeypatch.setattr(ingestion.time, "monotonic", lambda: now[0])
+
     def configure(connector):
         connector.eml = original_eml
         store = connector._store_in_vault
-        connector._store_in_vault = lambda content, identity, **kwargs: (
-            (False, {}) if identity == first else store(content, identity, **kwargs))
+        connector._store_in_vault = lambda content, identity, **kwargs: (False, {}) if identity == first else store(content, identity, **kwargs)
         run = connector._utils.run_action
+
         def slow(action, identity=None, **kwargs):
             if action == "reconcile":
                 now[0] += 100
@@ -70,9 +93,12 @@ def test_slow_retry_does_not_skip_healthy_preparation(tmp_path, monkeypatch, tar
                 now[0] += 400
                 if failure == "export":
                     from ms_quarantine_for_splunk_soar_utils import AutomationError
+
                     raise AutomationError("Synthetic slow export failure")
             return run(action, identity=identity, **kwargs)
+
         connector._utils.run_action = slow
+
     # Recreate even the first retry so its healthy Vault helper is restored.
     c = setup(tmp_path, target, limit=2)
     configure(c)

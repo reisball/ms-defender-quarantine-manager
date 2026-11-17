@@ -1,10 +1,25 @@
+# Copyright (c) 2026 Kai Seidenschnur
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Issue #117: deterministic clocks, real ledger reloads, no external services."""
+
 import pytest
 
+
 if __package__:
-    from .test_native_ingestion import setup, poll, t
+    from .test_native_ingestion import poll, setup, t
 else:
-    from test_native_ingestion import setup, poll, t
+    from test_native_ingestion import poll, setup, t
 
 import ms_quarantine_for_splunk_soar_ingestion as ingestion
 from ms_quarantine_for_splunk_soar_utils import AutomationError
@@ -19,8 +34,7 @@ def reserve(c, count):
 @pytest.mark.parametrize("target", ["soar", "es"])
 @pytest.mark.parametrize("terminal", ["Released", "Denied"])
 @pytest.mark.parametrize("restart", [False, True])
-def test_exact_100_status_500_poison_export_cannot_starve_status(
-        tmp_path, monkeypatch, target, terminal, restart):
+def test_exact_100_status_500_poison_export_cannot_starve_status(tmp_path, monkeypatch, target, terminal, restart):
     c = setup(tmp_path, target, limit=3)
     first, middle, last = reserve(c, 3)
     c._ingest_update(middle["key"], phase="published")
@@ -49,8 +63,7 @@ def test_exact_100_status_500_poison_export_cannot_starve_status(
 
     configure(c)
     poll(c)
-    assert [(x[0], x[1]) for x in c.calls] == [
-        ("reconcile", first["identity"]), ("export", first["identity"])]
+    assert [(x[0], x[1]) for x in c.calls] == [("reconcile", first["identity"]), ("export", first["identity"])]
     assert now[0] == 600
     # Only persisted scheduling state survives a connector restart.
     if restart:
@@ -65,8 +78,7 @@ def test_exact_100_status_500_poison_export_cannot_starve_status(
 
 
 @pytest.mark.parametrize("target", ["soar", "es"])
-def test_repeated_poison_preparations_and_restarts_still_publish_healthy(
-        tmp_path, monkeypatch, target):
+def test_repeated_poison_preparations_and_restarts_still_publish_healthy(tmp_path, monkeypatch, target):
     c = setup(tmp_path, target, limit=3)
     rows = reserve(c, 3)
     eml = c.eml
@@ -131,8 +143,7 @@ def test_global_status_cursor_survives_failures_and_unknowns_with_pending(tmp_pa
         seen.update(x[1] for x in c.calls if x[0] == "reconcile")
     persisted = c._ingest_records()
     assert seen == {r["identity"] for r in rows}
-    assert [persisted[r["key"]]["phase"] for r in rows] == [
-        "reserved", "published", "published", "terminal"]
+    assert [persisted[r["key"]]["phase"] for r in rows] == ["reserved", "published", "published", "terminal"]
     assert not c.events
 
 
@@ -163,11 +174,20 @@ def test_global_cursor_rotates_before_excluding_pending_identity(tmp_path, monke
 
 @pytest.mark.parametrize("target", ["soar", "es"])
 @pytest.mark.parametrize("elapsed", [600, 650])
-@pytest.mark.parametrize("boundary", [
-    "export", "container", "vault", "file", "last_file", "metadata", "es_prepare", "publication",
-])
-def test_budget_stops_next_effect_but_keeps_completed_receipts(
-        tmp_path, monkeypatch, target, elapsed, boundary):
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        "export",
+        "container",
+        "vault",
+        "file",
+        "last_file",
+        "metadata",
+        "es_prepare",
+        "publication",
+    ],
+)
+def test_budget_stops_next_effect_but_keeps_completed_receipts(tmp_path, monkeypatch, target, elapsed, boundary):
     if target == "soar" and boundary == "es_prepare":
         pytest.skip("Only ES has bulk-payload preparation")
     c = setup(tmp_path, target, limit=1)
@@ -194,9 +214,9 @@ def test_budget_stops_next_effect_but_keeps_completed_receipts(
 
     def save_artifact(value):
         sdi = value["source_data_identifier"]
-        label = ("publication" if value["run_automation"] else
-                 "last_file" if sdi.endswith("-file-2") else
-                 "file" if "-file-" in sdi else "metadata")
+        label = (
+            "publication" if value["run_automation"] else "last_file" if sdi.endswith("-file-2") else "file" if "-file-" in sdi else "metadata"
+        )
         return invoke(label, artifact, value)
 
     c.save_artifact = save_artifact
@@ -223,8 +243,7 @@ def test_budget_stops_next_effect_but_keeps_completed_receipts(
         assert row["files"] == {}
     else:
         assert row["container_id"]
-        assert len(row["files"]) == (
-            0 if boundary == "container" else 1 if boundary in {"vault", "file"} else 3)
+        assert len(row["files"]) == (0 if boundary == "container" else 1 if boundary in {"vault", "file"} else 3)
     # Persisted container/Vault/publication receipts survive process replacement.
     restored = setup(tmp_path, target, limit=1)
     restored._ingest_settings()
@@ -232,8 +251,7 @@ def test_budget_stops_next_effect_but_keeps_completed_receipts(
 
 
 @pytest.mark.parametrize("target", ["soar", "es"])
-def test_status_exhaustion_keeps_preparation_cursor_and_terminal_evidence(
-        tmp_path, monkeypatch, target):
+def test_status_exhaustion_keeps_preparation_cursor_and_terminal_evidence(tmp_path, monkeypatch, target):
     c = setup(tmp_path, target, limit=2)
     rows = reserve(c, 2)
     cursor = rows[-1]["key"]

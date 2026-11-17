@@ -4,7 +4,7 @@ App **3.7.4** / companion Runbook **3.4.5**. [Documentation index](README.md).
 
 ## Requirements
 
-- Native Splunk SOAR execution with authenticated access to its local REST API. Automation Broker is not supported; SOAR Cloud compatibility has not been verified.
+- Native Splunk SOAR execution with authenticated access to its local REST API. Automation Broker is not supported. The connector has been piloted successfully on Splunk SOAR Cloud.
 - An Azure Automation Account with a system-assigned Managed Identity, a PowerShell runtime with ExchangeOnlineManagement, and the companion runbook.
 - An App Registration for reading Azure Automation job status and output.
 - Exchange/Defender permissions for the quarantine operations you intend to perform.
@@ -17,10 +17,10 @@ The app manifest declares SOAR 8.5.0 as its minimum and Python 3.9/3.13 runtimes
 ### 1. Configure Azure Automation
 
 1. Create an Automation Account and enable its system-assigned Managed Identity.
-2. Add ExchangeOnlineManagement to the account's PowerShell runtime. Verify the runtime can connect to Exchange Online with Managed Identity.
-3. Import and publish `ms-quarantine-for-splunk-soar-runbook-3.4.5.ps1`.
-4. Create a webhook for the runbook and copy its URL when Azure displays it.
-5. Set the `ExchangeOrganization` Automation Variable to your tenant domain, such as `contoso.onmicrosoft.com`, or provide that value in the SOAR asset. The asset value takes precedence.
+1. Add ExchangeOnlineManagement to the account's PowerShell runtime. Verify the runtime can connect to Exchange Online with Managed Identity.
+1. Import and publish `ms-quarantine-for-splunk-soar-runbook-3.4.5.ps1`.
+1. Create a webhook for the runbook and copy its URL when Azure displays it.
+1. Set the `ExchangeOrganization` Automation Variable to your tenant domain, such as `contoso.onmicrosoft.com`, or provide that value in the SOAR asset. The asset value takes precedence.
 
 Installing the SOAR app does not deploy the runbook to Azure.
 
@@ -71,8 +71,8 @@ This package has its own app UUID and package name. Existing assets for a differ
 Enter the connection fields in the order shown by the form:
 
 1. Azure Automation webhook, subscription, resource group and account.
-2. Azure API tenant ID, client ID and client secret.
-3. Exchange organization, if not supplied by the Automation Variable.
+1. Azure API tenant ID, client ID and client secret.
+1. Exchange organization, if not supplied by the Automation Variable.
 
 Use the direct **HTTPS** webhook URL, including its token. HTTP URLs and webhook redirects are rejected. Azure TLS certificate verification is enforced; add a private CA to the platform trust store if required.
 

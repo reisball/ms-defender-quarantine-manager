@@ -1,7 +1,7 @@
 # Copyright 2026 Kai Seidenschnur
 # Licensed under the Apache License, Version 2.0.
 #
-# MS Quarantine for Splunk SOAR – Azure Automation Utils
+# MS Quarantine for Splunk SOAR - Azure Automation Utils
 # ===============================================
 # Handles all HTTP communication:
 #   - Azure AD token acquisition (client credentials)
@@ -20,6 +20,7 @@ import hashlib
 import json
 import re
 import time
+from typing import Optional
 from urllib.parse import parse_qsl, quote, quote_plus, urlsplit
 
 import requests
@@ -27,16 +28,12 @@ import requests
 
 def validate_webhook_url(value: str) -> str:
     """Require HTTPS without including the secret-bearing URL in errors."""
-    message = (
-        "Asset configuration error: 'webhook_url' must be a valid HTTPS URL with a host."
-    )
+    message = "Asset configuration error: 'webhook_url' must be a valid HTTPS URL with a host."
     try:
         url = value.strip()
         parsed = urlsplit(url)
         _ = parsed.port  # Validate an explicitly supplied port as well.
-        if parsed.scheme != "https" or not parsed.hostname or any(
-            char.isspace() for char in parsed.netloc
-        ):
+        if parsed.scheme != "https" or not parsed.hostname or any(char.isspace() for char in parsed.netloc):
             raise ValueError(message)
     except (AttributeError, TypeError, ValueError):
         raise ValueError(message) from None
@@ -84,7 +81,7 @@ JOB_OUTPUT_API_PATH = JOB_API_PATH + "/output"
 # Automation Management API version
 MGMT_API_VERSION = "2023-11-01"
 
-# Job terminal states – polling stops on any of these
+# Job terminal states - polling stops on any of these
 JOB_TERMINAL_STATES = {"Completed", "Failed", "Stopped", "Suspended", "Disconnected"}
 
 # Job success state
@@ -126,9 +123,7 @@ PRECONDITION_ERROR_CODE = "precondition_unconfirmed"
 POSTCONDITION_ERROR_CODE = "postcondition_unconfirmed"
 DISPOSITION_REJECTED_ERROR_CODE = "disposition_rejected"
 DISPOSITION_CAPABILITY_ERROR_CODE = "disposition_capability_unconfirmed"
-DIAGNOSTIC_RBAC_NOT_EVALUATED_ERROR_CODE = (
-    "diagnostic_rbac_not_evaluated"
-)
+DIAGNOSTIC_RBAC_NOT_EVALUATED_ERROR_CODE = "diagnostic_rbac_not_evaluated"
 DIAGNOSTIC_RBAC_PARTIAL_ERROR_CODE = "diagnostic_rbac_partial"
 POSTCONDITION_VERIFICATION_METHOD = "Get-QuarantineMessage"
 RELEASE_CONTRACT_ID = "identity_releasetoall"
@@ -177,9 +172,7 @@ def normalize_quarantine_selection_mode(value=None) -> str:
     if value is None or value == "":
         return "release_requested"
     if not isinstance(value, str) or value not in QUARANTINE_SELECTION_STATUSES:
-        raise ValueError(
-            "quarantine_selection_mode must be release_requested or needs_review."
-        )
+        raise ValueError("quarantine_selection_mode must be release_requested or needs_review.")
     return value
 
 
@@ -200,9 +193,7 @@ def normalize_exchange_connection_settings(organization=None) -> dict:
         raise ValueError("exchange_organization must be a string.")
     org = (organization or "").strip()
     if org:
-        if len(org) > EXCHANGE_SETTING_MAX_CHARS or re.search(
-            r"[\x00-\x20\x7f]", org
-        ):
+        if len(org) > EXCHANGE_SETTING_MAX_CHARS or re.search(r"[\x00-\x20\x7f]", org):
             raise ValueError(
                 "exchange_organization must be a single tenant value "
                 "such as contoso.onmicrosoft.com (no whitespace or "
@@ -221,11 +212,13 @@ def redact_sensitive_text(value, secrets=(), max_chars=MAX_PERSISTED_ERROR_CHARS
         secret_text = str(secret or "")
         if not secret_text:
             continue
-        candidates.extend((
-            secret_text,
-            quote(secret_text, safe=""),
-            quote_plus(secret_text),
-        ))
+        candidates.extend(
+            (
+                secret_text,
+                quote(secret_text, safe=""),
+                quote_plus(secret_text),
+            )
+        )
     for candidate in sorted(set(candidates), key=len, reverse=True):
         if candidate:
             text = text.replace(candidate, "[REDACTED]")
@@ -236,7 +229,7 @@ def redact_sensitive_text(value, secrets=(), max_chars=MAX_PERSISTED_ERROR_CHARS
     text = re.sub(
         r'(?i)((?:\{|,)\s*"(?:authorization|set-cookie|cookie)"\s*:\s*")'
         r'(?:\\[^\r\n]|[^"\\\r\n]|\\(?=[\r\n]|$))*("|(?=[\r\n]|$))',
-        r'\1[REDACTED]\2',
+        r"\1[REDACTED]\2",
         text,
     )
 
@@ -247,10 +240,16 @@ def redact_sensitive_text(value, secrets=(), max_chars=MAX_PERSISTED_ERROR_CHARS
     for delimiter in ('"', "'"):
         pattern = (
             r"""(?i)(["']?(?:authorization|set-cookie|cookie)["']?\s*[:=]\s*"""
-            + delimiter + r")"
-            + r"(?:[\\`][^\r\n]|" + delimiter * 2
-            + r"|[^" + delimiter + r"\\`\r\n]|[\\`](?=[\r\n]|$))*"
-            + "(" + delimiter + r"|(?=[\r\n]|$))"
+            + delimiter
+            + r")"
+            + r"(?:[\\`][^\r\n]|"
+            + delimiter * 2
+            + r"|[^"
+            + delimiter
+            + r"\\`\r\n]|[\\`](?=[\r\n]|$))*"
+            + "("
+            + delimiter
+            + r"|(?=[\r\n]|$))"
         )
         text = re.sub(pattern, r"\1[REDACTED]\2", text)
 
@@ -314,6 +313,7 @@ def redact_sensitive_text(value, secrets=(), max_chars=MAX_PERSISTED_ERROR_CHARS
         r"\1[REDACTED]",
         text,
     )
+
     def redact_jwt(match):
         candidate = match.group(0)
         header_segment = candidate.split(".", 1)[0]
@@ -321,9 +321,7 @@ def redact_sensitive_text(value, secrets=(), max_chars=MAX_PERSISTED_ERROR_CHARS
             return "[REDACTED-JWT]"
         padded_header = header_segment + ("=" * (-len(header_segment) % 4))
         try:
-            header = json.loads(
-                base64.urlsafe_b64decode(padded_header).decode("utf-8")
-            )
+            header = json.loads(base64.urlsafe_b64decode(padded_header).decode("utf-8"))
         except (
             binascii.Error,
             UnicodeDecodeError,
@@ -341,25 +339,29 @@ def redact_sensitive_text(value, secrets=(), max_chars=MAX_PERSISTED_ERROR_CHARS
     text = JWT_COMPACT_RE.sub(redact_jwt, text)
     if max_chars is None:
         return text
-    return text[:max(0, int(max_chars))]
+    return text[: max(0, int(max_chars))]
 
 
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
 
+
 class AutomationError(Exception):
     """Raised when an Azure Automation operation fails."""
+
     pass
 
 
 class TokenError(AutomationError):
     """Raised when Azure AD token acquisition fails."""
+
     pass
 
 
 class WebhookError(AutomationError):
     """Raised when the webhook call fails."""
+
     pass
 
 
@@ -381,6 +383,7 @@ class JobTimeoutError(AutomationError):
 
 class JobFailedError(AutomationError):
     """Raised when a job reaches a failure terminal state."""
+
     pass
 
 
@@ -403,8 +406,8 @@ class OversizedExportError(AutomationError):
         self,
         message: str,
         identity: str = "",
-        decoded_size: int = None,
-        max_decoded_size: int = None,
+        decoded_size: Optional[int] = None,
+        max_decoded_size: Optional[int] = None,
     ):
         super().__init__(message)
         self.identity = identity
@@ -415,6 +418,7 @@ class OversizedExportError(AutomationError):
 # ---------------------------------------------------------------------------
 # Utils class
 # ---------------------------------------------------------------------------
+
 
 class MSQuarantineForSplunkSOARUtils:
     """
@@ -428,42 +432,38 @@ class MSQuarantineForSplunkSOARUtils:
 
     def __init__(
         self,
-        webhook_url:        str,
-        tenant_id:          str,
-        client_id:          str,
-        client_secret:      str,
-        subscription_id:    str,
-        resource_group:     str,
+        webhook_url: str,
+        tenant_id: str,
+        client_id: str,
+        client_secret: str,
+        subscription_id: str,
+        resource_group: str,
         automation_account: str,
-        poll_interval:      int  = 5,
-        poll_timeout:       int  = 600,
+        poll_interval: int = 5,
+        poll_timeout: int = 600,
         retain_chunked_base64: bool = True,
-        exchange_organization: str = None,
-        quarantine_selection_mode: str = None,
+        exchange_organization: Optional[str] = None,
+        quarantine_selection_mode: Optional[str] = None,
     ):
         self._connection_settings = normalize_exchange_connection_settings(
             exchange_organization,
         )
-        self.quarantine_selection_mode = normalize_quarantine_selection_mode(
-            quarantine_selection_mode
-        )
-        self.selection_release_status = QUARANTINE_SELECTION_STATUSES[
-            self.quarantine_selection_mode
-        ]
+        self.quarantine_selection_mode = normalize_quarantine_selection_mode(quarantine_selection_mode)
+        self.selection_release_status = QUARANTINE_SELECTION_STATUSES[self.quarantine_selection_mode]
         self._connection_contract_verified = False
-        self._webhook_url        = validate_webhook_url(webhook_url)
-        self._tenant_id          = tenant_id
-        self._client_id          = client_id
-        self._client_secret      = client_secret
-        self._subscription_id    = subscription_id
-        self._resource_group     = resource_group
+        self._webhook_url = validate_webhook_url(webhook_url)
+        self._tenant_id = tenant_id
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._subscription_id = subscription_id
+        self._resource_group = resource_group
         self._automation_account = automation_account
-        self._poll_interval      = poll_interval
-        self._poll_timeout       = poll_timeout
+        self._poll_interval = poll_interval
+        self._poll_timeout = poll_timeout
         self._retain_chunked_base64 = retain_chunked_base64
 
-        self._session            = requests.Session()
-        self._mgmt_token         = None   # cached for current action
+        self._session = requests.Session()
+        self._mgmt_token = None  # cached for current action
 
     def new_poll_deadline(self) -> float:
         """Return one absolute deadline shared by job status and output."""
@@ -548,18 +548,16 @@ class MSQuarantineForSplunkSOARUtils:
             response = self._session.post(
                 url,
                 data={
-                    "grant_type":    "client_credentials",
-                    "client_id":     self._client_id,
+                    "grant_type": "client_credentials",
+                    "client_id": self._client_id,
                     "client_secret": self._client_secret,
-                    "scope":         MGMT_SCOPE,
+                    "scope": MGMT_SCOPE,
                 },
                 timeout=30,
                 verify=True,
             )
         except requests.exceptions.RequestException as exc:
-            raise TokenError(
-                self._transport_error_message("Token request failed", exc)
-            ) from exc
+            raise TokenError(self._transport_error_message("Token request failed", exc)) from exc
 
         if not response.ok:
             try:
@@ -567,9 +565,7 @@ class MSQuarantineForSplunkSOARUtils:
             except Exception:
                 detail = response.text[:500]
             detail = self.redact_sensitive_text(detail, max_chars=500)
-            raise TokenError(
-                f"Azure AD token request failed (HTTP {response.status_code}): {detail}"
-            )
+            raise TokenError(f"Azure AD token request failed (HTTP {response.status_code}): {detail}")
 
         try:
             token = response.json().get("access_token")
@@ -594,15 +590,15 @@ class MSQuarantineForSplunkSOARUtils:
     def fire_webhook(
         self,
         action: str,
-        identity: str = None,
-        page_size: int = None,
-        operation_action: str = None,
-        include_rbac: bool = None,
+        identity: Optional[str] = None,
+        page_size: Optional[int] = None,
+        operation_action: Optional[str] = None,
+        include_rbac: Optional[bool] = None,
     ) -> str:
         """
         POST to the Azure Automation webhook to start a runbook job.
 
-        The webhook URL already contains the auth token as a query parameter –
+        The webhook URL already contains the auth token as a query parameter -
         no additional auth header is needed.
 
         Reference:
@@ -619,10 +615,7 @@ class MSQuarantineForSplunkSOARUtils:
         Raises:
             WebhookError on failure.
         """
-        if (
-            self.quarantine_selection_mode != "release_requested"
-            and action in {"list", "release", "deny"}
-        ):
+        if self.quarantine_selection_mode != "release_requested" and action in {"list", "release", "deny"}:
             self.verify_connection_contract()
         body = {"action": action}
         if self.quarantine_selection_mode != "release_requested":
@@ -646,17 +639,12 @@ class MSQuarantineForSplunkSOARUtils:
                 allow_redirects=False,
             )
         except requests.exceptions.RequestException as exc:
-            raise WebhookError(
-                self._transport_error_message("Webhook request failed", exc)
-            ) from exc
+            raise WebhookError(self._transport_error_message("Webhook request failed", exc)) from exc
 
         # requests treats 3xx as OK; reject before parsing even apparent JobIds.
         # WebhookError preserves the existing unknown-outcome/no-retry handling.
         if 300 <= response.status_code < 400:
-            raise WebhookError(
-                f"Webhook returned HTTP {response.status_code}; redirects are not followed. "
-                "The submission outcome is unknown."
-            )
+            raise WebhookError(f"Webhook returned HTTP {response.status_code}; redirects are not followed. The submission outcome is unknown.")
 
         if not response.ok:
             if response.status_code == 404:
@@ -672,26 +660,17 @@ class MSQuarantineForSplunkSOARUtils:
                     "token in the URL is invalid or expired. Create a new webhook "
                     "and update webhook_url."
                 )
-            raise WebhookError(
-                f"Webhook returned HTTP {response.status_code}: "
-                f"{self.redact_sensitive_text(response.text, max_chars=500)}"
-            )
+            raise WebhookError(f"Webhook returned HTTP {response.status_code}: {self.redact_sensitive_text(response.text, max_chars=500)}")
 
         try:
             data = response.json()
         except ValueError as exc:
-            raise WebhookError(
-                "Webhook response is not valid JSON: "
-                f"{self.redact_sensitive_text(response.text, max_chars=200)}"
-            ) from exc
+            raise WebhookError(f"Webhook response is not valid JSON: {self.redact_sensitive_text(response.text, max_chars=200)}") from exc
 
         # Azure Automation webhook response: { "JobIds": ["<uuid>"] }
         job_ids = data.get("JobIds", [])
         if not job_ids:
-            raise WebhookError(
-                "Webhook response did not contain JobIds: "
-                f"{self.redact_sensitive_text(data, max_chars=500)}"
-            )
+            raise WebhookError(f"Webhook response did not contain JobIds: {self.redact_sensitive_text(data, max_chars=500)}")
 
         return job_ids[0]
 
@@ -702,20 +681,20 @@ class MSQuarantineForSplunkSOARUtils:
     def _job_url(self, job_id: str) -> str:
         """Build the Management API URL for a specific job."""
         path = JOB_API_PATH.format(
-            subscription_id    = self._subscription_id,
-            resource_group     = self._resource_group,
-            automation_account = self._automation_account,
-            job_id             = job_id,
+            subscription_id=self._subscription_id,
+            resource_group=self._resource_group,
+            automation_account=self._automation_account,
+            job_id=job_id,
         )
         return f"{MGMT_BASE}{path}?api-version={MGMT_API_VERSION}"
 
     def _job_output_url(self, job_id: str) -> str:
         """Build the Management API URL for a job's output."""
         path = JOB_OUTPUT_API_PATH.format(
-            subscription_id    = self._subscription_id,
-            resource_group     = self._resource_group,
-            automation_account = self._automation_account,
-            job_id             = job_id,
+            subscription_id=self._subscription_id,
+            resource_group=self._resource_group,
+            automation_account=self._automation_account,
+            job_id=job_id,
         )
         return f"{MGMT_BASE}{path}?api-version={MGMT_API_VERSION}"
 
@@ -723,10 +702,10 @@ class MSQuarantineForSplunkSOARUtils:
         """Return headers for Azure Management API requests."""
         return {
             "Authorization": f"Bearer {self.get_mgmt_token()}",
-            "Content-Type":  "application/json",
+            "Content-Type": "application/json",
         }
 
-    def poll_job(self, job_id: str, deadline: float = None) -> str:
+    def poll_job(self, job_id: str, deadline: Optional[float] = None) -> str:
         """
         Poll the job status until it reaches a terminal state.
 
@@ -744,7 +723,7 @@ class MSQuarantineForSplunkSOARUtils:
             JobFailedError  if the job reaches a failure state.
             AutomationError on HTTP errors.
         """
-        url      = self._job_url(job_id)
+        url = self._job_url(job_id)
         if deadline is None:
             deadline = self.new_poll_deadline()
         token_refreshed = False
@@ -756,9 +735,9 @@ class MSQuarantineForSplunkSOARUtils:
             try:
                 response = self._session.get(
                     url,
-                    headers = self._mgmt_headers(),
-                    timeout = 15,
-                    verify  = True,
+                    headers=self._mgmt_headers(),
+                    timeout=15,
+                    verify=True,
                 )
             except requests.exceptions.RequestException as exc:
                 # Transient network errors should not kill the whole action -
@@ -771,10 +750,7 @@ class MSQuarantineForSplunkSOARUtils:
                 if response.status_code == HTTP_TOO_MANY_REQUESTS:
                     delay = self._throttle_delay(response, throttle_retries)
                     throttle_retries += 1
-                    last_transient_error = AutomationError(
-                        "Job status API returned HTTP 429 throttling response; "
-                        f"retrying after {delay:g}s."
-                    )
+                    last_transient_error = AutomationError(f"Job status API returned HTTP 429 throttling response; retrying after {delay:g}s.")
                     self._sleep_for_retry(delay, deadline)
                     continue
                 if response.status_code == 403:
@@ -804,8 +780,7 @@ class MSQuarantineForSplunkSOARUtils:
                         "settings - one of them does not match the actual Automation Account."
                     )
                 raise AutomationError(
-                    f"Job status API returned HTTP {response.status_code}: "
-                    f"{self.redact_sensitive_text(response.text, max_chars=500)}"
+                    f"Job status API returned HTTP {response.status_code}: {self.redact_sensitive_text(response.text, max_chars=500)}"
                 )
 
             try:
@@ -813,10 +788,7 @@ class MSQuarantineForSplunkSOARUtils:
                 status = properties["status"]
                 last_status = status
             except (ValueError, KeyError) as exc:
-                raise AutomationError(
-                    "Unexpected job status response: "
-                    f"{self.redact_sensitive_text(response.text, max_chars=200)}"
-                ) from exc
+                raise AutomationError(f"Unexpected job status response: {self.redact_sensitive_text(response.text, max_chars=200)}") from exc
 
             if status in JOB_TERMINAL_STATES:
                 if status in JOB_FAILURE_STATES:
@@ -824,27 +796,22 @@ class MSQuarantineForSplunkSOARUtils:
                     # so the user does not have to open the Azure Portal.
                     exception_detail = properties.get("exception", "")
                     detail = f": {exception_detail}" if exception_detail else ""
-                    raise JobFailedError(
-                        f"Job {job_id} reached failure state '{status}'{detail}"
-                    )
+                    raise JobFailedError(f"Job {job_id} reached failure state '{status}'{detail}")
                 return status
 
             self._sleep_for_retry(self._poll_interval, deadline)
 
         timeout_detail = ""
         if last_transient_error is not None:
-            timeout_detail = (
-                f" (repeated network errors during polling, last: {last_transient_error})"
-            )
+            timeout_detail = f" (repeated network errors during polling, last: {last_transient_error})"
         raise JobTimeoutError(
-            f"Job {job_id} did not complete within "
-            f"{self._poll_timeout}s{timeout_detail}",
+            f"Job {job_id} did not complete within {self._poll_timeout}s{timeout_detail}",
             job_id=job_id,
             last_status=last_status,
             phase="status",
         )
 
-    def get_job_status(self, job_id: str, deadline: float = None) -> dict:
+    def get_job_status(self, job_id: str, deadline: Optional[float] = None) -> dict:
         """
         Read the current Azure Automation job state once.
 
@@ -896,38 +863,27 @@ class MSQuarantineForSplunkSOARUtils:
                     "and azure_tenant_id in the asset settings."
                 )
             if response.status_code == 404:
-                raise AutomationError(
-                    "Job status API returned HTTP 404. Verify the Azure job ID "
-                    "and Automation Account coordinates."
-                )
+                raise AutomationError("Job status API returned HTTP 404. Verify the Azure job ID and Automation Account coordinates.")
             if not response.ok:
                 raise AutomationError(
-                    f"Job status API returned HTTP {response.status_code}: "
-                    f"{self.redact_sensitive_text(response.text, max_chars=500)}"
+                    f"Job status API returned HTTP {response.status_code}: {self.redact_sensitive_text(response.text, max_chars=500)}"
                 )
 
             try:
                 properties = response.json()["properties"]
                 status = properties["status"]
             except (ValueError, KeyError, TypeError) as exc:
-                raise AutomationError(
-                    "Unexpected job status response: "
-                    f"{self.redact_sensitive_text(response.text, max_chars=200)}"
-                ) from exc
+                raise AutomationError(f"Unexpected job status response: {self.redact_sensitive_text(response.text, max_chars=200)}") from exc
 
             if not isinstance(status, str) or not status:
-                raise AutomationError(
-                    "Unexpected job status response: properties.status must "
-                    "be a non-empty string."
-                )
+                raise AutomationError("Unexpected job status response: properties.status must be a non-empty string.")
             return {
                 "status": status,
                 "exception": str(properties.get("exception", "") or ""),
             }
 
         raise JobTimeoutError(
-            f"Job status for {job_id} was throttled by Azure Automation "
-            f"until the {self._poll_timeout}s polling timeout expired.",
+            f"Job status for {job_id} was throttled by Azure Automation until the {self._poll_timeout}s polling timeout expired.",
             job_id=job_id,
             last_status="unknown",
             phase="reconcile_status",
@@ -940,8 +896,8 @@ class MSQuarantineForSplunkSOARUtils:
     def get_job_output(
         self,
         job_id: str,
-        action: str = None,
-        deadline: float = None,
+        action: Optional[str] = None,
+        deadline: Optional[float] = None,
     ) -> dict:
         """
         Retrieve and parse the job's Write-Output content.
@@ -972,9 +928,9 @@ class MSQuarantineForSplunkSOARUtils:
             try:
                 response = self._session.get(
                     url,
-                    headers = self._mgmt_headers(),
-                    timeout = 30,
-                    verify  = True,
+                    headers=self._mgmt_headers(),
+                    timeout=30,
+                    verify=True,
                 )
             except requests.exceptions.RequestException as exc:
                 raise AutomationError(
@@ -992,8 +948,7 @@ class MSQuarantineForSplunkSOARUtils:
             self._sleep_for_retry(delay, deadline)
         else:
             raise JobTimeoutError(
-                f"Job output for {job_id} was throttled by Azure Automation "
-                f"until the {self._poll_timeout}s polling timeout expired.",
+                f"Job output for {job_id} was throttled by Azure Automation until the {self._poll_timeout}s polling timeout expired.",
                 job_id=job_id,
                 last_status="Completed",
                 phase="output",
@@ -1007,43 +962,33 @@ class MSQuarantineForSplunkSOARUtils:
                     "role on the Automation Account."
                 )
             raise AutomationError(
-                f"Job output API returned HTTP {response.status_code}: "
-                f"{self.redact_sensitive_text(response.text, max_chars=500)}"
+                f"Job output API returned HTTP {response.status_code}: {self.redact_sensitive_text(response.text, max_chars=500)}"
             )
 
         raw = response.text.strip()
         if not raw:
-            raise AutomationError(
-                f"Job {job_id} produced no output. "
-                "Check the runbook for errors."
-            )
+            raise AutomationError(f"Job {job_id} produced no output. Check the runbook for errors.")
 
         self._raise_if_stream_limit(raw, action=action)
 
         try:
             parsed = json.loads(raw)
             if not isinstance(parsed, dict):
-                raise AutomationError(
-                    "Job output JSON must be an object. "
-                    f"Got {type(parsed).__name__}."
-                )
-            if (
-                parsed.get("mode")
-                in {
-                    LIST_CHUNK_MODE,
-                    LIST_COMPLETE_MODE,
-                    CHUNKED_EXPORT_MODE,
-                    CHUNKED_COMPLETE_MODE,
-                    ERROR_CHUNK_MODE,
-                    ERROR_COMPLETE_MODE,
-                }
-            ):
+                raise AutomationError(f"Job output JSON must be an object. Got {type(parsed).__name__}.")
+            if parsed.get("mode") in {
+                LIST_CHUNK_MODE,
+                LIST_COMPLETE_MODE,
+                CHUNKED_EXPORT_MODE,
+                CHUNKED_COMPLETE_MODE,
+                ERROR_CHUNK_MODE,
+                ERROR_COMPLETE_MODE,
+            }:
                 return self._parse_multiline_job_output(raw)
             return parsed
         except ValueError:
             return self._parse_multiline_job_output(raw)
 
-    def _raise_if_stream_limit(self, raw: str, action: str = None):
+    def _raise_if_stream_limit(self, raw: str, action: Optional[str] = None):
         """Surface Azure Automation's per-stream limit as an actionable error."""
         if AZURE_STREAM_LIMIT_MESSAGE in raw:
             if action == "list":
@@ -1090,299 +1035,154 @@ class MSQuarantineForSplunkSOARUtils:
                 f"{self.redact_sensitive_text(raw, max_chars=500)}"
             )
 
-        error_records = [
-            record for record in records
-            if record.get("mode") in {ERROR_CHUNK_MODE, ERROR_COMPLETE_MODE}
-        ]
-        has_error_complete = any(
-            record.get("mode") == ERROR_COMPLETE_MODE
-            for record in error_records
-        )
-        has_error_chunk = any(
-            record.get("mode") == ERROR_CHUNK_MODE
-            for record in error_records
-        )
+        error_records = [record for record in records if record.get("mode") in {ERROR_CHUNK_MODE, ERROR_COMPLETE_MODE}]
+        has_error_complete = any(record.get("mode") == ERROR_COMPLETE_MODE for record in error_records)
+        has_error_chunk = any(record.get("mode") == ERROR_CHUNK_MODE for record in error_records)
         standalone_error_records = [
-            record for record in records
+            record
+            for record in records
             if record.get("error") is True
-            and record.get("mode") not in {
+            and record.get("mode")
+            not in {
                 ERROR_CHUNK_MODE,
                 ERROR_COMPLETE_MODE,
             }
         ]
         if (has_error_complete or has_error_chunk) and standalone_error_records:
-            raise AutomationError(
-                "Chunked error output contains a second standalone error "
-                "envelope."
-            )
+            raise AutomationError("Chunked error output contains a second standalone error envelope.")
         if has_error_complete:
             return self._parse_chunked_error_records(error_records)
         if has_error_chunk:
-            raise AutomationError(
-                "Chunked error output is incomplete: missing "
-                "mode=error_complete trailer."
-            )
+            raise AutomationError("Chunked error output is incomplete: missing mode=error_complete trailer.")
 
         for record in records:
             if record.get("error"):
                 return record
 
         list_records = [
-            record for record in records
-            if record.get("action") == "list"
-            and record.get("mode") in {LIST_CHUNK_MODE, LIST_COMPLETE_MODE}
+            record for record in records if record.get("action") == "list" and record.get("mode") in {LIST_CHUNK_MODE, LIST_COMPLETE_MODE}
         ]
-        has_list_complete = any(
-            record.get("mode") == LIST_COMPLETE_MODE
-            for record in list_records
-        )
-        has_list_chunk = any(
-            record.get("mode") == LIST_CHUNK_MODE
-            for record in list_records
-        )
+        has_list_complete = any(record.get("mode") == LIST_COMPLETE_MODE for record in list_records)
+        has_list_chunk = any(record.get("mode") == LIST_CHUNK_MODE for record in list_records)
         if has_list_complete:
             return self._parse_chunked_list_records(list_records)
         if has_list_chunk:
-            raise AutomationError(
-                "Chunked list output is incomplete: missing "
-                "action=list mode=list_complete trailer."
-            )
+            raise AutomationError("Chunked list output is incomplete: missing action=list mode=list_complete trailer.")
 
         chunk_records = [
-            record for record in records
-            if record.get("action") == "export"
-            and record.get("mode") in {CHUNKED_EXPORT_MODE, CHUNKED_COMPLETE_MODE}
+            record
+            for record in records
+            if record.get("action") == "export" and record.get("mode") in {CHUNKED_EXPORT_MODE, CHUNKED_COMPLETE_MODE}
         ]
 
-        has_chunked_complete = any(
-            record.get("mode") == CHUNKED_COMPLETE_MODE
-            for record in chunk_records
-        )
-        has_chunk = any(
-            record.get("mode") == CHUNKED_EXPORT_MODE
-            for record in chunk_records
-        )
+        has_chunked_complete = any(record.get("mode") == CHUNKED_COMPLETE_MODE for record in chunk_records)
+        has_chunk = any(record.get("mode") == CHUNKED_EXPORT_MODE for record in chunk_records)
 
         if has_chunked_complete:
             return self._parse_chunked_export_records(chunk_records)
 
         if has_chunk:
-            raise AutomationError(
-                "Chunked export output is incomplete: missing "
-                "action=export mode=chunked_complete trailer."
-            )
+            raise AutomationError("Chunked export output is incomplete: missing action=export mode=chunked_complete trailer.")
 
         # Legacy behaviour: verbose output before a single final JSON object.
         return records[-1]
 
     def _parse_chunked_error_records(self, records: list) -> dict:
         """Verify and restore one exact UTF-8 runbook error envelope."""
-        complete_records = [
-            record for record in records
-            if record.get("mode") == ERROR_COMPLETE_MODE
-        ]
+        complete_records = [record for record in records if record.get("mode") == ERROR_COMPLETE_MODE]
         if len(complete_records) != 1:
-            raise AutomationError(
-                "Chunked error output must contain exactly one "
-                "mode=error_complete trailer."
-            )
+            raise AutomationError("Chunked error output must contain exactly one mode=error_complete trailer.")
 
         complete = complete_records[0]
         if complete.get("error") is not True:
-            raise AutomationError(
-                "Chunked error trailer must declare error=true."
-            )
-        action = self._required_string(
-            complete, "action", "chunked error trailer"
-        )
-        encoding = self._required_string(
-            complete, "encoding", "chunked error trailer"
-        )
+            raise AutomationError("Chunked error trailer must declare error=true.")
+        action = self._required_string(complete, "action", "chunked error trailer")
+        encoding = self._required_string(complete, "encoding", "chunked error trailer")
         if encoding != CHUNK_ENCODING:
-            raise AutomationError(
-                f"Chunked error uses unsupported encoding '{encoding}'."
-            )
-        chunk_count = self._required_int(
-            complete, "chunk_count", "chunked error trailer"
-        )
-        payload_base64_length = self._required_int(
-            complete, "payload_base64_length", "chunked error trailer"
-        )
-        payload_utf8_bytes = self._required_int(
-            complete, "payload_utf8_bytes", "chunked error trailer"
-        )
-        expected_sha256 = self._required_string(
-            complete, "payload_sha256", "chunked error trailer"
-        )
-        runbook_version = self._validate_runbook_version(
-            complete, "chunked error trailer"
-        )
+            raise AutomationError(f"Chunked error uses unsupported encoding '{encoding}'.")
+        chunk_count = self._required_int(complete, "chunk_count", "chunked error trailer")
+        payload_base64_length = self._required_int(complete, "payload_base64_length", "chunked error trailer")
+        payload_utf8_bytes = self._required_int(complete, "payload_utf8_bytes", "chunked error trailer")
+        expected_sha256 = self._required_string(complete, "payload_sha256", "chunked error trailer")
+        runbook_version = self._validate_runbook_version(complete, "chunked error trailer")
         build_metadata = {
             "runbook_source_revision": complete["runbook_source_revision"],
             "runbook_build_id": complete["runbook_build_id"],
         }
 
         if chunk_count < 1 or chunk_count > MAX_ERROR_CHUNK_COUNT:
-            raise AutomationError(
-                "Chunked error chunk_count must be between 1 and "
-                f"{MAX_ERROR_CHUNK_COUNT}."
-            )
-        if (
-            payload_utf8_bytes < 1
-            or payload_utf8_bytes > MAX_ERROR_ENVELOPE_BYTES
-        ):
-            raise AutomationError(
-                "Chunked error payload_utf8_bytes exceeds the supported "
-                "error-envelope limit."
-            )
+            raise AutomationError(f"Chunked error chunk_count must be between 1 and {MAX_ERROR_CHUNK_COUNT}.")
+        if payload_utf8_bytes < 1 or payload_utf8_bytes > MAX_ERROR_ENVELOPE_BYTES:
+            raise AutomationError("Chunked error payload_utf8_bytes exceeds the supported error-envelope limit.")
         max_base64_length = ((MAX_ERROR_ENVELOPE_BYTES + 2) // 3) * 4
-        if (
-            payload_base64_length < 1
-            or payload_base64_length > max_base64_length
-        ):
-            raise AutomationError(
-                "Chunked error payload_base64_length exceeds the supported "
-                "error-envelope limit."
-            )
+        if payload_base64_length < 1 or payload_base64_length > max_base64_length:
+            raise AutomationError("Chunked error payload_base64_length exceeds the supported error-envelope limit.")
         if not SHA256_HEX_RE.match(expected_sha256):
-            raise AutomationError(
-                "Chunked error payload_sha256 must be lowercase "
-                "64-character hex."
-            )
+            raise AutomationError("Chunked error payload_sha256 must be lowercase 64-character hex.")
 
-        chunks = [
-            record for record in records
-            if record.get("mode") == ERROR_CHUNK_MODE
-        ]
+        chunks = [record for record in records if record.get("mode") == ERROR_CHUNK_MODE]
         if len(chunks) != chunk_count:
-            raise AutomationError(
-                f"Chunked error expected {chunk_count} chunk(s), "
-                f"got {len(chunks)}."
-            )
+            raise AutomationError(f"Chunked error expected {chunk_count} chunk(s), got {len(chunks)}.")
 
         indexed_chunks = {}
         for chunk in chunks:
             if chunk.get("error") is not True:
-                raise AutomationError(
-                    "Chunked error record must declare error=true."
-                )
+                raise AutomationError("Chunked error record must declare error=true.")
             if self._required_string(chunk, "action", "error chunk") != action:
                 raise AutomationError("Chunked error action mismatch.")
-            if (
-                self._required_string(chunk, "encoding", "error chunk")
-                != CHUNK_ENCODING
-            ):
-                raise AutomationError(
-                    "Chunked error record uses an unsupported encoding."
-                )
-            chunk_version = self._validate_runbook_version(
-                chunk, "chunked error record"
-            )
-            if chunk_version != runbook_version or any(
-                chunk.get(field) != value
-                for field, value in build_metadata.items()
-            ):
-                raise AutomationError(
-                    "Chunked error runbook build metadata mismatch."
-                )
-            if self._required_int(
-                chunk, "chunk_count", "error chunk"
-            ) != chunk_count:
+            if self._required_string(chunk, "encoding", "error chunk") != CHUNK_ENCODING:
+                raise AutomationError("Chunked error record uses an unsupported encoding.")
+            chunk_version = self._validate_runbook_version(chunk, "chunked error record")
+            if chunk_version != runbook_version or any(chunk.get(field) != value for field, value in build_metadata.items()):
+                raise AutomationError("Chunked error runbook build metadata mismatch.")
+            if self._required_int(chunk, "chunk_count", "error chunk") != chunk_count:
                 raise AutomationError("Chunked error chunk_count mismatch.")
             idx = self._required_int(chunk, "chunk_index", "error chunk")
             if idx < 0 or idx >= chunk_count:
-                raise AutomationError(
-                    f"Chunked error chunk_index {idx} is out of range."
-                )
+                raise AutomationError(f"Chunked error chunk_index {idx} is out of range.")
             if idx in indexed_chunks:
-                raise AutomationError(
-                    f"Chunked error contains duplicate chunk_index {idx}."
-                )
-            indexed_chunks[idx] = self._required_string(
-                chunk, "payload_chunk", "error chunk"
-            )
+                raise AutomationError(f"Chunked error contains duplicate chunk_index {idx}.")
+            indexed_chunks[idx] = self._required_string(chunk, "payload_chunk", "error chunk")
 
-        missing = [
-            idx for idx in range(chunk_count) if idx not in indexed_chunks
-        ]
+        missing = [idx for idx in range(chunk_count) if idx not in indexed_chunks]
         if missing:
-            raise AutomationError(
-                "Chunked error is missing chunk_index value(s): "
-                + ", ".join(str(idx) for idx in missing)
-            )
+            raise AutomationError("Chunked error is missing chunk_index value(s): " + ", ".join(str(idx) for idx in missing))
 
         encoded = "".join(indexed_chunks[idx] for idx in range(chunk_count))
         if len(encoded) != payload_base64_length:
-            raise AutomationError(
-                "Chunked error payload_base64_length mismatch: "
-                f"expected {payload_base64_length}, got {len(encoded)}."
-            )
+            raise AutomationError(f"Chunked error payload_base64_length mismatch: expected {payload_base64_length}, got {len(encoded)}.")
         try:
             payload = base64.b64decode(encoded, validate=True)
         except (binascii.Error, ValueError) as exc:
-            raise AutomationError(
-                "Chunked error payload is not valid base64."
-            ) from exc
+            raise AutomationError("Chunked error payload is not valid base64.") from exc
         if len(payload) != payload_utf8_bytes:
-            raise AutomationError(
-                "Chunked error payload_utf8_bytes mismatch: "
-                f"expected {payload_utf8_bytes}, got {len(payload)}."
-            )
+            raise AutomationError(f"Chunked error payload_utf8_bytes mismatch: expected {payload_utf8_bytes}, got {len(payload)}.")
         if hashlib.sha256(payload).hexdigest() != expected_sha256:
-            raise AutomationError(
-                "Chunked error payload_sha256 mismatch after reassembly."
-            )
+            raise AutomationError("Chunked error payload_sha256 mismatch after reassembly.")
         try:
             restored = json.loads(payload.decode("utf-8"))
         except (UnicodeDecodeError, ValueError) as exc:
-            raise AutomationError(
-                "Chunked error payload is not a UTF-8 JSON object."
-            ) from exc
+            raise AutomationError("Chunked error payload is not a UTF-8 JSON object.") from exc
         if not isinstance(restored, dict) or restored.get("error") is not True:
-            raise AutomationError(
-                "Chunked error payload must restore an object with error=true."
-            )
+            raise AutomationError("Chunked error payload must restore an object with error=true.")
         if restored.get("action") != action:
             raise AutomationError("Restored chunked error action mismatch.")
         if restored.get("mode") is not None:
-            raise AutomationError(
-                "Restored chunked error envelope must not contain a mode."
-            )
-        if (
-            restored.get("runbook_version") != runbook_version
-            or any(
-                restored.get(field) != value
-                for field, value in build_metadata.items()
-            )
-        ):
-            raise AutomationError(
-                "Restored chunked error runbook build metadata mismatch."
-            )
+            raise AutomationError("Restored chunked error envelope must not contain a mode.")
+        if restored.get("runbook_version") != runbook_version or any(restored.get(field) != value for field, value in build_metadata.items()):
+            raise AutomationError("Restored chunked error runbook build metadata mismatch.")
         return restored
 
     def _parse_chunked_list_records(self, records: list) -> dict:
         """Validate bounded list records and normalise them to one list result."""
-        complete_records = [
-            record for record in records
-            if record.get("action") == "list"
-            and record.get("mode") == LIST_COMPLETE_MODE
-        ]
+        complete_records = [record for record in records if record.get("action") == "list" and record.get("mode") == LIST_COMPLETE_MODE]
         if len(complete_records) != 1:
-            raise AutomationError(
-                "Chunked list output must contain exactly one "
-                "action=list mode=list_complete trailer."
-            )
+            raise AutomationError("Chunked list output must contain exactly one action=list mode=list_complete trailer.")
 
         complete = complete_records[0]
-        chunk_count = self._required_int(
-            complete, "chunk_count", "chunked list trailer"
-        )
-        expected_count = self._required_int(
-            complete, "count", "chunked list trailer"
-        )
-        runbook_version = self._validate_runbook_version(
-            complete, "chunked list trailer"
-        )
+        chunk_count = self._required_int(complete, "chunk_count", "chunked list trailer")
+        expected_count = self._required_int(complete, "count", "chunked list trailer")
+        runbook_version = self._validate_runbook_version(complete, "chunked list trailer")
         self._validate_selection_evidence(complete)
         selection_metadata = {
             key: complete[key]
@@ -1399,83 +1199,45 @@ class MSQuarantineForSplunkSOARUtils:
         }
 
         if chunk_count < 1 or chunk_count > MAX_LIST_RESULT_COUNT:
-            raise AutomationError(
-                "Chunked list chunk_count must be between 1 and "
-                f"{MAX_LIST_RESULT_COUNT}."
-            )
+            raise AutomationError(f"Chunked list chunk_count must be between 1 and {MAX_LIST_RESULT_COUNT}.")
         if expected_count < 1 or expected_count > MAX_LIST_RESULT_COUNT:
-            raise AutomationError(
-                "Chunked list count must be between 1 and "
-                f"{MAX_LIST_RESULT_COUNT}."
-            )
+            raise AutomationError(f"Chunked list count must be between 1 and {MAX_LIST_RESULT_COUNT}.")
 
-        chunks = [
-            record for record in records
-            if record.get("action") == "list"
-            and record.get("mode") == LIST_CHUNK_MODE
-        ]
+        chunks = [record for record in records if record.get("action") == "list" and record.get("mode") == LIST_CHUNK_MODE]
         if len(chunks) != chunk_count:
-            raise AutomationError(
-                f"Chunked list expected {chunk_count} chunk(s), "
-                f"got {len(chunks)}."
-            )
+            raise AutomationError(f"Chunked list expected {chunk_count} chunk(s), got {len(chunks)}.")
 
         indexed_chunks = {}
         for chunk in chunks:
             self._validate_selection_evidence(chunk)
-            chunk_version = self._validate_runbook_version(
-                chunk, "chunked list record"
-            )
+            chunk_version = self._validate_runbook_version(chunk, "chunked list record")
             if chunk_version != runbook_version:
-                raise AutomationError(
-                    "Chunked list runbook_version mismatch."
-                )
-            if any(
-                chunk.get(field) != value
-                for field, value in build_metadata.items()
-            ):
-                raise AutomationError(
-                    "Chunked list runbook build metadata mismatch."
-                )
+                raise AutomationError("Chunked list runbook_version mismatch.")
+            if any(chunk.get(field) != value for field, value in build_metadata.items()):
+                raise AutomationError("Chunked list runbook build metadata mismatch.")
 
-            idx = self._required_int(
-                chunk, "chunk_index", "chunked list record"
-            )
+            idx = self._required_int(chunk, "chunk_index", "chunked list record")
             if idx < 0 or idx >= chunk_count:
-                raise AutomationError(
-                    f"Chunked list chunk_index {idx} is out of range."
-                )
+                raise AutomationError(f"Chunked list chunk_index {idx} is out of range.")
             if idx in indexed_chunks:
-                raise AutomationError(
-                    f"Chunked list contains duplicate chunk_index {idx}."
-                )
+                raise AutomationError(f"Chunked list contains duplicate chunk_index {idx}.")
 
             messages = chunk.get("messages")
             if not isinstance(messages, list) or not messages:
-                raise AutomationError(
-                    "Chunked list record messages must be a non-empty array."
-                )
+                raise AutomationError("Chunked list record messages must be a non-empty array.")
             if any(not isinstance(message, dict) for message in messages):
-                raise AutomationError(
-                    "Chunked list record messages must contain only objects."
-                )
+                raise AutomationError("Chunked list record messages must contain only objects.")
             indexed_chunks[idx] = messages
 
         missing = [idx for idx in range(chunk_count) if idx not in indexed_chunks]
         if missing:
-            raise AutomationError(
-                "Chunked list is missing chunk_index value(s): "
-                + ", ".join(str(idx) for idx in missing)
-            )
+            raise AutomationError("Chunked list is missing chunk_index value(s): " + ", ".join(str(idx) for idx in missing))
 
         messages = []
         for idx in range(chunk_count):
             messages.extend(indexed_chunks[idx])
         if len(messages) != expected_count:
-            raise AutomationError(
-                "Chunked list count mismatch: "
-                f"expected {expected_count}, got {len(messages)}."
-            )
+            raise AutomationError(f"Chunked list count mismatch: expected {expected_count}, got {len(messages)}.")
 
         return {
             "action": "list",
@@ -1488,32 +1250,17 @@ class MSQuarantineForSplunkSOARUtils:
 
     def _parse_chunked_export_records(self, records: list) -> dict:
         """Validate and normalise chunked export output to one export dict."""
-        complete_records = [
-            record for record in records
-            if record.get("action") == "export"
-            and record.get("mode") == CHUNKED_COMPLETE_MODE
-        ]
+        complete_records = [record for record in records if record.get("action") == "export" and record.get("mode") == CHUNKED_COMPLETE_MODE]
         if len(complete_records) != 1:
-            raise AutomationError(
-                "Chunked export output must contain exactly one "
-                "action=export mode=chunked_complete trailer."
-            )
+            raise AutomationError("Chunked export output must contain exactly one action=export mode=chunked_complete trailer.")
 
         complete = complete_records[0]
         identity = self._required_string(complete, "identity", "chunked trailer")
         chunk_count = self._required_int(complete, "chunk_count", "chunked trailer")
-        eml_base64_length = self._required_int(
-            complete, "eml_base64_length", "chunked trailer"
-        )
-        decoded_size = self._required_int(
-            complete, "decoded_size", "chunked trailer"
-        )
-        expected_sha256 = self._required_string(
-            complete, "sha256", "chunked trailer"
-        )
-        runbook_version = self._validate_runbook_version(
-            complete, "chunked trailer"
-        )
+        eml_base64_length = self._required_int(complete, "eml_base64_length", "chunked trailer")
+        decoded_size = self._required_int(complete, "decoded_size", "chunked trailer")
+        expected_sha256 = self._required_string(complete, "sha256", "chunked trailer")
+        runbook_version = self._validate_runbook_version(complete, "chunked trailer")
         build_metadata = {
             "runbook_source_revision": complete["runbook_source_revision"],
             "runbook_build_id": complete["runbook_build_id"],
@@ -1522,135 +1269,76 @@ class MSQuarantineForSplunkSOARUtils:
         if chunk_count < 1:
             raise AutomationError("Chunked export chunk_count must be at least 1.")
         if chunk_count > MAX_CHUNK_COUNT:
-            raise AutomationError(
-                f"Chunked export chunk_count {chunk_count} exceeds "
-                f"the supported maximum of {MAX_CHUNK_COUNT}."
-            )
+            raise AutomationError(f"Chunked export chunk_count {chunk_count} exceeds the supported maximum of {MAX_CHUNK_COUNT}.")
         if decoded_size < 0:
-            raise AutomationError(
-                "Chunked export decoded_size must not be negative."
-            )
+            raise AutomationError("Chunked export decoded_size must not be negative.")
         if decoded_size > MAX_DECODED_EML_BYTES:
             raise AutomationError(
-                f"Chunked export decoded EML size {decoded_size} bytes exceeds "
-                f"the supported maximum of {MAX_DECODED_EML_BYTES} bytes."
+                f"Chunked export decoded EML size {decoded_size} bytes exceeds the supported maximum of {MAX_DECODED_EML_BYTES} bytes."
             )
-        if (
-            self._retain_chunked_base64
-            and decoded_size > MAX_INLINE_DECODED_EML_BYTES
-        ):
+        if self._retain_chunked_base64 and decoded_size > MAX_INLINE_DECODED_EML_BYTES:
             raise AutomationError(
-                f"Inline export is limited to "
-                f"{MAX_INLINE_DECODED_EML_BYTES} decoded bytes. "
-                "Set export_mode=vault for larger EML files."
+                f"Inline export is limited to {MAX_INLINE_DECODED_EML_BYTES} decoded bytes. Set export_mode=vault for larger EML files."
             )
         max_base64_length = ((MAX_DECODED_EML_BYTES + 2) // 3) * 4
         if eml_base64_length > max_base64_length:
-            raise AutomationError(
-                f"Chunked export base64 length {eml_base64_length} exceeds "
-                f"the maximum possible length {max_base64_length}."
-            )
+            raise AutomationError(f"Chunked export base64 length {eml_base64_length} exceeds the maximum possible length {max_base64_length}.")
         if not SHA256_HEX_RE.match(expected_sha256):
-            raise AutomationError(
-                "Chunked export trailer sha256 must be lowercase 64-character hex."
-            )
-        chunks = [
-            record for record in records
-            if record.get("action") == "export"
-            and record.get("mode") == CHUNKED_EXPORT_MODE
-        ]
+            raise AutomationError("Chunked export trailer sha256 must be lowercase 64-character hex.")
+        chunks = [record for record in records if record.get("action") == "export" and record.get("mode") == CHUNKED_EXPORT_MODE]
         if len(chunks) != chunk_count:
-            raise AutomationError(
-                f"Chunked export expected {chunk_count} chunk(s), "
-                f"got {len(chunks)}."
-            )
+            raise AutomationError(f"Chunked export expected {chunk_count} chunk(s), got {len(chunks)}.")
 
         indexed_chunks = {}
         for chunk in chunks:
-            chunk_version = self._validate_runbook_version(
-                chunk, "chunked export record"
-            )
-            if chunk_version != runbook_version or any(
-                chunk.get(field) != value
-                for field, value in build_metadata.items()
-            ):
-                raise AutomationError(
-                    "Chunked export runbook build metadata mismatch."
-                )
+            chunk_version = self._validate_runbook_version(chunk, "chunked export record")
+            if chunk_version != runbook_version or any(chunk.get(field) != value for field, value in build_metadata.items()):
+                raise AutomationError("Chunked export runbook build metadata mismatch.")
             if self._required_string(chunk, "identity", "chunk") != identity:
                 raise AutomationError("Chunked export identity mismatch.")
 
             encoding = self._required_string(chunk, "encoding", "chunk")
             if encoding != CHUNK_ENCODING:
-                raise AutomationError(
-                    f"Chunked export uses unsupported encoding '{encoding}'."
-                )
+                raise AutomationError(f"Chunked export uses unsupported encoding '{encoding}'.")
 
             idx = self._required_int(chunk, "chunk_index", "chunk")
             record_chunk_count = self._required_int(chunk, "chunk_count", "chunk")
             if record_chunk_count != chunk_count:
                 raise AutomationError("Chunked export chunk_count mismatch.")
             if idx < 0 or idx >= chunk_count:
-                raise AutomationError(
-                    f"Chunked export chunk_index {idx} is out of range."
-                )
+                raise AutomationError(f"Chunked export chunk_index {idx} is out of range.")
             if idx in indexed_chunks:
-                raise AutomationError(
-                    f"Chunked export contains duplicate chunk_index {idx}."
-                )
+                raise AutomationError(f"Chunked export contains duplicate chunk_index {idx}.")
 
-            indexed_chunks[idx] = self._required_string(
-                chunk, "eml_chunk", "chunk"
-            )
+            indexed_chunks[idx] = self._required_string(chunk, "eml_chunk", "chunk")
 
         missing = [idx for idx in range(chunk_count) if idx not in indexed_chunks]
         if missing:
-            raise AutomationError(
-                "Chunked export is missing chunk_index value(s): "
-                + ", ".join(str(idx) for idx in missing)
-            )
+            raise AutomationError("Chunked export is missing chunk_index value(s): " + ", ".join(str(idx) for idx in missing))
 
-        actual_base64_length = sum(
-            len(indexed_chunks[idx]) for idx in range(chunk_count)
-        )
+        actual_base64_length = sum(len(indexed_chunks[idx]) for idx in range(chunk_count))
         if actual_base64_length != eml_base64_length:
-            raise AutomationError(
-                "Chunked export eml_base64_length mismatch: "
-                f"expected {eml_base64_length}, got {actual_base64_length}."
-            )
+            raise AutomationError(f"Chunked export eml_base64_length mismatch: expected {eml_base64_length}, got {actual_base64_length}.")
 
         eml_bytes = bytearray()
         sha256 = hashlib.sha256()
         for idx in range(chunk_count):
             encoded_chunk = indexed_chunks[idx]
             if len(encoded_chunk) % 4 != 0:
-                raise AutomationError(
-                    f"Chunked export chunk_index {idx} length is not "
-                    "divisible by four."
-                )
+                raise AutomationError(f"Chunked export chunk_index {idx} length is not divisible by four.")
             try:
-                decoded_chunk = base64.b64decode(
-                    encoded_chunk, validate=True
-                )
+                decoded_chunk = base64.b64decode(encoded_chunk, validate=True)
             except (binascii.Error, ValueError) as exc:
-                raise AutomationError(
-                    f"Chunked export produced invalid base64 EML in "
-                    f"chunk_index {idx}: {exc}"
-                ) from exc
+                raise AutomationError(f"Chunked export produced invalid base64 EML in chunk_index {idx}: {exc}") from exc
             eml_bytes.extend(decoded_chunk)
             sha256.update(decoded_chunk)
 
         if len(eml_bytes) != decoded_size:
-            raise AutomationError(
-                "Chunked export decoded_size mismatch: "
-                f"expected {decoded_size}, got {len(eml_bytes)}."
-            )
+            raise AutomationError(f"Chunked export decoded_size mismatch: expected {decoded_size}, got {len(eml_bytes)}.")
 
         actual_sha256 = sha256.hexdigest()
         if actual_sha256 != expected_sha256:
-            raise AutomationError(
-                "Chunked export sha256 mismatch after reassembly."
-            )
+            raise AutomationError("Chunked export sha256 mismatch after reassembly.")
 
         result = {
             "action": "export",
@@ -1665,36 +1353,26 @@ class MSQuarantineForSplunkSOARUtils:
             "_eml_bytes": eml_bytes,
         }
         if self._retain_chunked_base64:
-            result["eml"] = "".join(
-                indexed_chunks[idx] for idx in range(chunk_count)
-            )
+            result["eml"] = "".join(indexed_chunks[idx] for idx in range(chunk_count))
         return result
 
     def _required_string(self, data: dict, key: str, where: str) -> str:
         val = data.get(key)
         if val is None:
-            raise AutomationError(
-                f"{where} missing required field '{key}'."
-            )
+            raise AutomationError(f"{where} missing required field '{key}'.")
         val = str(val)
         if val == "":
-            raise AutomationError(
-                f"{where} field '{key}' is empty."
-            )
+            raise AutomationError(f"{where} field '{key}' is empty.")
         return val
 
     def _required_int(self, data: dict, key: str, where: str) -> int:
         val = data.get(key)
         if isinstance(val, bool) or val is None:
-            raise AutomationError(
-                f"{where} missing numeric field '{key}'."
-            )
+            raise AutomationError(f"{where} missing numeric field '{key}'.")
         try:
             return parse_strict_integer(val)
         except (TypeError, ValueError) as exc:
-            raise AutomationError(
-                f"{where} field '{key}' is not numeric."
-            ) from exc
+            raise AutomationError(f"{where} field '{key}' is not numeric.") from exc
 
     @staticmethod
     def _canonical_quarantine_identity(value):
@@ -1702,9 +1380,7 @@ class MSQuarantineForSplunkSOARUtils:
         if not isinstance(value, str) or len(value) > 73:
             return None
         parts = value.split("\\")
-        if len(parts) != 2 or not all(
-            GUID_RE.fullmatch(part) for part in parts
-        ):
+        if len(parts) != 2 or not all(GUID_RE.fullmatch(part) for part in parts):
             return None
         return "\\".join(part.lower() for part in parts)
 
@@ -1712,11 +1388,7 @@ class MSQuarantineForSplunkSOARUtils:
     def _quarantine_identities_match(cls, left, right) -> bool:
         canonical_left = cls._canonical_quarantine_identity(left)
         canonical_right = cls._canonical_quarantine_identity(right)
-        return bool(
-            canonical_left
-            and canonical_right
-            and canonical_left == canonical_right
-        )
+        return bool(canonical_left and canonical_right and canonical_left == canonical_right)
 
     # -----------------------------------------------------------------------
     # Combined: run a full action
@@ -1725,10 +1397,10 @@ class MSQuarantineForSplunkSOARUtils:
     def run_action(
         self,
         action: str,
-        identity: str = None,
-        page_size: int = None,
-        operation_action: str = None,
-        include_rbac: bool = None,
+        identity: Optional[str] = None,
+        page_size: Optional[int] = None,
+        operation_action: Optional[str] = None,
+        include_rbac: Optional[bool] = None,
     ) -> dict:
         """
         Execute a full action cycle: webhook → poll → output.
@@ -1763,9 +1435,9 @@ class MSQuarantineForSplunkSOARUtils:
         self,
         job_id: str,
         action: str,
-        identity: str = None,
-        requested_include_rbac: bool = None,
-        requested_operation_action: str = None,
+        identity: Optional[str] = None,
+        requested_include_rbac: Optional[bool] = None,
+        requested_operation_action: Optional[str] = None,
     ) -> dict:
         """
         Wait for and validate a job that has already been started.
@@ -1788,15 +1460,9 @@ class MSQuarantineForSplunkSOARUtils:
                     deadline=deadline,
                 )
             except AutomationError as output_error:
-                raise JobFailedError(
-                    f"{job_error}; structured job output was unavailable: "
-                    f"{output_error}"
-                ) from job_error
+                raise JobFailedError(f"{job_error}; structured job output was unavailable: {output_error}") from job_error
 
-            if (
-                isinstance(failed_result, dict)
-                and failed_result.get("error") is True
-            ):
+            if isinstance(failed_result, dict) and failed_result.get("error") is True:
                 self._validate_runbook_result(
                     failed_result,
                     requested_action=action,
@@ -1834,8 +1500,8 @@ class MSQuarantineForSplunkSOARUtils:
         self,
         job_id: str,
         action: str,
-        identity: str = None,
-        deadline: float = None,
+        identity: Optional[str] = None,
+        deadline: Optional[float] = None,
     ) -> dict:
         """Read and validate an existing job output without firing a webhook."""
         result = self.get_job_output(
@@ -1870,10 +1536,7 @@ class MSQuarantineForSplunkSOARUtils:
         try:
             result = self.run_action("config_check")
         except AutomationError as exc:
-            required_version = (
-                "3.4.3" if self.quarantine_selection_mode == "needs_review"
-                else "3.4.2"
-            )
+            required_version = "3.4.3" if self.quarantine_selection_mode == "needs_review" else "3.4.2"
             raise ConnectionContractError(
                 "The deployed runbook could not confirm the Managed "
                 "Identity-only Exchange connection and selected mode, so "
@@ -1886,20 +1549,13 @@ class MSQuarantineForSplunkSOARUtils:
             ) from exc
 
         mismatches = []
-        if (
-            result.get("exchange_auth_method") != EXCHANGE_AUTH_METHOD
-            or result.get("exchange_auth_method_source") != "webhook"
-        ):
+        if result.get("exchange_auth_method") != EXCHANGE_AUTH_METHOD or result.get("exchange_auth_method_source") != "webhook":
             mismatches.append("auth_method")
         requested_org = self._connection_settings.get("organization")
-        expected_org_source = "webhook" if requested_org else (
-            "automation_variable"
-        )
-        if (
-            (requested_org and result.get("exchange_organization") != requested_org)
-            or result.get("exchange_organization_source")
-            != expected_org_source
-        ):
+        expected_org_source = "webhook" if requested_org else ("automation_variable")
+        if (requested_org and result.get("exchange_organization") != requested_org) or result.get(
+            "exchange_organization_source"
+        ) != expected_org_source:
             mismatches.append("organization")
         if mismatches:
             raise ConnectionContractError(
@@ -1912,14 +1568,8 @@ class MSQuarantineForSplunkSOARUtils:
 
     @staticmethod
     def _runbook_version_tuple(source: dict):
-        version = source.get("runbook_version") if isinstance(
-            source, dict
-        ) else None
-        match = (
-            re.match(r"^(\d+)\.(\d+)\.(\d+)$", version)
-            if isinstance(version, str)
-            else None
-        )
+        version = source.get("runbook_version") if isinstance(source, dict) else None
+        match = re.match(r"^(\d+)\.(\d+)\.(\d+)$", version) if isinstance(version, str) else None
         return tuple(int(part) for part in match.groups()) if match else None
 
     @staticmethod
@@ -1940,12 +1590,9 @@ class MSQuarantineForSplunkSOARUtils:
             if "quarantine_selection_mode" not in result:
                 return
         if (
-            result.get("quarantine_selection_contract")
-            != QUARANTINE_SELECTION_CONTRACT
-            or result.get("quarantine_selection_mode")
-            != self.quarantine_selection_mode
-            or result.get("selection_release_status")
-            != self.selection_release_status
+            result.get("quarantine_selection_contract") != QUARANTINE_SELECTION_CONTRACT
+            or result.get("quarantine_selection_mode") != self.quarantine_selection_mode
+            or result.get("selection_release_status") != self.selection_release_status
         ):
             raise AutomationError(
                 "Runbook quarantine selection contract mismatch with the "
@@ -1960,24 +1607,15 @@ class MSQuarantineForSplunkSOARUtils:
     def _validate_config_check_result(self, result: dict) -> None:
         """Validate the read-only connection contract report."""
         version = self._validate_runbook_version(result, "config_check result")
-        if (
-            self._runbook_version_tuple(result)
-            < MANAGED_IDENTITY_ONLY_RUNBOOK_VERSION
-        ):
+        if self._runbook_version_tuple(result) < MANAGED_IDENTITY_ONLY_RUNBOOK_VERSION:
             raise AutomationError(
                 "Runbook protocol error: config_check result comes from "
                 f"runbook {version}; the Managed Identity-only Exchange "
                 "connection requires Runbook 3.4.2 or newer (protocol minimum; "
                 "recommended pair: App 3.7.4 / Runbook 3.4.5)."
             )
-        if (
-            result.get("status") != "verified"
-            or result.get("config_contract") != EXCHANGE_CONFIG_CONTRACT
-        ):
-            raise AutomationError(
-                "Runbook protocol error: config_check result lacks "
-                f"config_contract={EXCHANGE_CONFIG_CONTRACT}."
-            )
+        if result.get("status") != "verified" or result.get("config_contract") != EXCHANGE_CONFIG_CONTRACT:
+            raise AutomationError(f"Runbook protocol error: config_check result lacks config_contract={EXCHANGE_CONFIG_CONTRACT}.")
         for field in (
             "exchange_auth_method",
             "exchange_auth_method_source",
@@ -1985,51 +1623,32 @@ class MSQuarantineForSplunkSOARUtils:
             "exchange_organization_source",
         ):
             value = result.get(field)
-            if (
-                not isinstance(value, str)
-                or len(value) > MAX_RUNBOOK_SETTING_CHARS
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: config_check result requires "
-                    f"bounded string field '{field}'."
-                )
+            if not isinstance(value, str) or len(value) > MAX_RUNBOOK_SETTING_CHARS:
+                raise AutomationError(f"Runbook protocol error: config_check result requires bounded string field '{field}'.")
         self._validate_selection_evidence(result)
         self._reject_credential_evidence(result, "config_check result")
         if result.get("exchange_auth_method") != EXCHANGE_AUTH_METHOD:
             raise AutomationError(
-                "Runbook protocol error: config_check result does not "
-                "report ManagedIdentity as the Exchange authentication method."
+                "Runbook protocol error: config_check result does not report ManagedIdentity as the Exchange authentication method."
             )
 
     def _validate_runbook_version(self, result: dict, where: str) -> str:
         """Require a semantic runbook version at or above the app minimum."""
-        runbook_version = self._required_string(
-            result, "runbook_version", where
-        )
+        runbook_version = self._required_string(result, "runbook_version", where)
         version_match = re.match(r"^(\d+)\.(\d+)\.(\d+)$", runbook_version)
         if not version_match:
-            raise AutomationError(
-                f"{where} runbook_version must use semantic versioning."
-            )
+            raise AutomationError(f"{where} runbook_version must use semantic versioning.")
 
         version_tuple = tuple(int(part) for part in version_match.groups())
         if version_tuple < MIN_SUPPORTED_RUNBOOK_VERSION:
-            required = ".".join(
-                str(part) for part in MIN_SUPPORTED_RUNBOOK_VERSION
-            )
+            required = ".".join(str(part) for part in MIN_SUPPORTED_RUNBOOK_VERSION)
             raise AutomationError(
-                f"{where} requires runbook {required} or newer; "
-                f"received {runbook_version}. Deploy the app and runbook together."
+                f"{where} requires runbook {required} or newer; received {runbook_version}. Deploy the app and runbook together."
             )
         for field in ("runbook_source_revision", "runbook_build_id"):
             value = self._required_string(result, field, where)
-            if (
-                len(value) > MAX_BUILD_FIELD_CHARS
-                or not BUILD_FIELD_RE.match(value)
-            ):
-                raise AutomationError(
-                    f"{where} field '{field}' has an invalid build identifier."
-                )
+            if len(value) > MAX_BUILD_FIELD_CHARS or not BUILD_FIELD_RE.match(value):
+                raise AutomationError(f"{where} field '{field}' has an invalid build identifier.")
         return runbook_version
 
     @staticmethod
@@ -2038,91 +1657,54 @@ class MSQuarantineForSplunkSOARUtils:
         return bool(version and version >= CONNECTION_CONTRACT_RUNBOOK_VERSION)
 
     @staticmethod
-    def _validate_connection_evidence(
-        source: dict, where: str, require_disconnect: bool = False
-    ) -> None:
+    def _validate_connection_evidence(source: dict, where: str, require_disconnect: bool = False) -> None:
         """Validate the bounded, non-secret effective connection settings."""
         if source.get("exchange_auth_method") != EXCHANGE_AUTH_METHOD:
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} does not report exchange_auth_method="
-                f"{EXCHANGE_AUTH_METHOD}."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} does not report exchange_auth_method={EXCHANGE_AUTH_METHOD}.")
         managed_identity_only = (
-            MSQuarantineForSplunkSOARUtils._runbook_version_tuple(source)
-            or (0, 0, 0)
+            MSQuarantineForSplunkSOARUtils._runbook_version_tuple(source) or (0, 0, 0)
         ) >= MANAGED_IDENTITY_ONLY_RUNBOOK_VERSION
         if managed_identity_only:
-            MSQuarantineForSplunkSOARUtils._reject_credential_evidence(
-                source, where
-            )
+            MSQuarantineForSplunkSOARUtils._reject_credential_evidence(source, where)
         allowed_method_sources = {"webhook", "default"}
         if not managed_identity_only:
             allowed_method_sources.add("automation_variable")
         allowed_sources = {
             "exchange_auth_method_source": allowed_method_sources,
-            "exchange_organization_source": {
-                "webhook", "automation_variable"
-            },
+            "exchange_organization_source": {"webhook", "automation_variable"},
         }
         for field, allowed in allowed_sources.items():
             if source.get(field) not in allowed:
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} has an invalid '{field}'."
-                )
+                raise AutomationError(f"Runbook protocol error: {where} has an invalid '{field}'.")
         organization = source.get("exchange_organization")
-        if (
-            not isinstance(organization, str)
-            or not organization
-            or len(organization) > MAX_RUNBOOK_SETTING_CHARS
-        ):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} requires bounded non-empty string field "
-                "'exchange_organization'."
-            )
+        if not isinstance(organization, str) or not organization or len(organization) > MAX_RUNBOOK_SETTING_CHARS:
+            raise AutomationError(f"Runbook protocol error: {where} requires bounded non-empty string field 'exchange_organization'.")
         for field in (
             "exchange_connection_metadata",
             "exchange_connection_metadata_error",
         ):
             value = source.get(field)
             if not isinstance(value, str) or len(value) > MAX_ERROR_TEXT_CHARS:
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} requires bounded string field '{field}'."
-                )
+                raise AutomationError(f"Runbook protocol error: {where} requires bounded string field '{field}'.")
         if "exchange_disconnect_status" in source or require_disconnect:
             disconnect_error = source.get("exchange_disconnect_error")
-            if source.get("exchange_disconnect_status") not in {
-                "completed", "failed"
-            } or (
-                not isinstance(disconnect_error, str)
-                or len(disconnect_error) > MAX_ERROR_TEXT_CHARS
+            if source.get("exchange_disconnect_status") not in {"completed", "failed"} or (
+                not isinstance(disconnect_error, str) or len(disconnect_error) > MAX_ERROR_TEXT_CHARS
             ):
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} has invalid Exchange disconnect evidence."
-                )
+                raise AutomationError(f"Runbook protocol error: {where} has invalid Exchange disconnect evidence.")
 
     @staticmethod
     def _validate_static_diagnostics(
         source: dict,
         where: str,
         requested_action: str = "release",
-        connection_contract: bool = None,
+        connection_contract: Optional[bool] = None,
     ) -> None:
         """Validate bounded, non-secret build/runtime/cmdlet metadata."""
         if connection_contract is None:
-            connection_contract = (
-                MSQuarantineForSplunkSOARUtils._supports_connection_contract(
-                    source
-                )
-            )
+            connection_contract = MSQuarantineForSplunkSOARUtils._supports_connection_contract(source)
         if not isinstance(source, dict):
-            raise AutomationError(
-                f"Runbook protocol error: {where} diagnostics must be an object."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} diagnostics must be an object.")
 
         required_values = {
             "runbook_source_revision": MAX_BUILD_FIELD_CHARS,
@@ -2138,23 +1720,11 @@ class MSQuarantineForSplunkSOARUtils:
         }
         for field, max_chars in required_values.items():
             value = source.get(field)
-            if (
-                not isinstance(value, str)
-                or not value
-                or len(value) > max_chars
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} requires bounded non-empty string field "
-                    f"'{field}'."
-                )
+            if not isinstance(value, str) or not value or len(value) > max_chars:
+                raise AutomationError(f"Runbook protocol error: {where} requires bounded non-empty string field '{field}'.")
 
         if source.get("exchange_auth_method") != EXCHANGE_AUTH_METHOD:
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} does not report exchange_auth_method="
-                f"{EXCHANGE_AUTH_METHOD}."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} does not report exchange_auth_method={EXCHANGE_AUTH_METHOD}.")
 
         for field in (
             "powershell_platform",
@@ -2168,22 +1738,14 @@ class MSQuarantineForSplunkSOARUtils:
         ):
             value = source.get(field)
             if not isinstance(value, str) or len(value) > MAX_RUNTIME_FIELD_CHARS:
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} requires bounded string field '{field}'."
-                )
+                raise AutomationError(f"Runbook protocol error: {where} requires bounded string field '{field}'.")
         for field in ("cmdlet_metadata_error",):
             value = source.get(field)
             if not isinstance(value, str) or len(value) > MAX_ERROR_TEXT_CHARS:
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} has an invalid exact error field '{field}'."
-                )
+                raise AutomationError(f"Runbook protocol error: {where} has an invalid exact error field '{field}'.")
 
         if connection_contract:
-            MSQuarantineForSplunkSOARUtils._validate_connection_evidence(
-                source, where
-            )
+            MSQuarantineForSplunkSOARUtils._validate_connection_evidence(source, where)
 
         if requested_action == "deny":
             expected_contract_id = DENY_CONTRACT_ID
@@ -2203,56 +1765,25 @@ class MSQuarantineForSplunkSOARUtils:
             }
 
         if source.get("cmdlet_contract_id") != expected_contract_id:
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} has an unexpected cmdlet_contract_id."
-            )
-        supplied_argument_names = {
-            item.strip()
-            for item in source.get(
-                "cmdlet_expected_argument_names", ""
-            ).split(",")
-            if item.strip()
-        }
+            raise AutomationError(f"Runbook protocol error: {where} has an unexpected cmdlet_contract_id.")
+        supplied_argument_names = {item.strip() for item in source.get("cmdlet_expected_argument_names", "").split(",") if item.strip()}
         if supplied_argument_names != expected_argument_names:
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} has unexpected disposition argument names."
-            )
-        parameter_names = {
-            item.strip()
-            for item in source.get("cmdlet_parameter_names", "").split(",")
-            if item.strip()
-        }
+            raise AutomationError(f"Runbook protocol error: {where} has unexpected disposition argument names.")
+        parameter_names = {item.strip() for item in source.get("cmdlet_parameter_names", "").split(",") if item.strip()}
         if not required_parameter_names <= parameter_names:
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} lacks the required effective parameter names."
-            )
-        if (
-            not source.get("cmdlet_parameter_sets")
-            and not source.get("cmdlet_metadata_error")
-        ):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} requires cmdlet parameter-set metadata or an error."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} lacks the required effective parameter names.")
+        if not source.get("cmdlet_parameter_sets") and not source.get("cmdlet_metadata_error"):
+            raise AutomationError(f"Runbook protocol error: {where} requires cmdlet parameter-set metadata or an error.")
 
     @staticmethod
     def _validate_rbac_diagnostics(source: dict, where: str) -> None:
         """Validate bounded read-only tenant RBAC and identity evidence."""
         if source.get("permission_queries_read_only") is not True:
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} must declare permission queries as read-only."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} must declare permission queries as read-only.")
 
         rbac_included = source.get("rbac_included")
         if not isinstance(rbac_included, bool):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} requires boolean field 'rbac_included'."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} requires boolean field 'rbac_included'.")
 
         status = source.get("rbac_diagnostics_status")
         if status not in {
@@ -2261,10 +1792,7 @@ class MSQuarantineForSplunkSOARUtils:
             "not_evaluated",
             "not_requested",
         }:
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} has an invalid rbac_diagnostics_status."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} has an invalid rbac_diagnostics_status.")
         claims_status = source.get("managed_identity_claims_status")
         if rbac_included and claims_status not in {
             "resolved",
@@ -2272,10 +1800,7 @@ class MSQuarantineForSplunkSOARUtils:
             "unavailable",
             "not_applicable",
         }:
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} has an invalid managed_identity_claims_status."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} has an invalid managed_identity_claims_status.")
 
         bounded_strings = {
             "rbac_diagnostics_reason": 128,
@@ -2294,15 +1819,9 @@ class MSQuarantineForSplunkSOARUtils:
         for field, max_chars in bounded_strings.items():
             value = source.get(field, "")
             if not isinstance(value, str) or len(value) > max_chars:
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} requires bounded string field '{field}'."
-                )
+                raise AutomationError(f"Runbook protocol error: {where} requires bounded string field '{field}'.")
         if "managed_identity_resource_id" in source:
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} must not persist managed_identity_resource_id."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} must not persist managed_identity_resource_id.")
 
         empty_contracts = source.get("rbac_empty_contracts")
         allowed_empty_contracts = {
@@ -2314,17 +1833,10 @@ class MSQuarantineForSplunkSOARUtils:
         }
         if (
             not isinstance(empty_contracts, list)
-            or not all(
-                isinstance(value, str)
-                and value in allowed_empty_contracts
-                for value in empty_contracts
-            )
+            or not all(isinstance(value, str) and value in allowed_empty_contracts for value in empty_contracts)
             or len(empty_contracts) != len(set(empty_contracts))
         ):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} has invalid rbac_empty_contracts evidence."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} has invalid rbac_empty_contracts evidence.")
 
         required_cmdlets = [
             "Get-ManagementRole",
@@ -2342,46 +1854,20 @@ class MSQuarantineForSplunkSOARUtils:
             values = source.get(field)
             if (
                 not isinstance(values, list)
-                or not all(
-                    isinstance(value, str)
-                    and value
-                    and len(value) <= 128
-                    for value in values
-                )
+                or not all(isinstance(value, str) and value and len(value) <= 128 for value in values)
                 or len(values) != len(set(values))
             ):
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} has invalid command list '{field}'."
-                )
+                raise AutomationError(f"Runbook protocol error: {where} has invalid command list '{field}'.")
             command_lists[field] = values
         if command_lists["rbac_required_cmdlets"] != required_cmdlets:
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} does not declare the required RBAC cmdlet set."
-            )
-        if (
-            (
-                set(command_lists["rbac_available_cmdlets"])
-                & set(command_lists["missing_cmdlets"])
-            )
-            or (
-                set(command_lists["rbac_available_cmdlets"])
-                | set(command_lists["missing_cmdlets"])
-            ) != set(required_cmdlets)
-        ):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} has inconsistent RBAC cmdlet availability."
-            )
-        missing_count = MSQuarantineForSplunkSOARUtils._optional_int(
-            source.get("missing_cmdlet_count")
-        )
+            raise AutomationError(f"Runbook protocol error: {where} does not declare the required RBAC cmdlet set.")
+        if (set(command_lists["rbac_available_cmdlets"]) & set(command_lists["missing_cmdlets"])) or (
+            set(command_lists["rbac_available_cmdlets"]) | set(command_lists["missing_cmdlets"])
+        ) != set(required_cmdlets):
+            raise AutomationError(f"Runbook protocol error: {where} has inconsistent RBAC cmdlet availability.")
+        missing_count = MSQuarantineForSplunkSOARUtils._optional_int(source.get("missing_cmdlet_count"))
         if missing_count != len(command_lists["missing_cmdlets"]):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} has an invalid missing_cmdlet_count."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} has an invalid missing_cmdlet_count.")
 
         nullable_boolean_fields = (
             "quarantine_role_present",
@@ -2392,23 +1878,12 @@ class MSQuarantineForSplunkSOARUtils:
             "role_assignment_matches_identity",
         )
         for field in nullable_boolean_fields:
-            if source.get(field) is not None and not isinstance(
-                source.get(field), bool
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} requires boolean or null field '{field}'."
-                )
+            if source.get(field) is not None and not isinstance(source.get(field), bool):
+                raise AutomationError(f"Runbook protocol error: {where} requires boolean or null field '{field}'.")
 
-        role_group_total_count = MSQuarantineForSplunkSOARUtils._optional_int(
-            source.get("quarantine_role_group_total_count")
-        )
-        role_group_inspected_count = MSQuarantineForSplunkSOARUtils._optional_int(
-            source.get("quarantine_role_group_inspected_count")
-        )
-        role_group_inspection_truncated = source.get(
-            "quarantine_role_group_inspection_truncated"
-        )
+        role_group_total_count = MSQuarantineForSplunkSOARUtils._optional_int(source.get("quarantine_role_group_total_count"))
+        role_group_inspected_count = MSQuarantineForSplunkSOARUtils._optional_int(source.get("quarantine_role_group_inspected_count"))
+        role_group_inspection_truncated = source.get("quarantine_role_group_inspection_truncated")
         if (
             role_group_total_count is None
             or role_group_total_count < 0
@@ -2417,13 +1892,9 @@ class MSQuarantineForSplunkSOARUtils:
             or role_group_inspected_count > role_group_total_count
             or role_group_inspected_count > MAX_RBAC_ROLE_GROUP_INSPECTIONS
             or not isinstance(role_group_inspection_truncated, bool)
-            or role_group_inspection_truncated
-            != (role_group_inspected_count < role_group_total_count)
+            or role_group_inspection_truncated != (role_group_inspected_count < role_group_total_count)
         ):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} has invalid role-group inspection counts."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} has invalid role-group inspection counts.")
         if role_group_inspection_truncated and any(
             source.get(field) is False
             for field in (
@@ -2433,35 +1904,18 @@ class MSQuarantineForSplunkSOARUtils:
             )
         ):
             raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} claims definitive negative RBAC evidence after "
-                "truncating role-group inspection."
+                f"Runbook protocol error: {where} claims definitive negative RBAC evidence after truncating role-group inspection."
             )
 
-        error_count = MSQuarantineForSplunkSOARUtils._optional_int(
-            source.get("permission_query_error_count")
-        )
-        retained_count = MSQuarantineForSplunkSOARUtils._optional_int(
-            source.get("permission_query_error_retained_count")
-        )
-        dropped_count = MSQuarantineForSplunkSOARUtils._optional_int(
-            source.get("permission_query_error_dropped_count")
-        )
+        error_count = MSQuarantineForSplunkSOARUtils._optional_int(source.get("permission_query_error_count"))
+        retained_count = MSQuarantineForSplunkSOARUtils._optional_int(source.get("permission_query_error_retained_count"))
+        dropped_count = MSQuarantineForSplunkSOARUtils._optional_int(source.get("permission_query_error_dropped_count"))
         errors_truncated = source.get("permission_query_errors_truncated")
-        if any(
-            value is None or value < 0
-            for value in (error_count, retained_count, dropped_count)
-        ) or not isinstance(errors_truncated, bool):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} has invalid permission-query error counts."
-            )
+        if any(value is None or value < 0 for value in (error_count, retained_count, dropped_count)) or not isinstance(errors_truncated, bool):
+            raise AutomationError(f"Runbook protocol error: {where} has invalid permission-query error counts.")
         errors = source.get("permission_query_errors")
         if not isinstance(errors, list):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} permission_query_errors must be an array."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} permission_query_errors must be an array.")
         if (
             len(errors) != retained_count
             or error_count != retained_count + dropped_count
@@ -2473,18 +1927,13 @@ class MSQuarantineForSplunkSOARUtils:
                     separators=(",", ":"),
                     ensure_ascii=False,
                 ).encode("utf-8")
-            ) > MAX_PERMISSION_QUERY_ERROR_BYTES
-        ):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} permission-query error count does not match."
             )
+            > MAX_PERMISSION_QUERY_ERROR_BYTES
+        ):
+            raise AutomationError(f"Runbook protocol error: {where} permission-query error count does not match.")
         for record in errors:
             if not isinstance(record, dict):
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} permission-query errors must be objects."
-                )
+                raise AutomationError(f"Runbook protocol error: {where} permission-query errors must be objects.")
             for field, max_chars in (
                 ("query", 128),
                 ("error", MAX_DIAGNOSTIC_TEXT_CHARS),
@@ -2492,26 +1941,15 @@ class MSQuarantineForSplunkSOARUtils:
             ):
                 value = record.get(field)
                 if not isinstance(value, str) or len(value) > max_chars:
-                    raise AutomationError(
-                        "Runbook protocol error: "
-                        f"{where} has an invalid permission error '{field}'."
-                    )
+                    raise AutomationError(f"Runbook protocol error: {where} has an invalid permission error '{field}'.")
             cmdlet = record.get("cmdlet")
-            if cmdlet is not None and (
-                not isinstance(cmdlet, str)
-                or not cmdlet
-                or len(cmdlet) > 128
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} has an invalid permission error 'cmdlet'."
-                )
+            if cmdlet is not None and (not isinstance(cmdlet, str) or not cmdlet or len(cmdlet) > 128):
+                raise AutomationError(f"Runbook protocol error: {where} has an invalid permission error 'cmdlet'.")
 
         if status == "not_requested":
             if (
                 rbac_included
-                or source.get("rbac_diagnostics_reason")
-                != "tenant_rbac_opt_in_required"
+                or source.get("rbac_diagnostics_reason") != "tenant_rbac_opt_in_required"
                 or error_count != 0
                 or empty_contracts
                 or claims_status not in {None, ""}
@@ -2520,161 +1958,75 @@ class MSQuarantineForSplunkSOARUtils:
                 or role_group_total_count != 0
                 or role_group_inspected_count != 0
                 or role_group_inspection_truncated
-                or any(
-                    source.get(field) is not None
-                    for field in nullable_boolean_fields
-                )
+                or any(source.get(field) is not None for field in nullable_boolean_fields)
             ):
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} has inconsistent not-requested RBAC evidence."
-                )
+                raise AutomationError(f"Runbook protocol error: {where} has inconsistent not-requested RBAC evidence.")
         elif not rbac_included:
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} reports tenant RBAC evidence without opt-in."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} reports tenant RBAC evidence without opt-in.")
         elif status == "complete":
-            if (
-                error_count != 0
-                or missing_count != 0
-                or empty_contracts
-                or role_group_inspection_truncated
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} claims complete RBAC diagnostics with gaps."
-                )
+            if error_count != 0 or missing_count != 0 or empty_contracts or role_group_inspection_truncated:
+                raise AutomationError(f"Runbook protocol error: {where} claims complete RBAC diagnostics with gaps.")
             if any(source.get(field) is None for field in nullable_boolean_fields):
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} claims complete RBAC diagnostics with unknowns."
-                )
+                raise AutomationError(f"Runbook protocol error: {where} claims complete RBAC diagnostics with unknowns.")
         elif status == "not_evaluated":
             if (
                 missing_count == 0
-                or source.get("rbac_diagnostics_reason")
-                != "required_cmdlets_unavailable_in_current_exchange_session"
+                or source.get("rbac_diagnostics_reason") != "required_cmdlets_unavailable_in_current_exchange_session"
                 or role_group_total_count != 0
                 or role_group_inspected_count != 0
                 or role_group_inspection_truncated
-                or any(
-                    source.get(field) is not None
-                    for field in nullable_boolean_fields
-                )
+                or any(source.get(field) is not None for field in nullable_boolean_fields)
             ):
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} has inconsistent not-evaluated RBAC evidence."
-                )
-        elif (
-            error_count == 0
-            and not (
-                (
-                    source.get("rbac_diagnostics_reason")
-                    == "no_role_contracts_visible"
-                    and empty_contracts
-                )
-                or (
-                    source.get("rbac_diagnostics_reason")
-                    == "role_group_inspection_truncated"
-                    and role_group_inspection_truncated
-                )
-            )
+                raise AutomationError(f"Runbook protocol error: {where} has inconsistent not-evaluated RBAC evidence.")
+        elif error_count == 0 and not (
+            (source.get("rbac_diagnostics_reason") == "no_role_contracts_visible" and empty_contracts)
+            or (source.get("rbac_diagnostics_reason") == "role_group_inspection_truncated" and role_group_inspection_truncated)
         ):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} claims partial RBAC diagnostics without a gap."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} claims partial RBAC diagnostics without a gap.")
         if claims_status == "resolved":
             for field in (
                 "managed_identity_app_id",
                 "managed_identity_object_id",
             ):
                 if not GUID_RE.match(source.get(field, "")):
-                    raise AutomationError(
-                        "Runbook protocol error: "
-                        f"{where} has invalid resolved identity field '{field}'."
-                    )
+                    raise AutomationError(f"Runbook protocol error: {where} has invalid resolved identity field '{field}'.")
 
         membership = source.get("quarantine_group_membership_confirmed")
         assignment_matches = source.get("role_assignment_matches_identity")
-        if (
-            source.get("quarantine_role_groups")
-            != source.get("matched_quarantine_role_groups")
-        ):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} exposes unmatched role-group names."
-            )
+        if source.get("quarantine_role_groups") != source.get("matched_quarantine_role_groups"):
+            raise AutomationError(f"Runbook protocol error: {where} exposes unmatched role-group names.")
         if source.get("service_principal_registered"):
             for field in (
                 "registered_service_principal_app_id",
                 "registered_service_principal_object_id",
             ):
                 if not GUID_RE.match(source.get(field, "")):
-                    raise AutomationError(
-                        "Runbook protocol error: "
-                        f"{where} registers a service principal without a "
-                        f"valid '{field}'."
-                    )
-        if membership and (
-            not source["role_group_membership_evaluated"]
-            or not source["matched_quarantine_role_groups"]
-        ):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} confirms membership without supporting evidence."
-            )
-        if assignment_matches and not (
-            membership
-            or source.get("service_principal_registered")
-            or claims_status == "resolved"
-        ):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} confirms an assignment without identity evidence."
-            )
+                    raise AutomationError(f"Runbook protocol error: {where} registers a service principal without a valid '{field}'.")
+        if membership and (not source["role_group_membership_evaluated"] or not source["matched_quarantine_role_groups"]):
+            raise AutomationError(f"Runbook protocol error: {where} confirms membership without supporting evidence.")
+        if assignment_matches and not (membership or source.get("service_principal_registered") or claims_status == "resolved"):
+            raise AutomationError(f"Runbook protocol error: {where} confirms an assignment without identity evidence.")
         if source.get("quarantine_administrator_membership_confirmed") and (
-            not membership
-            or "Quarantine Administrator"
-            not in source["matched_quarantine_role_groups"]
+            not membership or "Quarantine Administrator" not in source["matched_quarantine_role_groups"]
         ):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} has inconsistent Quarantine Administrator evidence."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} has inconsistent Quarantine Administrator evidence.")
 
     @staticmethod
     def _validate_diagnostic_trace(value, field: str, where: str) -> list:
         if not isinstance(value, str) or len(value) > MAX_DIAGNOSTIC_TRACE_CHARS:
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} requires bounded string field '{field}'."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} requires bounded string field '{field}'.")
         if value == "":
             return []
         try:
             trace = json.loads(value)
         except (TypeError, ValueError) as exc:
+            raise AutomationError(f"Runbook protocol error: {where} field '{field}' is not valid JSON.") from exc
+        if not isinstance(trace, list) or len(trace) > MAX_DIAGNOSTIC_TRACE_RECORDS:
             raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} field '{field}' is not valid JSON."
-            ) from exc
-        if (
-            not isinstance(trace, list)
-            or len(trace) > MAX_DIAGNOSTIC_TRACE_RECORDS
-        ):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} field '{field}' must contain at most "
-                f"{MAX_DIAGNOSTIC_TRACE_RECORDS} records."
+                f"Runbook protocol error: {where} field '{field}' must contain at most {MAX_DIAGNOSTIC_TRACE_RECORDS} records."
             )
         if not all(isinstance(record, dict) for record in trace):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} field '{field}' must contain objects."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} field '{field}' must contain objects.")
         return trace
 
     @staticmethod
@@ -2682,19 +2034,13 @@ class MSQuarantineForSplunkSOARUtils:
         source: dict,
         where: str,
         requested_action: str,
-        connection_contract: bool = None,
+        connection_contract: Optional[bool] = None,
     ) -> None:
         """Require bounded module/cmdlet evidence for disposition attempts."""
         if connection_contract is None:
-            connection_contract = (
-                MSQuarantineForSplunkSOARUtils._supports_connection_contract(
-                    source
-                )
-            )
+            connection_contract = MSQuarantineForSplunkSOARUtils._supports_connection_contract(source)
         if not isinstance(source, dict):
-            raise AutomationError(
-                f"Runbook protocol error: {where} diagnostics must be an object."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} diagnostics must be an object.")
 
         MSQuarantineForSplunkSOARUtils._validate_static_diagnostics(
             source,
@@ -2703,16 +2049,8 @@ class MSQuarantineForSplunkSOARUtils:
             connection_contract,
         )
         module_version = source.get("exchange_online_management_version")
-        if (
-            not isinstance(module_version, str)
-            or not module_version
-            or len(module_version) > MAX_MODULE_VERSION_CHARS
-        ):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} requires a bounded "
-                "exchange_online_management_version string."
-            )
+        if not isinstance(module_version, str) or not module_version or len(module_version) > MAX_MODULE_VERSION_CHARS:
+            raise AutomationError(f"Runbook protocol error: {where} requires a bounded exchange_online_management_version string.")
 
         for field in (
             "cmdlet_warning",
@@ -2721,28 +2059,14 @@ class MSQuarantineForSplunkSOARUtils:
             "cmdlet_error",
         ):
             value = source.get(field)
-            if (
-                not isinstance(value, str)
-                or len(value) > MAX_ERROR_TEXT_CHARS
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} requires bounded string field '{field}'."
-                )
+            if not isinstance(value, str) or len(value) > MAX_ERROR_TEXT_CHARS:
+                raise AutomationError(f"Runbook protocol error: {where} requires bounded string field '{field}'.")
 
         if not isinstance(source.get("cmdlet_executed"), bool):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} requires boolean field 'cmdlet_executed'."
-            )
-        duration = MSQuarantineForSplunkSOARUtils._optional_int(
-            source.get("cmdlet_duration_ms")
-        )
+            raise AutomationError(f"Runbook protocol error: {where} requires boolean field 'cmdlet_executed'.")
+        duration = MSQuarantineForSplunkSOARUtils._optional_int(source.get("cmdlet_duration_ms"))
         if duration is None or duration < 0:
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} requires non-negative cmdlet_duration_ms."
-            )
+            raise AutomationError(f"Runbook protocol error: {where} requires non-negative cmdlet_duration_ms.")
 
         for field in (
             "cmdlet_started_at_utc",
@@ -2760,93 +2084,52 @@ class MSQuarantineForSplunkSOARUtils:
             "cmdlet_server_timestamp",
         ):
             value = source.get(field)
-            if (
-                not isinstance(value, str)
-                or len(value) > MAX_DIAGNOSTIC_TEXT_CHARS
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} requires bounded string field '{field}'."
-                )
+            if not isinstance(value, str) or len(value) > MAX_DIAGNOSTIC_TEXT_CHARS:
+                raise AutomationError(f"Runbook protocol error: {where} requires bounded string field '{field}'.")
         for field in ("cmdlet_error_details", "cmdlet_inner_exception"):
             value = source.get(field)
             if not isinstance(value, str) or len(value) > MAX_ERROR_TEXT_CHARS:
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} has an invalid exact error field '{field}'."
-                )
+                raise AutomationError(f"Runbook protocol error: {where} has an invalid exact error field '{field}'.")
 
         if connection_contract:
             attempted = source.get("cmdlet_invocation_attempted")
             if not isinstance(attempted, bool):
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} requires boolean field "
-                    "'cmdlet_invocation_attempted'."
-                )
+                raise AutomationError(f"Runbook protocol error: {where} requires boolean field 'cmdlet_invocation_attempted'.")
             for field in (
                 "cmdlet_invocation_form",
                 "cmdlet_error_position",
                 "cmdlet_script_stack_trace",
             ):
                 value = source.get(field)
-                if (
-                    not isinstance(value, str)
-                    or len(value) > MAX_ERROR_TEXT_CHARS
-                ):
-                    raise AutomationError(
-                        "Runbook protocol error: "
-                        f"{where} requires bounded string field '{field}'."
-                    )
+                if not isinstance(value, str) or len(value) > MAX_ERROR_TEXT_CHARS:
+                    raise AutomationError(f"Runbook protocol error: {where} requires bounded string field '{field}'.")
             if source["cmdlet_executed"] and not attempted:
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} executed a cmdlet that was never invoked."
-                )
+                raise AutomationError(f"Runbook protocol error: {where} executed a cmdlet that was never invoked.")
         else:
             attempted = source["cmdlet_executed"]
 
         if attempted:
-            if (
-                not source.get("cmdlet_started_at_utc")
-                or not source.get("cmdlet_completed_at_utc")
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    f"{where} invoked a cmdlet without UTC timing evidence."
-                )
-        elif (
-            source.get("cmdlet_started_at_utc")
-            or source.get("cmdlet_completed_at_utc")
-            or duration != 0
-        ):
-            raise AutomationError(
-                "Runbook protocol error: "
-                f"{where} claims timing for a cmdlet that was not invoked."
-            )
+            if not source.get("cmdlet_started_at_utc") or not source.get("cmdlet_completed_at_utc"):
+                raise AutomationError(f"Runbook protocol error: {where} invoked a cmdlet without UTC timing evidence.")
+        elif source.get("cmdlet_started_at_utc") or source.get("cmdlet_completed_at_utc") or duration != 0:
+            raise AutomationError(f"Runbook protocol error: {where} claims timing for a cmdlet that was not invoked.")
 
     def _validate_runbook_result(
         self,
         result: dict,
         requested_action: str,
-        requested_identity: str = None,
-        requested_include_rbac: bool = None,
-        requested_operation_action: str = None,
+        requested_identity: Optional[str] = None,
+        requested_include_rbac: Optional[bool] = None,
+        requested_operation_action: Optional[str] = None,
     ) -> None:
         """Validate envelopes using GUID semantics, not wire identity casing."""
         if not isinstance(result, dict):
-            raise AutomationError(
-                "Runbook protocol error: final output must be a JSON object."
-            )
+            raise AutomationError("Runbook protocol error: final output must be a JSON object.")
 
         self._validate_runbook_version(result, "Runbook result")
         if requested_action in {"list", "release", "deny", "config_check"}:
             self._validate_selection_evidence(result)
-        if (
-            requested_action in {"release", "deny"}
-            and self._runbook_version_tuple(result)
-            < MANAGED_IDENTITY_ONLY_RUNBOOK_VERSION
-        ):
+        if requested_action in {"release", "deny"} and self._runbook_version_tuple(result) < MANAGED_IDENTITY_ONLY_RUNBOOK_VERSION:
             raise AutomationError(
                 "Runbook protocol error: release/deny requires Runbook "
                 "3.4.2 or newer (Managed Identity-only Exchange "
@@ -2857,16 +2140,12 @@ class MSQuarantineForSplunkSOARUtils:
         response_action = result.get("action")
         if response_action != requested_action:
             raise AutomationError(
-                "Runbook protocol error: response action "
-                f"'{response_action}' does not match requested action "
-                f"'{requested_action}'."
+                f"Runbook protocol error: response action '{response_action}' does not match requested action '{requested_action}'."
             )
 
         error_value = result.get("error")
         if error_value is not None and not isinstance(error_value, bool):
-            raise AutomationError(
-                "Runbook protocol error: field 'error' must be a boolean."
-            )
+            raise AutomationError("Runbook protocol error: field 'error' must be a boolean.")
 
         if requested_action == "reconcile" and requested_operation_action is not None:
             evidence = result.get("details") if error_value is True else result
@@ -2875,27 +2154,14 @@ class MSQuarantineForSplunkSOARUtils:
                 or not isinstance(evidence, dict)
                 or evidence.get("operation_action") != requested_operation_action
             ):
-                raise AutomationError(
-                    "Runbook protocol error: reconciliation operation_action "
-                    "does not match the requested operation_action."
-                )
+                raise AutomationError("Runbook protocol error: reconciliation operation_action does not match the requested operation_action.")
 
-        if (
-            requested_action in {"release", "deny"}
-            and error_value is True
-        ):
+        if requested_action in {"release", "deny"} and error_value is True:
             details = result.get("details")
-            response_identity = (
-                details.get("identity")
-                if isinstance(details, dict)
-                else None
-            )
-            if not self._quarantine_identities_match(
-                response_identity, requested_identity
-            ):
+            response_identity = details.get("identity") if isinstance(details, dict) else None
+            if not self._quarantine_identities_match(response_identity, requested_identity):
                 raise AutomationError(
-                    "Runbook protocol error: structured irreversible-action "
-                    "error identity does not match the requested identity."
+                    "Runbook protocol error: structured irreversible-action error identity does not match the requested identity."
                 )
             if result.get("error_code") in {
                 PRECONDITION_ERROR_CODE,
@@ -2913,7 +2179,8 @@ class MSQuarantineForSplunkSOARUtils:
         if (
             requested_action == "diagnose"
             and error_value is True
-            and result.get("error_code") in {
+            and result.get("error_code")
+            in {
                 "diagnostic_inspection_failed",
                 "diagnostic_inspection_unconfirmed",
                 DIAGNOSTIC_RBAC_NOT_EVALUATED_ERROR_CODE,
@@ -2922,17 +2189,9 @@ class MSQuarantineForSplunkSOARUtils:
         ):
             details = result.get("details")
             if not isinstance(details, dict):
-                raise AutomationError(
-                    "Runbook protocol error: diagnostic failure requires "
-                    "an object in field 'details'."
-                )
-            if not self._quarantine_identities_match(
-                details.get("identity"), requested_identity
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: diagnostic failure identity "
-                    "does not match the requested identity."
-                )
+                raise AutomationError("Runbook protocol error: diagnostic failure requires an object in field 'details'.")
+            if not self._quarantine_identities_match(details.get("identity"), requested_identity):
+                raise AutomationError("Runbook protocol error: diagnostic failure identity does not match the requested identity.")
             self._validate_static_diagnostics(
                 details,
                 "diagnostic failure result",
@@ -2941,18 +2200,12 @@ class MSQuarantineForSplunkSOARUtils:
                 details,
                 "diagnostic failure result",
             )
-            if (
-                requested_include_rbac is not None
-                and details.get("include_rbac")
-                is not requested_include_rbac
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: diagnostic failure RBAC opt-in "
-                    "does not match the request."
-                )
+            if requested_include_rbac is not None and details.get("include_rbac") is not requested_include_rbac:
+                raise AutomationError("Runbook protocol error: diagnostic failure RBAC opt-in does not match the request.")
 
         if (
-            requested_action in {
+            requested_action
+            in {
                 "export",
                 "diagnose",
                 "reconcile",
@@ -2962,16 +2215,8 @@ class MSQuarantineForSplunkSOARUtils:
             and error_value is not True
         ):
             response_identity = result.get("identity")
-            if (
-                not isinstance(response_identity, str)
-                or not self._quarantine_identities_match(
-                    response_identity, requested_identity
-                )
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: response identity does not "
-                    "match the requested identity."
-                )
+            if not isinstance(response_identity, str) or not self._quarantine_identities_match(response_identity, requested_identity):
+                raise AutomationError("Runbook protocol error: response identity does not match the requested identity.")
 
         if requested_action == "config_check" and error_value is not True:
             self._validate_config_check_result(result)
@@ -2979,33 +2224,28 @@ class MSQuarantineForSplunkSOARUtils:
         if requested_action == "reconcile" and error_value is not True:
             operation_action = result.get("operation_action")
             if operation_action not in {"release", "deny"}:
-                raise AutomationError(
-                    "Runbook protocol error: reconcile result requires "
-                    "operation_action=release or deny."
-                )
+                raise AutomationError("Runbook protocol error: reconcile result requires operation_action=release or deny.")
             self._validate_irreversible_diagnostics(
                 result,
                 "successful reconcile result",
                 operation_action,
             )
-            expected_release_status = (
-                "Released" if operation_action == "release" else "Denied"
-            )
+            expected_release_status = "Released" if operation_action == "release" else "Denied"
             if (
-                result.get("status") not in {
+                result.get("status")
+                not in {
                     "confirmed_success",
                     "confirmed_failed",
                     "outcome_unknown",
                 }
-                or result.get("handling") not in {
+                or result.get("handling")
+                not in {
                     "no_retry_needed",
                     "retry_requires_new_operation",
                     "reconcile_before_retry",
                 }
-                or result.get("verification_method")
-                != POSTCONDITION_VERIFICATION_METHOD
-                or result.get("expected_release_status")
-                != expected_release_status
+                or result.get("verification_method") != POSTCONDITION_VERIFICATION_METHOD
+                or result.get("expected_release_status") != expected_release_status
                 or not self._quarantine_identities_match(
                     result.get("observed_identity"),
                     requested_identity,
@@ -3017,40 +2257,21 @@ class MSQuarantineForSplunkSOARUtils:
                 or self._optional_int(result.get("verification_attempts")) != 1
                 or result.get("cmdlet_executed") is not False
             ):
-                raise AutomationError(
-                    "Runbook protocol error: reconcile result does not prove "
-                    "one exact read-only Exchange status observation."
-                )
+                raise AutomationError("Runbook protocol error: reconcile result does not prove one exact read-only Exchange status observation.")
             status = result.get("status")
             handling = result.get("handling")
             observed_status = result.get("observed_release_status")
-            if status == "confirmed_success" and (
-                handling != "no_retry_needed"
-                or observed_status.lower() != expected_release_status.lower()
-            ):
+            if status == "confirmed_success" and (handling != "no_retry_needed" or observed_status.lower() != expected_release_status.lower()):
                 raise AutomationError(
-                    "Runbook protocol error: successful reconcile result "
-                    "does not match the expected terminal Exchange status."
+                    "Runbook protocol error: successful reconcile result does not match the expected terminal Exchange status."
                 )
-            opposite_status = (
-                "Denied" if operation_action == "release" else "Released"
-            )
+            opposite_status = "Denied" if operation_action == "release" else "Released"
             if status == "confirmed_failed" and (
-                handling != "retry_requires_new_operation"
-                or observed_status.lower() != opposite_status.lower()
+                handling != "retry_requires_new_operation" or observed_status.lower() != opposite_status.lower()
             ):
-                raise AutomationError(
-                    "Runbook protocol error: failed reconcile result does not "
-                    "prove the opposite terminal Exchange status."
-                )
-            if status == "outcome_unknown" and (
-                handling != "reconcile_before_retry"
-                or observed_status.lower() in {"released", "denied"}
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: unknown reconcile result has an "
-                    "inconsistent Exchange status or handling value."
-                )
+                raise AutomationError("Runbook protocol error: failed reconcile result does not prove the opposite terminal Exchange status.")
+            if status == "outcome_unknown" and (handling != "reconcile_before_retry" or observed_status.lower() in {"released", "denied"}):
+                raise AutomationError("Runbook protocol error: unknown reconcile result has an inconsistent Exchange status or handling value.")
             trace = self._validate_diagnostic_trace(
                 result.get("postcondition_trace"),
                 "postcondition_trace",
@@ -3069,8 +2290,7 @@ class MSQuarantineForSplunkSOARUtils:
                 or trace[0].get("error") != ""
             ):
                 raise AutomationError(
-                    "Runbook protocol error: reconcile result trace does not "
-                    "prove one exact, error-free identity-bound status read."
+                    "Runbook protocol error: reconcile result trace does not prove one exact, error-free identity-bound status read."
                 )
 
         if requested_action == "diagnose" and error_value is not True:
@@ -3084,30 +2304,12 @@ class MSQuarantineForSplunkSOARUtils:
             )
             include_rbac = result.get("include_rbac")
             if not isinstance(include_rbac, bool):
-                raise AutomationError(
-                    "Runbook protocol error: successful diagnose result "
-                    "must declare boolean include_rbac."
-                )
-            if (
-                requested_include_rbac is not None
-                and include_rbac is not requested_include_rbac
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: successful diagnose result RBAC "
-                    "opt-in does not match the request."
-                )
-            expected_rbac_status = (
-                "complete" if include_rbac else "not_requested"
-            )
-            if (
-                result.get("rbac_included") is not include_rbac
-                or result.get("rbac_diagnostics_status")
-                != expected_rbac_status
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: successful diagnose result has "
-                    "an inconsistent RBAC opt-in/result contract."
-                )
+                raise AutomationError("Runbook protocol error: successful diagnose result must declare boolean include_rbac.")
+            if requested_include_rbac is not None and include_rbac is not requested_include_rbac:
+                raise AutomationError("Runbook protocol error: successful diagnose result RBAC opt-in does not match the request.")
+            expected_rbac_status = "complete" if include_rbac else "not_requested"
+            if result.get("rbac_included") is not include_rbac or result.get("rbac_diagnostics_status") != expected_rbac_status:
+                raise AutomationError("Runbook protocol error: successful diagnose result has an inconsistent RBAC opt-in/result contract.")
             if (
                 result.get("status") != "inspected"
                 or result.get("handling") != "read_only"
@@ -3125,31 +2327,15 @@ class MSQuarantineForSplunkSOARUtils:
                 or not isinstance(result.get("inspected_at_utc"), str)
                 or not result.get("inspected_at_utc")
             ):
-                raise AutomationError(
-                    "Runbook protocol error: successful diagnose result "
-                    "does not prove one exact read-only identity snapshot."
-                )
+                raise AutomationError("Runbook protocol error: successful diagnose result does not prove one exact read-only identity snapshot.")
 
-        if (
-            requested_action in {"release", "deny"}
-            and error_value is not True
-        ):
-            expected_business_status = (
-                "released" if requested_action == "release" else "denied"
-            )
-            expected_release_status = (
-                "Released" if requested_action == "release" else "Denied"
-            )
-            observed_release_status = result.get(
-                "observed_release_status"
-            )
+        if requested_action in {"release", "deny"} and error_value is not True:
+            expected_business_status = "released" if requested_action == "release" else "denied"
+            expected_release_status = "Released" if requested_action == "release" else "Denied"
+            observed_release_status = result.get("observed_release_status")
             observed_identity = result.get("observed_identity")
-            observed_status_history = result.get(
-                "observed_release_status_history"
-            )
-            verification_attempts = self._optional_int(
-                result.get("verification_attempts")
-            )
+            observed_status_history = result.get("observed_release_status_history")
+            verification_attempts = self._optional_int(result.get("verification_attempts"))
 
             self._validate_irreversible_diagnostics(
                 result,
@@ -3191,38 +2377,23 @@ class MSQuarantineForSplunkSOARUtils:
                     if self._supports_connection_contract(result)
                     else result.get("cmdlet_executed") is True
                 )
-                if (
-                    result.get("idempotent") not in (None, False)
-                    or not invoked
-                ):
+                if result.get("idempotent") not in (None, False) or not invoked:
                     raise AutomationError(
                         "Runbook protocol error: a newly executed disposition "
                         "must declare an attempted cmdlet invocation and must "
                         "not claim idempotent success."
                     )
-            if (
-                result.get("verification_method")
-                != POSTCONDITION_VERIFICATION_METHOD
-            ):
+            if result.get("verification_method") != POSTCONDITION_VERIFICATION_METHOD:
                 raise AutomationError(
                     "Runbook protocol error: successful release/deny result "
                     "must declare verification_method="
                     f"{POSTCONDITION_VERIFICATION_METHOD}."
                 )
-            if (
-                result.get("expected_release_status")
-                != expected_release_status
-            ):
+            if result.get("expected_release_status") != expected_release_status:
                 raise AutomationError(
-                    "Runbook protocol error: successful "
-                    f"{requested_action} result has an invalid expected "
-                    "Exchange release status."
+                    f"Runbook protocol error: successful {requested_action} result has an invalid expected Exchange release status."
                 )
-            if (
-                not isinstance(observed_release_status, str)
-                or observed_release_status.lower()
-                != expected_release_status.lower()
-            ):
+            if not isinstance(observed_release_status, str) or observed_release_status.lower() != expected_release_status.lower():
                 raise AutomationError(
                     "Runbook protocol error: successful "
                     f"{requested_action} result lacks the confirmed Exchange "
@@ -3230,22 +2401,19 @@ class MSQuarantineForSplunkSOARUtils:
                 )
             if verification_attempts is None or verification_attempts < 1:
                 raise AutomationError(
-                    "Runbook protocol error: successful release/deny result "
-                    "must declare a positive verification_attempts value."
+                    "Runbook protocol error: successful release/deny result must declare a positive verification_attempts value."
                 )
             if not self._quarantine_identities_match(
                 observed_identity,
                 requested_identity,
             ):
                 raise AutomationError(
-                    "Runbook protocol error: successful release/deny result "
-                    "observed_identity does not match the requested identity."
+                    "Runbook protocol error: successful release/deny result observed_identity does not match the requested identity."
                 )
             if (
                 not isinstance(observed_status_history, str)
                 or not observed_status_history
-                or observed_status_history.split(" -> ")[-1].lower()
-                != expected_release_status.lower()
+                or observed_status_history.split(" -> ")[-1].lower() != expected_release_status.lower()
             ):
                 raise AutomationError(
                     "Runbook protocol error: successful release/deny result "
@@ -3253,10 +2421,7 @@ class MSQuarantineForSplunkSOARUtils:
                     f"ReleaseStatus={expected_release_status}."
                 )
             if not isinstance(result.get("last_verification_error"), str):
-                raise AutomationError(
-                    "Runbook protocol error: successful release/deny result "
-                    "requires a string last_verification_error."
-                )
+                raise AutomationError("Runbook protocol error: successful release/deny result requires a string last_verification_error.")
             self._validate_diagnostic_trace(
                 result.get("precondition_trace"),
                 "precondition_trace",
@@ -3268,26 +2433,17 @@ class MSQuarantineForSplunkSOARUtils:
                 f"successful {requested_action} result",
             )
             if not result.get("precondition_trace"):
-                raise AutomationError(
-                    "Runbook protocol error: successful release/deny result "
-                    "requires a precondition trace."
-                )
+                raise AutomationError("Runbook protocol error: successful release/deny result requires a precondition trace.")
             if is_idempotent and result.get("postcondition_trace"):
-                raise AutomationError(
-                    "Runbook protocol error: idempotent success must not "
-                    "claim a postcondition trace after a skipped cmdlet."
-                )
+                raise AutomationError("Runbook protocol error: idempotent success must not claim a postcondition trace after a skipped cmdlet.")
             if not is_idempotent and not result.get("postcondition_trace"):
-                raise AutomationError(
-                    "Runbook protocol error: executed release/deny success "
-                    "requires a postcondition trace."
-                )
+                raise AutomationError("Runbook protocol error: executed release/deny success requires a postcondition trace.")
 
     def _raise_for_runbook_error(
         self,
         result: dict,
         requested_action: str,
-        requested_identity: str = None,
+        requested_identity: Optional[str] = None,
     ) -> None:
         """Validate and raise a structured application error from the runbook."""
         if not isinstance(result, dict):
@@ -3297,65 +2453,35 @@ class MSQuarantineForSplunkSOARUtils:
         if error_value is None or error_value is False:
             return
         if error_value is not True:
-            raise AutomationError(
-                "Runbook protocol error: field 'error' must be a boolean."
-            )
+            raise AutomationError("Runbook protocol error: field 'error' must be a boolean.")
 
         response_action = result.get("action")
         if response_action != requested_action:
             raise AutomationError(
-                "Runbook protocol error: structured error action "
-                f"'{response_action}' does not match requested action "
-                f"'{requested_action}'."
+                f"Runbook protocol error: structured error action '{response_action}' does not match requested action '{requested_action}'."
             )
 
         if result.get("error_code") == PRECONDITION_ERROR_CODE:
             if requested_action not in {"release", "deny"}:
-                raise AutomationError(
-                    "Runbook protocol error: precondition_unconfirmed is "
-                    "valid only for release and deny."
-                )
+                raise AutomationError("Runbook protocol error: precondition_unconfirmed is valid only for release and deny.")
 
             details = result.get("details")
             if not isinstance(details, dict):
+                raise AutomationError("Runbook protocol error: precondition_unconfirmed requires an object in field 'details'.")
+            if not self._quarantine_identities_match(details.get("identity"), requested_identity):
+                raise AutomationError("Runbook protocol error: precondition_unconfirmed identity does not match the requested identity.")
+            if details.get("expected_release_status") != self.selection_release_status:
                 raise AutomationError(
-                    "Runbook protocol error: precondition_unconfirmed "
-                    "requires an object in field 'details'."
+                    f"Runbook protocol error: precondition_unconfirmed must expect ReleaseStatus={self.selection_release_status}."
                 )
-            if not self._quarantine_identities_match(
-                details.get("identity"), requested_identity
-            ):
+            if details.get("verification_method") != POSTCONDITION_VERIFICATION_METHOD:
                 raise AutomationError(
-                    "Runbook protocol error: precondition_unconfirmed "
-                    "identity does not match the requested identity."
-                )
-            if (
-                details.get("expected_release_status")
-                != self.selection_release_status
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: precondition_unconfirmed must "
-                    f"expect ReleaseStatus={self.selection_release_status}."
-                )
-            if (
-                details.get("verification_method")
-                != POSTCONDITION_VERIFICATION_METHOD
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: precondition_unconfirmed must "
-                    "declare verification_method="
-                    f"{POSTCONDITION_VERIFICATION_METHOD}."
+                    f"Runbook protocol error: precondition_unconfirmed must declare verification_method={POSTCONDITION_VERIFICATION_METHOD}."
                 )
             if details.get("handling") != "manual_review":
-                raise AutomationError(
-                    "Runbook protocol error: precondition_unconfirmed must "
-                    "declare handling=manual_review."
-                )
+                raise AutomationError("Runbook protocol error: precondition_unconfirmed must declare handling=manual_review.")
             if self._optional_int(details.get("verification_attempts")) != 1:
-                raise AutomationError(
-                    "Runbook protocol error: precondition_unconfirmed must "
-                    "declare exactly one verification attempt."
-                )
+                raise AutomationError("Runbook protocol error: precondition_unconfirmed must declare exactly one verification attempt.")
             for field in (
                 "observed_release_status",
                 "observed_identity",
@@ -3363,10 +2489,7 @@ class MSQuarantineForSplunkSOARUtils:
                 "last_verification_error",
             ):
                 if not isinstance(details.get(field), str):
-                    raise AutomationError(
-                        "Runbook protocol error: precondition_unconfirmed "
-                        f"requires string field '{field}'."
-                    )
+                    raise AutomationError(f"Runbook protocol error: precondition_unconfirmed requires string field '{field}'.")
             self._validate_diagnostic_trace(
                 details.get("precondition_trace"),
                 "precondition_trace",
@@ -3378,16 +2501,11 @@ class MSQuarantineForSplunkSOARUtils:
                 "precondition_unconfirmed result",
             )
             if details.get("postcondition_trace") != "":
-                raise AutomationError(
-                    "Runbook protocol error: precondition_unconfirmed must "
-                    "not contain a postcondition trace."
-                )
+                raise AutomationError("Runbook protocol error: precondition_unconfirmed must not contain a postcondition trace.")
 
             message = result.get("message")
             if not isinstance(message, str) or not message:
-                message = (
-                    "Exchange disposition precondition was not confirmed."
-                )
+                message = "Exchange disposition precondition was not confirmed."
             raise RunbookActionError(
                 message,
                 result=result,
@@ -3395,90 +2513,42 @@ class MSQuarantineForSplunkSOARUtils:
 
         if result.get("error_code") == POSTCONDITION_ERROR_CODE:
             if requested_action not in {"release", "deny"}:
-                raise AutomationError(
-                    "Runbook protocol error: postcondition_unconfirmed is "
-                    "valid only for release and deny."
-                )
+                raise AutomationError("Runbook protocol error: postcondition_unconfirmed is valid only for release and deny.")
 
             details = result.get("details")
             if not isinstance(details, dict):
-                raise AutomationError(
-                    "Runbook protocol error: postcondition_unconfirmed "
-                    "requires an object in field 'details'."
-                )
+                raise AutomationError("Runbook protocol error: postcondition_unconfirmed requires an object in field 'details'.")
 
-            expected_release_status = (
-                "Released" if requested_action == "release" else "Denied"
-            )
+            expected_release_status = "Released" if requested_action == "release" else "Denied"
             response_identity = details.get("identity")
-            observed_release_status = details.get(
-                "observed_release_status"
-            )
+            observed_release_status = details.get("observed_release_status")
             observed_identity = details.get("observed_identity")
-            observed_status_history = details.get(
-                "observed_release_status_history"
-            )
-            verification_attempts = self._optional_int(
-                details.get("verification_attempts")
-            )
+            observed_status_history = details.get("observed_release_status_history")
+            verification_attempts = self._optional_int(details.get("verification_attempts"))
 
-            if not self._quarantine_identities_match(
-                response_identity, requested_identity
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: postcondition_unconfirmed "
-                    "identity does not match the requested identity."
-                )
-            if (
-                details.get("expected_release_status")
-                != expected_release_status
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: postcondition_unconfirmed has "
-                    "an invalid expected Exchange release status."
-                )
+            if not self._quarantine_identities_match(response_identity, requested_identity):
+                raise AutomationError("Runbook protocol error: postcondition_unconfirmed identity does not match the requested identity.")
+            if details.get("expected_release_status") != expected_release_status:
+                raise AutomationError("Runbook protocol error: postcondition_unconfirmed has an invalid expected Exchange release status.")
             if not isinstance(observed_release_status, str):
+                raise AutomationError("Runbook protocol error: postcondition_unconfirmed requires a string observed_release_status.")
+            if details.get("verification_method") != POSTCONDITION_VERIFICATION_METHOD:
                 raise AutomationError(
-                    "Runbook protocol error: postcondition_unconfirmed "
-                    "requires a string observed_release_status."
-                )
-            if (
-                details.get("verification_method")
-                != POSTCONDITION_VERIFICATION_METHOD
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: postcondition_unconfirmed must "
-                    "declare verification_method="
-                    f"{POSTCONDITION_VERIFICATION_METHOD}."
+                    f"Runbook protocol error: postcondition_unconfirmed must declare verification_method={POSTCONDITION_VERIFICATION_METHOD}."
                 )
             if verification_attempts is None or verification_attempts < 1:
-                raise AutomationError(
-                    "Runbook protocol error: postcondition_unconfirmed must "
-                    "declare a positive verification_attempts value."
-                )
+                raise AutomationError("Runbook protocol error: postcondition_unconfirmed must declare a positive verification_attempts value.")
             if details.get("handling") != "reconcile_before_retry":
-                raise AutomationError(
-                    "Runbook protocol error: postcondition_unconfirmed must "
-                    "declare handling=reconcile_before_retry."
-                )
+                raise AutomationError("Runbook protocol error: postcondition_unconfirmed must declare handling=reconcile_before_retry.")
             if not isinstance(observed_identity, str):
-                raise AutomationError(
-                    "Runbook protocol error: postcondition_unconfirmed "
-                    "requires a string observed_identity."
-                )
+                raise AutomationError("Runbook protocol error: postcondition_unconfirmed requires a string observed_identity.")
             if not isinstance(observed_status_history, str):
-                raise AutomationError(
-                    "Runbook protocol error: postcondition_unconfirmed "
-                    "requires a string observed_release_status_history."
-                )
+                raise AutomationError("Runbook protocol error: postcondition_unconfirmed requires a string observed_release_status_history.")
             if not isinstance(
                 details.get("last_verification_error"),
                 str,
             ):
-                raise AutomationError(
-                    "Runbook protocol error: postcondition_unconfirmed "
-                    "requires a string last_verification_error."
-                )
+                raise AutomationError("Runbook protocol error: postcondition_unconfirmed requires a string last_verification_error.")
             self._validate_diagnostic_trace(
                 details.get("precondition_trace"),
                 "precondition_trace",
@@ -3489,14 +2559,8 @@ class MSQuarantineForSplunkSOARUtils:
                 "postcondition_trace",
                 "postcondition_unconfirmed result",
             )
-            if (
-                not details.get("precondition_trace")
-                or not details.get("postcondition_trace")
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: postcondition_unconfirmed "
-                    "requires both precondition and postcondition traces."
-                )
+            if not details.get("precondition_trace") or not details.get("postcondition_trace"):
+                raise AutomationError("Runbook protocol error: postcondition_unconfirmed requires both precondition and postcondition traces.")
 
             message = result.get("message")
             if not isinstance(message, str) or not message:
@@ -3508,86 +2572,40 @@ class MSQuarantineForSplunkSOARUtils:
 
         if result.get("error_code") == DISPOSITION_REJECTED_ERROR_CODE:
             if requested_action not in {"release", "deny"}:
-                raise AutomationError(
-                    "Runbook protocol error: disposition_rejected is valid "
-                    "only for release and deny."
-                )
+                raise AutomationError("Runbook protocol error: disposition_rejected is valid only for release and deny.")
             details = result.get("details")
             if not isinstance(details, dict):
-                raise AutomationError(
-                    "Runbook protocol error: disposition_rejected requires "
-                    "an object in field 'details'."
-                )
-            expected_release_status = (
-                "Released" if requested_action == "release" else "Denied"
-            )
-            if not self._quarantine_identities_match(
-                details.get("identity"), requested_identity
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: disposition_rejected identity "
-                    "does not match the requested identity."
-                )
+                raise AutomationError("Runbook protocol error: disposition_rejected requires an object in field 'details'.")
+            expected_release_status = "Released" if requested_action == "release" else "Denied"
+            if not self._quarantine_identities_match(details.get("identity"), requested_identity):
+                raise AutomationError("Runbook protocol error: disposition_rejected identity does not match the requested identity.")
             if details.get("expected_release_status") != expected_release_status:
+                raise AutomationError("Runbook protocol error: disposition_rejected has an invalid expected Exchange release status.")
+            if details.get("observed_release_status") != self.selection_release_status:
                 raise AutomationError(
-                    "Runbook protocol error: disposition_rejected has an "
-                    "invalid expected Exchange release status."
-                )
-            if (
-                details.get("observed_release_status")
-                != self.selection_release_status
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: disposition_rejected requires "
-                    f"the exact unchanged ReleaseStatus={self.selection_release_status}."
+                    f"Runbook protocol error: disposition_rejected requires the exact unchanged ReleaseStatus={self.selection_release_status}."
                 )
             if not self._quarantine_identities_match(
                 details.get("observed_identity"),
                 requested_identity,
             ):
+                raise AutomationError("Runbook protocol error: disposition_rejected requires an exact observed_identity match.")
+            if details.get("verification_method") != POSTCONDITION_VERIFICATION_METHOD:
                 raise AutomationError(
-                    "Runbook protocol error: disposition_rejected requires "
-                    "an exact observed_identity match."
+                    f"Runbook protocol error: disposition_rejected must declare verification_method={POSTCONDITION_VERIFICATION_METHOD}."
                 )
-            if (
-                details.get("verification_method")
-                != POSTCONDITION_VERIFICATION_METHOD
-            ):
+            verification_attempts = self._optional_int(details.get("verification_attempts"))
+            if verification_attempts is None or verification_attempts < 3 or verification_attempts > 20:
                 raise AutomationError(
-                    "Runbook protocol error: disposition_rejected must "
-                    "declare verification_method="
-                    f"{POSTCONDITION_VERIFICATION_METHOD}."
-                )
-            verification_attempts = self._optional_int(
-                details.get("verification_attempts")
-            )
-            if (
-                verification_attempts is None
-                or verification_attempts < 3
-                or verification_attempts > 20
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: disposition_rejected must "
-                    "declare between three and twenty bounded verification "
-                    "attempts."
+                    "Runbook protocol error: disposition_rejected must declare between three and twenty bounded verification attempts."
                 )
             if details.get("handling") != "manual_review":
-                raise AutomationError(
-                    "Runbook protocol error: disposition_rejected must "
-                    "declare handling=manual_review."
-                )
+                raise AutomationError("Runbook protocol error: disposition_rejected must declare handling=manual_review.")
             if details.get("last_verification_error") != "":
+                raise AutomationError("Runbook protocol error: disposition_rejected cannot contain a postcondition read error.")
+            if details.get("observed_release_status_history") != self.selection_release_status:
                 raise AutomationError(
-                    "Runbook protocol error: disposition_rejected cannot "
-                    "contain a postcondition read error."
-                )
-            if (
-                details.get("observed_release_status_history")
-                != self.selection_release_status
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: disposition_rejected requires "
-                    f"an unchanged {self.selection_release_status} status history."
+                    f"Runbook protocol error: disposition_rejected requires an unchanged {self.selection_release_status} status history."
                 )
             self._validate_diagnostic_trace(
                 details.get("precondition_trace"),
@@ -3599,31 +2617,21 @@ class MSQuarantineForSplunkSOARUtils:
                 "postcondition_trace",
                 "disposition_rejected result",
             )
-            if (
-                not details.get("precondition_trace")
-                or not details.get("postcondition_trace")
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: disposition_rejected requires "
-                    "both precondition and postcondition traces."
+            if not details.get("precondition_trace") or not details.get("postcondition_trace"):
+                raise AutomationError("Runbook protocol error: disposition_rejected requires both precondition and postcondition traces.")
+            if len(postcondition_trace) != verification_attempts or any(
+                record.get("attempt") != attempt
+                or record.get("result_count") != 1
+                or not self._quarantine_identities_match(
+                    record.get("observed_identity"),
+                    requested_identity,
                 )
-            if (
-                len(postcondition_trace) != verification_attempts
-                or any(
-                    record.get("attempt") != attempt
-                    or record.get("result_count") != 1
-                    or not self._quarantine_identities_match(
-                        record.get("observed_identity"),
-                        requested_identity,
-                    )
-                    or record.get("observed_release_status")
-                    != self.selection_release_status
-                    or record.get("exact_identity_match") is not True
-                    or record.get("error") != ""
-                    for attempt, record in enumerate(
-                        postcondition_trace,
-                        start=1,
-                    )
+                or record.get("observed_release_status") != self.selection_release_status
+                or record.get("exact_identity_match") is not True
+                or record.get("error") != ""
+                for attempt, record in enumerate(
+                    postcondition_trace,
+                    start=1,
                 )
             ):
                 raise AutomationError(
@@ -3640,10 +2648,7 @@ class MSQuarantineForSplunkSOARUtils:
                     "cmdlet_error_details",
                 )
             ):
-                raise AutomationError(
-                    "Runbook protocol error: disposition_rejected requires "
-                    "structured cmdlet rejection evidence."
-                )
+                raise AutomationError("Runbook protocol error: disposition_rejected requires structured cmdlet rejection evidence.")
             message = result.get("message")
             if not isinstance(message, str) or not message:
                 message = "Exchange rejected the disposition operation."
@@ -3654,26 +2659,17 @@ class MSQuarantineForSplunkSOARUtils:
 
         if result.get("error_code") == DISPOSITION_CAPABILITY_ERROR_CODE:
             if requested_action not in {"release", "deny"}:
-                raise AutomationError(
-                    "Runbook protocol error: "
-                    "disposition_capability_unconfirmed is valid only for "
-                    "release and deny."
-                )
+                raise AutomationError("Runbook protocol error: disposition_capability_unconfirmed is valid only for release and deny.")
             details = result.get("details")
             if (
                 not isinstance(details, dict)
-                or not self._quarantine_identities_match(
-                    details.get("identity"), requested_identity
-                )
+                or not self._quarantine_identities_match(details.get("identity"), requested_identity)
                 or details.get("cmdlet_executed") is not False
                 or details.get("cmdlet_capability_status") != "unconfirmed"
                 or not details.get("cmdlet_capability_error")
                 or details.get("handling") != "manual_review"
             ):
-                raise AutomationError(
-                    "Runbook protocol error: capability failure lacks "
-                    "fail-closed runtime evidence."
-                )
+                raise AutomationError("Runbook protocol error: capability failure lacks fail-closed runtime evidence.")
             message = result.get("message")
             if not isinstance(message, str) or not message:
                 message = "Disposition command capability was not confirmed."
@@ -3684,40 +2680,25 @@ class MSQuarantineForSplunkSOARUtils:
 
         if result.get("error_code") == "reconciliation_inspection_unconfirmed":
             if requested_action != "reconcile":
-                raise AutomationError(
-                    "Runbook protocol error: read-only reconciliation failure "
-                    "is valid only for action=reconcile."
-                )
+                raise AutomationError("Runbook protocol error: read-only reconciliation failure is valid only for action=reconcile.")
             details = result.get("details")
             if not isinstance(details, dict):
-                raise AutomationError(
-                    "Runbook protocol error: reconciliation failure requires "
-                    "an object in field 'details'."
-                )
+                raise AutomationError("Runbook protocol error: reconciliation failure requires an object in field 'details'.")
             operation_action = details.get("operation_action")
             if operation_action not in {"release", "deny"}:
-                raise AutomationError(
-                    "Runbook protocol error: reconciliation failure requires "
-                    "operation_action=release or deny."
-                )
+                raise AutomationError("Runbook protocol error: reconciliation failure requires operation_action=release or deny.")
             self._validate_irreversible_diagnostics(
                 details,
                 "read-only reconciliation failure",
                 operation_action,
             )
-            expected_release_status = (
-                "Released" if operation_action == "release" else "Denied"
-            )
+            expected_release_status = "Released" if operation_action == "release" else "Denied"
             if (
-                not self._quarantine_identities_match(
-                    details.get("identity"), requested_identity
-                )
+                not self._quarantine_identities_match(details.get("identity"), requested_identity)
                 or details.get("status") != "outcome_unknown"
                 or details.get("handling") != "reconcile_before_retry"
-                or details.get("expected_release_status")
-                != expected_release_status
-                or details.get("verification_method")
-                != POSTCONDITION_VERIFICATION_METHOD
+                or details.get("expected_release_status") != expected_release_status
+                or details.get("verification_method") != POSTCONDITION_VERIFICATION_METHOD
                 or self._optional_int(details.get("verification_attempts")) != 1
                 or details.get("cmdlet_executed") is not False
                 or details.get("precondition_trace") != ""
@@ -3733,23 +2714,15 @@ class MSQuarantineForSplunkSOARUtils:
                 or not isinstance(details.get("last_verification_error"), str)
                 or not details.get("last_verification_error")
             ):
-                raise AutomationError(
-                    "Runbook protocol error: reconciliation failure lacks "
-                    "one fail-closed read-only status observation."
-                )
+                raise AutomationError("Runbook protocol error: reconciliation failure lacks one fail-closed read-only status observation.")
             trace = self._validate_diagnostic_trace(
                 details.get("postcondition_trace"),
                 "postcondition_trace",
                 "read-only reconciliation failure",
             )
-            if (
-                len(trace) != 1
-                or trace[0].get("attempt") != 1
-                or trace[0].get("exact_identity_match") is True
-            ):
+            if len(trace) != 1 or trace[0].get("attempt") != 1 or trace[0].get("exact_identity_match") is True:
                 raise AutomationError(
-                    "Runbook protocol error: reconciliation failure trace "
-                    "does not prove one unconfirmed read-only observation."
+                    "Runbook protocol error: reconciliation failure trace does not prove one unconfirmed read-only observation."
                 )
             message = result.get("message")
             if not isinstance(message, str) or not message:
@@ -3761,62 +2734,31 @@ class MSQuarantineForSplunkSOARUtils:
 
         if result.get("error_code") == "exchange_cmdlet_failed":
             details = result.get("details")
-            if (
-                not isinstance(details, dict)
-                or details.get("handling")
-                != "retry_requires_new_operation"
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: exchange_cmdlet_failed must "
-                    "declare handling=retry_requires_new_operation."
-                )
+            if not isinstance(details, dict) or details.get("handling") != "retry_requires_new_operation":
+                raise AutomationError("Runbook protocol error: exchange_cmdlet_failed must declare handling=retry_requires_new_operation.")
         if result.get("error_code") == "export_oversized":
             if requested_action != "export":
-                raise AutomationError(
-                    "Runbook protocol error: export_oversized is valid only "
-                    "for the export action."
-                )
+                raise AutomationError("Runbook protocol error: export_oversized is valid only for the export action.")
 
             details = result.get("details")
             if not isinstance(details, dict):
-                raise AutomationError(
-                    "Runbook protocol error: export_oversized requires an "
-                    "object in field 'details'."
-                )
+                raise AutomationError("Runbook protocol error: export_oversized requires an object in field 'details'.")
 
             response_identity = details.get("identity")
             decoded_size = self._optional_int(details.get("decoded_size"))
-            max_decoded_size = self._optional_int(
-                details.get("max_decoded_size")
-            )
+            max_decoded_size = self._optional_int(details.get("max_decoded_size"))
             handling = details.get("handling")
 
             if (
                 not isinstance(response_identity, str)
                 or not response_identity
-                or not self._quarantine_identities_match(
-                    response_identity, requested_identity
-                )
+                or not self._quarantine_identities_match(response_identity, requested_identity)
             ):
-                raise AutomationError(
-                    "Runbook protocol error: export_oversized identity does "
-                    "not match the requested identity."
-                )
-            if (
-                decoded_size is None
-                or max_decoded_size is None
-                or max_decoded_size < 0
-                or decoded_size <= max_decoded_size
-            ):
-                raise AutomationError(
-                    "Runbook protocol error: export_oversized sizes are "
-                    "missing or inconsistent."
-                )
+                raise AutomationError("Runbook protocol error: export_oversized identity does not match the requested identity.")
+            if decoded_size is None or max_decoded_size is None or max_decoded_size < 0 or decoded_size <= max_decoded_size:
+                raise AutomationError("Runbook protocol error: export_oversized sizes are missing or inconsistent.")
             if handling != "fail_closed":
-                raise AutomationError(
-                    "Runbook protocol error: export_oversized must declare "
-                    "handling=fail_closed."
-                )
+                raise AutomationError("Runbook protocol error: export_oversized must declare handling=fail_closed.")
 
             raise OversizedExportError(
                 result.get("message", "Export exceeds safety cap."),

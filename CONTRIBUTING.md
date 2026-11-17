@@ -29,3 +29,7 @@ See [CI and build checks](docs/ci.md) for the Python matrix, complete PowerShell
 - Describe checks actually run and remaining limitations in the pull request. A test plan is not a test result.
 
 Contributions are submitted under the repository's [Apache-2.0 license](LICENSE). Report vulnerabilities using [SECURITY.md](SECURITY.md), not a public reproduction containing sensitive data.
+
+## Submission preparation
+
+Run the [upstream preparation gates](docs/ci.md#upstream-soar-preparation-gates) as well as the complete test matrix. Update `manual_readme_content.md` for generated README changes and `release_notes/unreleased.md` for unreleased notes. Registration-pending results are not upstream approval. Keep the current app identity and versions unless an explicit release change requires otherwise.

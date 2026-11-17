@@ -37,8 +37,8 @@ $global:ConnTestIdentity = (
     "c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\" +
     "4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"
 )
-$secretUser = "svc-account@example.invalid"
-$secretPassword = "never-leave-the-runbook-PASSWORD"
+$secretUser = "svc-account@example.invalid" # pragma: allowlist secret - synthetic offline credential fixture
+$secretPassword = "never-leave-the-runbook-PASSWORD" # pragma: allowlist secret - synthetic offline credential fixture
 $env:IDENTITY_ENDPOINT = "http://127.0.0.1/mock-msi/token"
 $env:IDENTITY_HEADER = "never-leave-the-runbook-HEADER"
 

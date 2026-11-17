@@ -1,7 +1,7 @@
 # Copyright 2026 Kai Seidenschnur
 # Licensed under the Apache License, Version 2.0.
 #
-# Tests – MS Quarantine for Splunk SOAR (Azure Automation)
+# Tests - MS Quarantine for Splunk SOAR (Azure Automation)
 # =================================================
 # All HTTP calls mocked via requests-mock.
 # No Azure, no SOAR runtime, no Exchange Online needed.
@@ -9,13 +9,13 @@
 import base64
 import hashlib
 import json
-from pathlib import Path
 import re
 import sys
 import tempfile
 import threading
 import time
 import types
+from pathlib import Path
 
 import pytest
 import requests
@@ -23,40 +23,63 @@ import requests_mock as req_mock
 
 
 # ---------------------------------------------------------------------------
-# SOAR SDK stubs
+# SOAR SDK stubs: dynamic ModuleType members below are intentional test doubles.
 # ---------------------------------------------------------------------------
+
 
 class _ActionResult:
     def __init__(self, param=None):
-        self._data    = []
+        self._data = []
         self._summary = {}
-        self._status  = None
+        self._status = None
         self._message = ""
-        self.param    = param or {}
+        self.param = param or {}
 
-    def add_data(self, d):       self._data.append(d); return self
-    def update_summary(self, s): self._summary.update(s)
-    def set_status(self, s, m=""): self._status, self._message = s, m; return s
-    def get_status(self):  return self._status
-    def get_message(self): return self._message
-    def get_data(self):    return self._data
-    def get_summary(self): return self._summary
+    def add_data(self, d):
+        self._data.append(d)
+        return self
+
+    def update_summary(self, s):
+        self._summary.update(s)
+
+    def set_status(self, s, m=""):
+        self._status, self._message = s, m
+        return s
+
+    def get_status(self):
+        return self._status
+
+    def get_message(self):
+        return self._message
+
+    def get_data(self):
+        return self._data
+
+    def get_summary(self):
+        return self._summary
 
 
 class _AppSuccess:
-    def __bool__(self): return True
-    def __eq__(self, o): return isinstance(o, _AppSuccess)
+    def __bool__(self):
+        return True
+
+    def __eq__(self, o):
+        return isinstance(o, _AppSuccess)
+
 
 class _AppError:
-    def __bool__(self): return False
-    def __eq__(self, o): return isinstance(o, _AppError)
+    def __bool__(self):
+        return False
+
+    def __eq__(self, o):
+        return isinstance(o, _AppError)
 
 
-phantom_stub             = types.ModuleType("phantom")
+phantom_stub = types.ModuleType("phantom")
 phantom_stub.APP_SUCCESS = _AppSuccess()
-phantom_stub.APP_ERROR   = _AppError()
-phantom_stub.is_fail     = lambda status: not bool(status)
-sys.modules["phantom"]   = phantom_stub
+phantom_stub.APP_ERROR = _AppError()
+phantom_stub.is_fail = lambda status: not bool(status)
+sys.modules["phantom"] = phantom_stub
 sys.modules["phantom.app"] = phantom_stub
 
 ar_mod = types.ModuleType("phantom.action_result")
@@ -66,35 +89,58 @@ sys.modules["phantom.action_result"] = ar_mod
 
 class _BaseConnector:
     def __init__(self):
-        self._config         = {}
+        self._config = {}
         self._action_results = []
-        self._action_id      = ""
-        self._container_id   = 1
-        self._asset_id       = 8
-        self._is_poll_now    = False
+        self._action_id = ""
+        self._container_id = 1
+        self._asset_id = 8
+        self._is_poll_now = False
         self._saved_containers = []
         self._save_container_error = ""
         self._next_container_id = 100
-        self._state_file_path = str(
-            Path(tempfile.mkdtemp(prefix="ms_quarantine_for_splunk_soar-state-")) / "1_state.json"
-        )
+        self._state_file_path = str(Path(tempfile.mkdtemp(prefix="ms_quarantine_for_splunk_soar-state-")) / "1_state.json")
 
-    def get_config(self):            return self._config
-    def get_action_identifier(self): return self._action_id
-    def get_container_id(self):      return self._container_id
-    def get_asset_id(self):          return self._asset_id
-    def is_poll_now(self):           return self._is_poll_now
-    def get_state_file_path(self):   return self._state_file_path
-    def get_app_json(self):          return {"app_version": "3.7.4"}
-    def save_progress(self, msg):    pass
-    def set_status(self, s, m=""):   return s
-    def add_action_result(self, ar): self._action_results.append(ar); return ar
-    def get_action_results(self):    return json.dumps([])
-    def finalize(self):              return phantom_stub.APP_SUCCESS
+    def get_config(self):
+        return self._config
+
+    def get_action_identifier(self):
+        return self._action_id
+
+    def get_container_id(self):
+        return self._container_id
+
+    def get_asset_id(self):
+        return self._asset_id
+
+    def is_poll_now(self):
+        return self._is_poll_now
+
+    def get_state_file_path(self):
+        return self._state_file_path
+
+    def get_app_json(self):
+        return {"app_version": "3.7.4"}
+
+    def save_progress(self, msg):
+        pass
+
+    def set_status(self, s, m=""):
+        return s
+
+    def add_action_result(self, ar):
+        self._action_results.append(ar)
+        return ar
+
+    def get_action_results(self):
+        return json.dumps([])
+
+    def finalize(self):
+        return phantom_stub.APP_SUCCESS  # pylint: disable=no-member
+
     def save_container(self, container):
         if self._save_container_error:
             return (
-                phantom_stub.APP_ERROR,
+                phantom_stub.APP_ERROR,  # pylint: disable=no-member
                 self._save_container_error,
                 None,
             )
@@ -102,113 +148,146 @@ class _BaseConnector:
         for item in self._saved_containers:
             if item["container"].get("source_data_identifier") == source_id:
                 return (
-                    phantom_stub.APP_SUCCESS,
+                    phantom_stub.APP_SUCCESS,  # pylint: disable=no-member
                     "Duplicate container found",
                     item["id"],
                 )
         container_id = self._next_container_id
         self._next_container_id += 1
-        self._saved_containers.append({
-            "id": container_id,
-            "container": json.loads(json.dumps(container)),
-        })
-        return phantom_stub.APP_SUCCESS, "Container saved", container_id
+        self._saved_containers.append(
+            {
+                "id": container_id,
+                "container": json.loads(json.dumps(container)),
+            }
+        )
+        return phantom_stub.APP_SUCCESS, "Container saved", container_id  # pylint: disable=no-member
+
     def load_state(self):
         path = Path(self._state_file_path)
         if not path.exists():
             return {}
         return json.loads(path.read_text())
+
     def save_state(self, state):
         path = Path(self._state_file_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(".tmp")
         temporary.write_text(json.dumps(state))
         temporary.replace(path)
-        return phantom_stub.APP_SUCCESS
+        return phantom_stub.APP_SUCCESS  # pylint: disable=no-member
 
 
 bc_mod = types.ModuleType("phantom.base_connector")
 bc_mod.BaseConnector = _BaseConnector
 sys.modules["phantom.base_connector"] = bc_mod
 
-# Vault mock
+# Vault mock: global capture lists intentionally record/reset offline test calls.
 VAULT_ADDS = []
 ARTIFACT_ADDS = []
+
 
 class _VaultStub:
     @staticmethod
     def get_vault_tmp_dir():
         import tempfile
+
         return tempfile.gettempdir()
+
 
 def _vault_add_mock(container, file_location, file_name, metadata=None):
     with open(file_location, "rb") as f:
         content = f.read()
+    # Deterministic synthetic vault identifier, not a security digest.
+    # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
     vault_id = hashlib.sha1(content).hexdigest()
-    VAULT_ADDS.append({
-        "container": container, "file_name": file_name,
-        "content": content, "vault_id": vault_id, "metadata": metadata,
-    })
+    VAULT_ADDS.append(  # pylint: disable=no-global-updates
+        {
+            "container": container,
+            "file_name": file_name,
+            "content": content,
+            "vault_id": vault_id,
+            "metadata": metadata,
+        }
+    )
     return True, "Success", vault_id
+
 
 def _artifact_add_mock(**kwargs):
     artifact_id = len(ARTIFACT_ADDS) + 1000
-    ARTIFACT_ADDS.append({**kwargs, "artifact_id": artifact_id})
+    ARTIFACT_ADDS.append({**kwargs, "artifact_id": artifact_id})  # pylint: disable=no-global-updates
     return True, "Success", artifact_id
 
-phrules_stub        = types.ModuleType("phantom.rules")
+
+phrules_stub = types.ModuleType("phantom.rules")
 phrules_stub.vault_add = _vault_add_mock
 phrules_stub.add_artifact = _artifact_add_mock
-phrules_stub.Vault  = _VaultStub
+phrules_stub.Vault = _VaultStub
 sys.modules["phantom.rules"] = phrules_stub
 
 # Import under test
-import ms_quarantine_for_splunk_soar_utils as automation_utils  # noqa: E402
-from ms_quarantine_for_splunk_soar_utils import (  # noqa: E402
-    MSQuarantineForSplunkSOARUtils, AutomationError,
-    TokenError, WebhookError, JobTimeoutError, JobFailedError,
-    RunbookActionError, OversizedExportError,
-    AAD_TOKEN_URL, MGMT_BASE, MGMT_API_VERSION,
-    AZURE_STREAM_LIMIT_MESSAGE, MAX_DECODED_EML_BYTES,
-    LIST_CHUNK_MODE, LIST_COMPLETE_MODE, MAX_LIST_RESULT_COUNT,
-    ERROR_CHUNK_MODE, ERROR_COMPLETE_MODE,
-    MAX_DIAGNOSTIC_TRACE_RECORDS, MAX_RBAC_ROLE_GROUP_INSPECTIONS,
-)
-from ms_quarantine_for_splunk_soar_connector import (  # noqa: E402
-    MSQuarantineForSplunkSOARConnector, EXPORT_VAULT, EXPORT_INLINE,
-    ARTIFACT_LAYOUT_COMBINED, ARTIFACT_LAYOUT_SEPARATE,
-    ARTIFACT_FIELD_ORDER, ARTIFACT_FIELD_CONFIG_KEYS,
+import ms_quarantine_for_splunk_soar_utils as automation_utils
+from ms_quarantine_for_splunk_soar_connector import (
+    ARTIFACT_FIELD_CONFIG_KEYS,
+    ARTIFACT_FIELD_ORDER,
+    ARTIFACT_LAYOUT_COMBINED,
+    ARTIFACT_LAYOUT_SEPARATE,
     DEFAULT_ARTIFACT_FIELDS,
-    MAX_OPERATION_RECORDS, OPERATION_STATE_KEY,
-    ON_POLL_CANDIDATE_PAGE_SIZE,
+    EXPORT_INLINE,
+    EXPORT_VAULT,
     LIST_DEFAULT_PAGE_SIZE,
-    ON_POLL_MAX_CONTAINERS,
-    WORKER_STATE_KEY,
+    MAX_OPERATION_RECORDS,
+    OPERATION_STATE_KEY,
+    WORKER_STATE_KEY as WORKER_STATE_KEY,  # Shared fixture export for ingestion regressions.
+    MSQuarantineForSplunkSOARConnector,
     _run_cli,
-    normalize_recipient_address, parse_artifact_asset_config,
+    normalize_recipient_address,
+    parse_artifact_asset_config,
     parse_artifact_fields,
 )
+from ms_quarantine_for_splunk_soar_utils import (
+    AAD_TOKEN_URL,
+    AZURE_STREAM_LIMIT_MESSAGE,
+    ERROR_CHUNK_MODE,
+    ERROR_COMPLETE_MODE,
+    LIST_CHUNK_MODE,
+    LIST_COMPLETE_MODE,
+    MAX_DECODED_EML_BYTES,
+    MAX_DIAGNOSTIC_TRACE_RECORDS,
+    MAX_LIST_RESULT_COUNT,
+    MAX_RBAC_ROLE_GROUP_INSPECTIONS,
+    MGMT_API_VERSION,
+    MGMT_BASE,
+    AutomationError,
+    JobFailedError,
+    JobTimeoutError,
+    MSQuarantineForSplunkSOARUtils,
+    OversizedExportError,
+    RunbookActionError,
+    TokenError,
+    WebhookError,
+)
 
-APP_SUCCESS = phantom_stub.APP_SUCCESS
-APP_ERROR   = phantom_stub.APP_ERROR
+
+APP_SUCCESS = phantom_stub.APP_SUCCESS  # pylint: disable=no-member
+APP_ERROR = phantom_stub.APP_ERROR  # pylint: disable=no-member
 
 
 # ---------------------------------------------------------------------------
 # Test data
 # ---------------------------------------------------------------------------
 
-TENANT_ID   = "11111111-1111-1111-1111-111111111111"
-CLIENT_ID   = "22222222-2222-2222-2222-222222222222"
-CLIENT_SECRET = "test-secret"
-SUB_ID      = "33333333-3333-3333-3333-333333333333"
-RG          = "rg-automation"
-AA          = "contoso-automation"
+TENANT_ID = "11111111-1111-1111-1111-111111111111"
+CLIENT_ID = "22222222-2222-2222-2222-222222222222"
+CLIENT_SECRET = "test-secret"  # pragma: allowlist secret - synthetic OAuth fixture
+SUB_ID = "33333333-3333-3333-3333-333333333333"
+RG = "rg-automation"
+AA = "contoso-automation"
 WEBHOOK_URL = "https://s1events.azure-automation.net/webhooks?token=abc123"
-JOB_ID      = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+JOB_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
-IDENTITY     = r"c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"
-EML_RAW      = b"From: attacker@evil.com\r\nSubject: Test\r\n\r\nBody"
-EML_B64      = base64.b64encode(EML_RAW).decode()
+IDENTITY = r"c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"
+EML_RAW = b"From: attacker@evil.com\r\nSubject: Test\r\n\r\nBody"
+EML_B64 = base64.b64encode(EML_RAW).decode()
 ARTIFACT_EML_RAW = (
     b"Received: from edge.example.net (192.0.2.10) by "
     b"mail.protection.outlook.com; Tue, 28 Jul 2026 14:35:10 +0200\r\n"
@@ -227,42 +306,39 @@ ARTIFACT_EML_RAW = (
     b"Body"
 )
 ARTIFACT_EML_B64 = base64.b64encode(ARTIFACT_EML_RAW).decode()
-MOCK_TOKEN   = "eyJmYWtldG9rZW4iOiJ0cnVlIn0="
+MOCK_TOKEN = "eyJmYWtldG9rZW4iOiJ0cnVlIn0="
 RUNBOOK_VERSION = "3.4.2"
-RUNBOOK_SOURCE_REVISION = (
-    "sha256:5b3b3fc64451329d96e088d1113418ef"
-    "f09f84f6e7abc6b10bf71871cc61759e"
-)
-RUNBOOK_BUILD_ID = (
-    "ms-quarantine-for-splunk-soar-runbook-3.4.2+sha256."
-    "5b3b3fc64451329d96e088d1113418ef"
-    "f09f84f6e7abc6b10bf71871cc61759e"
-)
+RUNBOOK_SOURCE_REVISION = "sha256:5b3b3fc64451329d96e088d1113418eff09f84f6e7abc6b10bf71871cc61759e"
+RUNBOOK_BUILD_ID = "ms-quarantine-for-splunk-soar-runbook-3.4.2+sha256.5b3b3fc64451329d96e088d1113418eff09f84f6e7abc6b10bf71871cc61759e"
 RELEASE_CONTRACT = "identity_releasetoall"
 DENY_CONTRACT = "identities_actiontype_no_dummy"
 
 PRECONDITION_TRACE = json.dumps(
-    [{
-        "attempt": 1,
-        "timestamp_utc": "2026-07-30T08:00:00.0000000Z",
-        "result_count": 1,
-        "observed_identity": IDENTITY,
-        "observed_release_status": "Requested",
-        "exact_identity_match": True,
-        "error": "",
-    }],
+    [
+        {
+            "attempt": 1,
+            "timestamp_utc": "2026-07-30T08:00:00.0000000Z",
+            "result_count": 1,
+            "observed_identity": IDENTITY,
+            "observed_release_status": "Requested",
+            "exact_identity_match": True,
+            "error": "",
+        }
+    ],
     separators=(",", ":"),
 )
 POSTCONDITION_TRACE = json.dumps(
-    [{
-        "attempt": 1,
-        "timestamp_utc": "2026-07-30T08:00:01.0000000Z",
-        "result_count": 1,
-        "observed_identity": IDENTITY,
-        "observed_release_status": "Released",
-        "exact_identity_match": True,
-        "error": "",
-    }],
+    [
+        {
+            "attempt": 1,
+            "timestamp_utc": "2026-07-30T08:00:01.0000000Z",
+            "result_count": 1,
+            "observed_identity": IDENTITY,
+            "observed_release_status": "Released",
+            "exact_identity_match": True,
+            "error": "",
+        }
+    ],
     separators=(",", ":"),
 )
 REJECTED_POSTCONDITION_TRACE = json.dumps(
@@ -322,38 +398,22 @@ def static_diagnostics(action="release"):
         "powershell_os": "Ubuntu 22.04",
         **connection_evidence(),
         "exchange_online_management_version": "3.5.0",
-        "exchange_online_management_path": (
-            "/modules/ExchangeOnlineManagement.psd1"
-        ),
+        "exchange_online_management_path": ("/modules/ExchangeOnlineManagement.psd1"),
         "cmdlet_name": "Release-QuarantineMessage",
         "cmdlet_command_type": "Function",
         "cmdlet_module_name": "ExchangeOnlineManagement",
         "cmdlet_module_version": "3.5.0",
         "cmdlet_default_parameter_set": "Identitities",
         "cmdlet_parameter_sets": (
-            "Identity[Identity=required,ReleaseToAll=optional] | "
-            "Identities[Identity=optional,Identities=required,"
-            "ActionType=optional]"
+            "Identity[Identity=required,ReleaseToAll=optional] | Identities[Identity=optional,Identities=required,ActionType=optional]"
         ),
         "cmdlet_metadata_error": "",
-        "cmdlet_contract_id": (
-            RELEASE_CONTRACT if is_release else DENY_CONTRACT
-        ),
-        "cmdlet_expected_argument_names": (
-            "Identity,ReleaseToAll"
-            if is_release
-            else "Identities,ActionType"
-        ),
+        "cmdlet_contract_id": (RELEASE_CONTRACT if is_release else DENY_CONTRACT),
+        "cmdlet_expected_argument_names": ("Identity,ReleaseToAll" if is_release else "Identities,ActionType"),
         "cmdlet_parameter_names": (
-            (
-                "Identity,ReleaseToAll,ErrorVariable,WarningAction,"
-                "InformationAction,Verbose,ErrorAction"
-            )
+            ("Identity,ReleaseToAll,ErrorVariable,WarningAction,InformationAction,Verbose,ErrorAction")
             if is_release
-            else (
-                "Identities,ActionType,ErrorVariable,WarningAction,"
-                "InformationAction,Verbose,ErrorAction"
-            )
+            else ("Identities,ActionType,ErrorVariable,WarningAction,InformationAction,Verbose,ErrorAction")
         ),
     }
 
@@ -370,54 +430,29 @@ def disposition_diagnostics(
         "exchange_disconnect_status": "completed",
         "exchange_disconnect_error": "",
         "cmdlet_invocation_attempted": executed,
-        "cmdlet_invocation_form": (
-            "Release-QuarantineMessage -Identity <identity> -ReleaseToAll "
-            "-Confirm:$false -ErrorAction Stop"
-        ),
+        "cmdlet_invocation_form": ("Release-QuarantineMessage -Identity <identity> -ReleaseToAll -Confirm:$false -ErrorAction Stop"),
         "cmdlet_error_position": "",
         "cmdlet_script_stack_trace": "",
         "cmdlet_duration_ms": 125 if executed else 0,
-        "cmdlet_started_at_utc": (
-            "2026-07-30T08:00:00.0000000Z" if executed else ""
-        ),
-        "cmdlet_completed_at_utc": (
-            "2026-07-30T08:00:00.1250000Z" if executed else ""
-        ),
+        "cmdlet_started_at_utc": ("2026-07-30T08:00:00.0000000Z" if executed else ""),
+        "cmdlet_completed_at_utc": ("2026-07-30T08:00:00.1250000Z" if executed else ""),
         "cmdlet_warning": "",
         "cmdlet_information": "",
         "cmdlet_verbose": "",
         "cmdlet_error": cmdlet_error,
-        "cmdlet_fully_qualified_error_id": (
-            "Mock.ExchangeError" if cmdlet_error else ""
-        ),
-        "cmdlet_error_category": (
-            "NotSpecified" if cmdlet_error else ""
-        ),
-        "cmdlet_error_reason": (
-            "Exception" if cmdlet_error else ""
-        ),
+        "cmdlet_fully_qualified_error_id": ("Mock.ExchangeError" if cmdlet_error else ""),
+        "cmdlet_error_category": ("NotSpecified" if cmdlet_error else ""),
+        "cmdlet_error_reason": ("Exception" if cmdlet_error else ""),
         "cmdlet_error_target_name": "",
         "cmdlet_error_target_type": "",
-        "cmdlet_exception_type": (
-            "System.Exception" if cmdlet_error else ""
-        ),
-        "cmdlet_exception_hresult": (
-            "0x80131500" if cmdlet_error else ""
-        ),
+        "cmdlet_exception_type": ("System.Exception" if cmdlet_error else ""),
+        "cmdlet_exception_hresult": ("0x80131500" if cmdlet_error else ""),
         "cmdlet_http_status_code": "",
         "cmdlet_error_details": cmdlet_error,
         "cmdlet_inner_exception": "",
-        "cmdlet_request_id": (
-            "11111111-aaaa-bbbb-cccc-222222222222"
-            if cmdlet_error else ""
-        ),
-        "cmdlet_correlation_id": (
-            "33333333-aaaa-bbbb-cccc-444444444444"
-            if cmdlet_error else ""
-        ),
-        "cmdlet_server_timestamp": (
-            "2026-07-30T08:00:00Z" if cmdlet_error else ""
-        ),
+        "cmdlet_request_id": ("11111111-aaaa-bbbb-cccc-222222222222" if cmdlet_error else ""),
+        "cmdlet_correlation_id": ("33333333-aaaa-bbbb-cccc-444444444444" if cmdlet_error else ""),
+        "cmdlet_server_timestamp": ("2026-07-30T08:00:00Z" if cmdlet_error else ""),
     }
     return result
 
@@ -442,36 +477,38 @@ def diagnostic_success_output():
 
 def diagnostic_identity_only_output():
     result = diagnostic_success_output()
-    result.update({
-        "include_rbac": False,
-        "rbac_included": False,
-        "rbac_diagnostics_status": "not_requested",
-        "rbac_diagnostics_reason": "tenant_rbac_opt_in_required",
-        "rbac_empty_contracts": [],
-        "read_roles": "",
-        "export_roles": "",
-        "release_to_all_roles": "",
-        "release_deny_roles": "",
-        "quarantine_role_present": None,
-        "quarantine_role_groups": "",
-        "matched_quarantine_role_groups": "",
-        "quarantine_role_group_total_count": 0,
-        "quarantine_role_group_inspected_count": 0,
-        "quarantine_role_group_inspection_truncated": False,
-        "service_principal_registered": None,
-        "registered_service_principal_identity": "",
-        "registered_service_principal_app_id": "",
-        "registered_service_principal_object_id": "",
-        "role_group_membership_evaluated": None,
-        "quarantine_group_membership_confirmed": None,
-        "quarantine_administrator_membership_confirmed": None,
-        "role_assignment_matches_identity": None,
-        "permission_query_error_count": 0,
-        "permission_query_error_retained_count": 0,
-        "permission_query_error_dropped_count": 0,
-        "permission_query_errors_truncated": False,
-        "permission_query_errors": [],
-    })
+    result.update(
+        {
+            "include_rbac": False,
+            "rbac_included": False,
+            "rbac_diagnostics_status": "not_requested",
+            "rbac_diagnostics_reason": "tenant_rbac_opt_in_required",
+            "rbac_empty_contracts": [],
+            "read_roles": "",
+            "export_roles": "",
+            "release_to_all_roles": "",
+            "release_deny_roles": "",
+            "quarantine_role_present": None,
+            "quarantine_role_groups": "",
+            "matched_quarantine_role_groups": "",
+            "quarantine_role_group_total_count": 0,
+            "quarantine_role_group_inspected_count": 0,
+            "quarantine_role_group_inspection_truncated": False,
+            "service_principal_registered": None,
+            "registered_service_principal_identity": "",
+            "registered_service_principal_app_id": "",
+            "registered_service_principal_object_id": "",
+            "role_group_membership_evaluated": None,
+            "quarantine_group_membership_confirmed": None,
+            "quarantine_administrator_membership_confirmed": None,
+            "role_assignment_matches_identity": None,
+            "permission_query_error_count": 0,
+            "permission_query_error_retained_count": 0,
+            "permission_query_error_dropped_count": 0,
+            "permission_query_errors_truncated": False,
+            "permission_query_errors": [],
+        }
+    )
     result.pop("managed_identity_claims_status", None)
     result.pop("managed_identity_app_id", None)
     result.pop("managed_identity_object_id", None)
@@ -489,10 +526,7 @@ def rbac_diagnostics(
         "permission_queries_read_only": True,
         "rbac_included": True,
         "rbac_diagnostics_status": status,
-        "rbac_diagnostics_reason": (
-            "" if status == "complete"
-            else "one_or_more_permission_queries_failed"
-        ),
+        "rbac_diagnostics_reason": ("" if status == "complete" else "one_or_more_permission_queries_failed"),
         "rbac_empty_contracts": [],
         "rbac_required_cmdlets": [
             "Get-ManagementRole",
@@ -515,35 +549,21 @@ def rbac_diagnostics(
         "release_to_all_roles": "Quarantine",
         "release_deny_roles": "Quarantine",
         "quarantine_role_present": True,
-        "quarantine_role_groups": (
-            "Quarantine Administrator" if membership_confirmed else ""
-        ),
-        "matched_quarantine_role_groups": (
-            "Quarantine Administrator" if membership_confirmed else ""
-        ),
+        "quarantine_role_groups": ("Quarantine Administrator" if membership_confirmed else ""),
+        "matched_quarantine_role_groups": ("Quarantine Administrator" if membership_confirmed else ""),
         "quarantine_role_group_total_count": 1,
         "quarantine_role_group_inspected_count": 1,
         "quarantine_role_group_inspection_truncated": False,
         "managed_identity_claims_status": "resolved",
-        "managed_identity_app_id": (
-            "11111111-2222-3333-4444-555555555555"
-        ),
-        "managed_identity_object_id": (
-            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-        ),
+        "managed_identity_app_id": ("11111111-2222-3333-4444-555555555555"),
+        "managed_identity_object_id": ("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
         "service_principal_registered": True,
         "registered_service_principal_identity": "service-principal-ms_quarantine_for_splunk_soar",
-        "registered_service_principal_app_id": (
-            "11111111-2222-3333-4444-555555555555"
-        ),
-        "registered_service_principal_object_id": (
-            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-        ),
+        "registered_service_principal_app_id": ("11111111-2222-3333-4444-555555555555"),
+        "registered_service_principal_object_id": ("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
         "role_group_membership_evaluated": True,
         "quarantine_group_membership_confirmed": membership_confirmed,
-        "quarantine_administrator_membership_confirmed": (
-            membership_confirmed
-        ),
+        "quarantine_administrator_membership_confirmed": (membership_confirmed),
         "role_assignment_matches_identity": membership_confirmed,
         "permission_query_error_count": len(error_records),
         "permission_query_error_retained_count": len(error_records),
@@ -555,19 +575,21 @@ def rbac_diagnostics(
 
 def static_diagnostics_with_metadata_error():
     diagnostics = static_diagnostics()
-    diagnostics.update({
-        "cmdlet_command_type": "",
-        "cmdlet_module_name": "",
-        "cmdlet_module_version": "",
-        "cmdlet_default_parameter_set": "",
-        "cmdlet_parameter_sets": "",
-        "cmdlet_metadata_error": (
-            "Release-QuarantineMessage was not available after connection."
-        ),
-    })
+    diagnostics.update(
+        {
+            "cmdlet_command_type": "",
+            "cmdlet_module_name": "",
+            "cmdlet_module_version": "",
+            "cmdlet_default_parameter_set": "",
+            "cmdlet_parameter_sets": "",
+            "cmdlet_metadata_error": ("Release-QuarantineMessage was not available after connection."),
+        }
+    )
     return diagnostics
 
-TOKEN_URL    = AAD_TOKEN_URL.format(tenant_id=TENANT_ID)
+
+TOKEN_URL = AAD_TOKEN_URL.format(tenant_id=TENANT_ID)
+
 
 def job_url(job_id=JOB_ID):
     return (
@@ -576,27 +598,37 @@ def job_url(job_id=JOB_ID):
         f"/jobs/{job_id}?api-version={MGMT_API_VERSION}"
     )
 
-def job_output_url(job_id=JOB_ID):
-    return job_url(job_id).replace(
-        f"?api-version={MGMT_API_VERSION}",
-        f"/output?api-version={MGMT_API_VERSION}"
-    )
 
-MOCK_MESSAGES = [{
-    "Identity": IDENTITY, "SenderAddress": "a@evil.com",
-    "RecipientAddress": "u@contoso.com", "Subject": "Invoice",
-    "Type": "HighConfPhish", "ReceivedTime": "2024-01-15T10:23:00.0000000Z",
-    "Expires": "2024-01-30T10:23:00.0000000Z",
-    "ReleaseStatus": "REQUESTED", "PolicyName": "Default",
-}]
+def job_output_url(job_id=JOB_ID):
+    return job_url(job_id).replace(f"?api-version={MGMT_API_VERSION}", f"/output?api-version={MGMT_API_VERSION}")
+
+
+MOCK_MESSAGES = [
+    {
+        "Identity": IDENTITY,
+        "SenderAddress": "a@evil.com",
+        "RecipientAddress": "u@contoso.com",
+        "Subject": "Invoice",
+        "Type": "HighConfPhish",
+        "ReceivedTime": "2024-01-15T10:23:00.0000000Z",
+        "Expires": "2024-01-30T10:23:00.0000000Z",
+        "ReleaseStatus": "REQUESTED",
+        "PolicyName": "Default",
+    }
+]
 
 
 def make_utils(**kwargs):
     defaults = dict(
-        webhook_url=WEBHOOK_URL, tenant_id=TENANT_ID,
-        client_id=CLIENT_ID, client_secret=CLIENT_SECRET,
-        subscription_id=SUB_ID, resource_group=RG,
-        automation_account=AA, poll_interval=0, poll_timeout=30,
+        webhook_url=WEBHOOK_URL,
+        tenant_id=TENANT_ID,
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        subscription_id=SUB_ID,
+        resource_group=RG,
+        automation_account=AA,
+        poll_interval=0,
+        poll_timeout=30,
     )
     defaults.update(kwargs)
     return MSQuarantineForSplunkSOARUtils(**defaults)
@@ -604,22 +636,20 @@ def make_utils(**kwargs):
 
 def base_asset_config(export_mode=EXPORT_VAULT):
     return {
-        "webhook_url":              WEBHOOK_URL,
-        "azure_tenant_id":          TENANT_ID,
-        "azure_client_id":          CLIENT_ID,
-        "azure_client_secret":      CLIENT_SECRET,
-        "azure_subscription_id":    SUB_ID,
-        "azure_resource_group":     RG,
+        "webhook_url": WEBHOOK_URL,
+        "azure_tenant_id": TENANT_ID,
+        "azure_client_id": CLIENT_ID,
+        "azure_client_secret": CLIENT_SECRET,
+        "azure_subscription_id": SUB_ID,
+        "azure_resource_group": RG,
         "azure_automation_account": AA,
-        "poll_interval_seconds":    5,
-        "poll_timeout_seconds":     600,
-        "export_mode":              export_mode,
+        "poll_interval_seconds": 5,
+        "poll_timeout_seconds": 600,
+        "export_mode": export_mode,
     }
 
 
-def make_connector(export_mode=EXPORT_VAULT, poll_interval=0,
-                   poll_timeout=30, state_path=None,
-                   config_overrides=None):
+def make_connector(export_mode=EXPORT_VAULT, poll_interval=0, poll_timeout=30, state_path=None, config_overrides=None):
     c = MSQuarantineForSplunkSOARConnector()
     if state_path is not None:
         c._state_file_path = str(state_path)
@@ -647,10 +677,7 @@ def artifact_asset_config(
     }
     if fields is not None:
         selected = set(fields)
-        config.update({
-            config_key: field in selected
-            for field, config_key in ARTIFACT_FIELD_CONFIG_KEYS.items()
-        })
+        config.update({config_key: field in selected for field, config_key in ARTIFACT_FIELD_CONFIG_KEYS.items()})
     return config
 
 
@@ -661,13 +688,8 @@ def patch_ar(connector):
 
 
 def manifest_action_paths(identifier):
-    manifest = json.loads(
-        Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
-    )
-    action = next(
-        item for item in manifest["actions"]
-        if item["identifier"] == identifier
-    )
+    manifest = json.loads(Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text())
+    action = next(item for item in manifest["actions"] if item["identifier"] == identifier)
     return {item["data_path"] for item in action["output"]}
 
 
@@ -695,7 +717,6 @@ def action_result_paths(action_result):
 
 
 class TestTlsPolicy:
-
     def test_all_http_paths_force_tls_verification(self, monkeypatch):
         """Token, webhook, status, and output calls must always verify TLS."""
         utils = make_utils()
@@ -746,25 +767,11 @@ def mock_full_flow(
     if include_version:
         for field, value in build_metadata().items():
             output_json.setdefault(field, value)
-    if (
-        include_postcondition
-        and output_json.get("action") in {"release", "deny"}
-        and output_json.get("error") is not True
-    ):
-        expected_release_status = (
-            "Released"
-            if output_json["action"] == "release"
-            else "Denied"
-        )
-        output_json.setdefault(
-            "verification_method", "Get-QuarantineMessage"
-        )
-        output_json.setdefault(
-            "expected_release_status", expected_release_status
-        )
-        output_json.setdefault(
-            "observed_release_status", expected_release_status
-        )
+    if include_postcondition and output_json.get("action") in {"release", "deny"} and output_json.get("error") is not True:
+        expected_release_status = "Released" if output_json["action"] == "release" else "Denied"
+        output_json.setdefault("verification_method", "Get-QuarantineMessage")
+        output_json.setdefault("expected_release_status", expected_release_status)
+        output_json.setdefault("observed_release_status", expected_release_status)
         output_json.setdefault("observed_identity", IDENTITY)
         output_json.setdefault(
             "observed_release_status_history",
@@ -832,21 +839,11 @@ def mock_preflight_then_unfinished_operation(m, connector, webhook_calls):
 
 def irreversible_webhook_bodies(m):
     """Webhook bodies of release/deny only (the preflight is read-only)."""
-    return [
-        request.json()
-        for request in m.request_history
-        if request.url == WEBHOOK_URL
-        and request.json()["action"] in {"release", "deny"}
-    ]
+    return [request.json() for request in m.request_history if request.url == WEBHOOK_URL and request.json()["action"] in {"release", "deny"}]
 
 
 def preflight_webhook_bodies(m):
-    return [
-        request.json()
-        for request in m.request_history
-        if request.url == WEBHOOK_URL
-        and request.json()["action"] == "config_check"
-    ]
+    return [request.json() for request in m.request_history if request.url == WEBHOOK_URL and request.json()["action"] == "config_check"]
 
 
 def mock_full_flow_text(m, output_text: str, job_id=JOB_ID, status="Completed"):
@@ -886,9 +883,7 @@ def postcondition_error_output(
         "action": action,
         "error": True,
         "error_code": "postcondition_unconfirmed",
-        "message": cmdlet_error or (
-            f"Exchange did not confirm ReleaseStatus={expected_status}."
-        ),
+        "message": cmdlet_error or (f"Exchange did not confirm ReleaseStatus={expected_status}."),
         "details": details,
         **build_metadata(),
     }
@@ -901,14 +896,16 @@ def disposition_rejected_output(action="release"):
         executed=True,
         cmdlet_error="HTTP 403 Forbidden: quarantine action is not authorized.",
     )
-    diagnostics.update({
-        "cmdlet_fully_qualified_error_id": "Exchange.HttpResponseException",
-        "cmdlet_error_category": "PermissionDenied",
-        "cmdlet_error_reason": "UnauthorizedAccessException",
-        "cmdlet_exception_type": "System.UnauthorizedAccessException",
-        "cmdlet_http_status_code": "403",
-        "cmdlet_error_details": "HTTP 403 Forbidden",
-    })
+    diagnostics.update(
+        {
+            "cmdlet_fully_qualified_error_id": "Exchange.HttpResponseException",
+            "cmdlet_error_category": "PermissionDenied",
+            "cmdlet_error_reason": "UnauthorizedAccessException",
+            "cmdlet_exception_type": "System.UnauthorizedAccessException",
+            "cmdlet_http_status_code": "403",
+            "cmdlet_error_details": "HTTP 403 Forbidden",
+        }
+    )
     return {
         "action": action,
         "error": True,
@@ -957,10 +954,7 @@ def precondition_error_output(
         "action": action,
         "error": True,
         "error_code": "precondition_unconfirmed",
-        "message": (
-            "Exchange did not confirm ReleaseStatus=Requested for the exact "
-            f"identity. The {action} cmdlet was not executed."
-        ),
+        "message": (f"Exchange did not confirm ReleaseStatus=Requested for the exact identity. The {action} cmdlet was not executed."),
         "details": details,
         **build_metadata(),
     }
@@ -969,22 +963,24 @@ def precondition_error_output(
 def disposition_capability_error_output(action="release"):
     output = precondition_error_output(action=action)
     details = output["details"]
-    details.update({
-        "cmdlet_capability_status": "unconfirmed",
-        "cmdlet_capability_parameter_set": "",
-        "cmdlet_capability_error": (
-            "No loaded Release-QuarantineMessage parameter set accepts the "
-            f"exact named {action.title()} arguments without additional "
-            "mandatory parameters."
-        ),
-        "last_verification_error": (
-            "Disposition command parameter contract was not confirmed."
-        ),
-    })
-    output.update({
-        "error_code": "disposition_capability_unconfirmed",
-        "message": details["cmdlet_capability_error"],
-    })
+    details.update(
+        {
+            "cmdlet_capability_status": "unconfirmed",
+            "cmdlet_capability_parameter_set": "",
+            "cmdlet_capability_error": (
+                "No loaded Release-QuarantineMessage parameter set accepts the "
+                f"exact named {action.title()} arguments without additional "
+                "mandatory parameters."
+            ),
+            "last_verification_error": ("Disposition command parameter contract was not confirmed."),
+        }
+    )
+    output.update(
+        {
+            "error_code": "disposition_capability_unconfirmed",
+            "message": details["cmdlet_capability_error"],
+        }
+    )
     return output
 
 
@@ -998,11 +994,13 @@ def cmdlet_failure_output(action="release"):
             cmdlet_error="mock cmdlet failure",
         ),
     }
-    details.update({
-        "cmdlet_warning": "mock warning",
-        "cmdlet_information": "mock information",
-        "cmdlet_verbose": "mock verbose",
-    })
+    details.update(
+        {
+            "cmdlet_warning": "mock warning",
+            "cmdlet_information": "mock information",
+            "cmdlet_verbose": "mock verbose",
+        }
+    )
     return {
         "action": action,
         "error": True,
@@ -1024,24 +1022,23 @@ def chunked_export_output(
     runbook_version=RUNBOOK_VERSION,
 ):
     eml_base64 = base64.b64encode(raw).decode()
-    chunks = [
-        eml_base64[i:i + chunk_size]
-        for i in range(0, len(eml_base64), chunk_size)
-    ]
+    chunks = [eml_base64[i : i + chunk_size] for i in range(0, len(eml_base64), chunk_size)]
     records = []
     for idx, chunk in enumerate(chunks):
-        records.append({
-            "action": "export",
-            "mode": "chunked",
-            "identity": identity,
-            "encoding": "base64",
-            "chunk_index": idx,
-            "chunk_count": len(chunks),
-            "eml_chunk": chunk,
-            "runbook_version": runbook_version,
-            "runbook_source_revision": RUNBOOK_SOURCE_REVISION,
-            "runbook_build_id": RUNBOOK_BUILD_ID,
-        })
+        records.append(
+            {
+                "action": "export",
+                "mode": "chunked",
+                "identity": identity,
+                "encoding": "base64",
+                "chunk_index": idx,
+                "chunk_count": len(chunks),
+                "eml_chunk": chunk,
+                "runbook_version": runbook_version,
+                "runbook_source_revision": RUNBOOK_SOURCE_REVISION,
+                "runbook_build_id": RUNBOOK_BUILD_ID,
+            }
+        )
     trailer = {
         "action": "export",
         "mode": "chunked_complete",
@@ -1067,10 +1064,7 @@ def chunked_error_output(error_result, chunk_size=64, mutate=None):
         separators=(",", ":"),
     ).encode("utf-8")
     encoded = base64.b64encode(payload).decode("ascii")
-    chunks = [
-        encoded[offset:offset + chunk_size]
-        for offset in range(0, len(encoded), chunk_size)
-    ]
+    chunks = [encoded[offset : offset + chunk_size] for offset in range(0, len(encoded), chunk_size)]
     records = [
         {
             "action": error_result["action"],
@@ -1084,23 +1078,22 @@ def chunked_error_output(error_result, chunk_size=64, mutate=None):
         }
         for idx, chunk in enumerate(chunks)
     ]
-    records.append({
-        "action": error_result["action"],
-        "error": True,
-        "mode": ERROR_COMPLETE_MODE,
-        "encoding": "base64",
-        "chunk_count": len(chunks),
-        "payload_base64_length": len(encoded),
-        "payload_utf8_bytes": len(payload),
-        "payload_sha256": hashlib.sha256(payload).hexdigest(),
-        **build_metadata(),
-    })
+    records.append(
+        {
+            "action": error_result["action"],
+            "error": True,
+            "mode": ERROR_COMPLETE_MODE,
+            "encoding": "base64",
+            "chunk_count": len(chunks),
+            "payload_base64_length": len(encoded),
+            "payload_utf8_bytes": len(payload),
+            "payload_sha256": hashlib.sha256(payload).hexdigest(),
+            **build_metadata(),
+        }
+    )
     if mutate is not None:
         mutate(records)
-    return "\n".join(
-        json.dumps(record, separators=(",", ":"))
-        for record in records
-    )
+    return "\n".join(json.dumps(record, separators=(",", ":")) for record in records)
 
 
 def chunked_list_output(
@@ -1115,24 +1108,28 @@ def chunked_list_output(
         groups = [[message] for message in messages]
     records = []
     for idx, group in enumerate(groups):
-        records.append({
+        records.append(
+            {
+                "action": "list",
+                "mode": LIST_CHUNK_MODE,
+                "chunk_index": idx,
+                "messages": group,
+                "runbook_version": runbook_version,
+                "runbook_source_revision": RUNBOOK_SOURCE_REVISION,
+                "runbook_build_id": RUNBOOK_BUILD_ID,
+            }
+        )
+    records.append(
+        {
             "action": "list",
-            "mode": LIST_CHUNK_MODE,
-            "chunk_index": idx,
-            "messages": group,
+            "mode": LIST_COMPLETE_MODE,
+            "chunk_count": len(groups),
+            "count": len(messages) if count is None else count,
             "runbook_version": runbook_version,
             "runbook_source_revision": RUNBOOK_SOURCE_REVISION,
             "runbook_build_id": RUNBOOK_BUILD_ID,
-        })
-    records.append({
-        "action": "list",
-        "mode": LIST_COMPLETE_MODE,
-        "chunk_count": len(groups),
-        "count": len(messages) if count is None else count,
-        "runbook_version": runbook_version,
-        "runbook_source_revision": RUNBOOK_SOURCE_REVISION,
-        "runbook_build_id": RUNBOOK_BUILD_ID,
-    })
+        }
+    )
     if order is not None:
         records = [records[idx] for idx in order]
     return "\n".join(json.dumps(record) for record in records)
@@ -1140,8 +1137,8 @@ def chunked_list_output(
 
 @pytest.fixture(autouse=True)
 def reset_vault():
-    VAULT_ADDS.clear()
-    ARTIFACT_ADDS.clear()
+    VAULT_ADDS.clear()  # pylint: disable=no-global-updates
+    ARTIFACT_ADDS.clear()  # pylint: disable=no-global-updates
     yield
 
 
@@ -1149,8 +1146,8 @@ def reset_vault():
 # TestInitialize
 # ---------------------------------------------------------------------------
 
-class TestInitialize:
 
+class TestInitialize:
     def test_valid_config(self):
         c = make_connector()
         assert c._utils is not None
@@ -1171,16 +1168,25 @@ class TestInitialize:
             raising=False,
         )
         input_path = tmp_path / "input.json"
-        input_path.write_text(json.dumps({
-            "action_identifier": "on_poll",
-            "parameters": {},
-        }))
+        input_path.write_text(
+            json.dumps(
+                {
+                    "action_identifier": "on_poll",
+                    "parameters": {},
+                }
+            )
+        )
 
         assert _run_cli(["connector.py", str(input_path)]) == 0
-        assert calls == [({
-            "action_identifier": "on_poll",
-            "parameters": {},
-        }, None)]
+        assert calls == [
+            (
+                {
+                    "action_identifier": "on_poll",
+                    "parameters": {},
+                },
+                None,
+            )
+        ]
 
     def test_cli_rejects_invalid_json_without_dispatch(
         self,
@@ -1213,9 +1219,7 @@ class TestInitialize:
         assert dispatched is False
 
     def test_manifest_declares_python_39_and_313_explicitly(self):
-        manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
-        )
+        manifest = json.loads(Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text())
         assert manifest["python_version"] == "3.9, 3.13"
         assert manifest["python_version"] != "3"
 
@@ -1233,16 +1237,19 @@ class TestInitialize:
         assert c.initialize() == APP_SUCCESS
         assert c._utils._poll_timeout == 600
 
-    @pytest.mark.parametrize("field,value", [
-        ("poll_interval_seconds", 0),
-        ("poll_interval_seconds", 61),
-        ("poll_interval_seconds", "invalid"),
-        ("poll_timeout_seconds", 59),
-        ("poll_timeout_seconds", 120),
-        ("poll_timeout_seconds", 599),
-        ("poll_timeout_seconds", 3601),
-        ("poll_timeout_seconds", "invalid"),
-    ])
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("poll_interval_seconds", 0),
+            ("poll_interval_seconds", 61),
+            ("poll_interval_seconds", "invalid"),
+            ("poll_timeout_seconds", 59),
+            ("poll_timeout_seconds", 120),
+            ("poll_timeout_seconds", 599),
+            ("poll_timeout_seconds", 3601),
+            ("poll_timeout_seconds", "invalid"),
+        ],
+    )
     def test_invalid_poll_configuration_is_rejected(self, field, value):
         c = MSQuarantineForSplunkSOARConnector()
         c._config = {
@@ -1334,16 +1341,20 @@ class TestInitialize:
 
     @pytest.mark.parametrize("value", [True, 1, "true", "yes", "on"])
     def test_verbose_action_diagnostics_accepts_true_values(self, value):
-        c = make_connector(config_overrides={
-            "include_verbose_action_diagnostics": value,
-        })
+        c = make_connector(
+            config_overrides={
+                "include_verbose_action_diagnostics": value,
+            }
+        )
         assert c._include_verbose_action_diagnostics is True
 
     @pytest.mark.parametrize("value", [False, 0, "false", "no", "off", ""])
     def test_verbose_action_diagnostics_accepts_false_values(self, value):
-        c = make_connector(config_overrides={
-            "include_verbose_action_diagnostics": value,
-        })
+        c = make_connector(
+            config_overrides={
+                "include_verbose_action_diagnostics": value,
+            }
+        )
         assert c._include_verbose_action_diagnostics is False
 
     @pytest.mark.parametrize("value", [2, "sometimes", [], {}])
@@ -1359,16 +1370,20 @@ class TestInitialize:
 
     @pytest.mark.parametrize("value", [1, 3, 50, "7"])
     def test_on_poll_max_containers_accepts_supported_range(self, value):
-        c = make_connector(config_overrides={
-            "on_poll_max_containers": value,
-        })
+        c = make_connector(
+            config_overrides={
+                "on_poll_max_containers": value,
+            }
+        )
         assert c._on_poll_max_containers == int(value)
 
     @pytest.mark.parametrize("value", [None, ""])
     def test_on_poll_max_containers_defaults_for_upgraded_assets(self, value):
-        c = make_connector(config_overrides={
-            "on_poll_max_containers": value,
-        })
+        c = make_connector(
+            config_overrides={
+                "on_poll_max_containers": value,
+            }
+        )
         assert c._on_poll_max_containers == 10
 
     @pytest.mark.parametrize("value", [0, 51, -1, "many"])
@@ -1380,9 +1395,11 @@ class TestInitialize:
 
     @pytest.mark.parametrize("value", [1, 30, 365, "90"])
     def test_worker_terminal_retention_accepts_supported_days(self, value):
-        c = make_connector(config_overrides={
-            "worker_terminal_retention_days": value,
-        })
+        c = make_connector(
+            config_overrides={
+                "worker_terminal_retention_days": value,
+            }
+        )
         assert c._worker_terminal_retention_days == int(value)
 
     @pytest.mark.parametrize("value", [0, 366, -1, "forever"])
@@ -1393,9 +1410,7 @@ class TestInitialize:
         assert c.initialize() == APP_ERROR
 
     def test_manifest_exposes_asset_dropdown_and_field_checkboxes(self):
-        manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
-        )
+        manifest = json.loads(Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text())
         config = manifest["configuration"]
         assert "export_mode" not in config
         assert "create_email_artifacts" not in config
@@ -1403,15 +1418,9 @@ class TestInitialize:
         assert all(key in config for key in ARTIFACT_FIELD_CONFIG_KEYS.values())
 
     def test_manifest_groups_target_then_api_login_then_exchange(self):
-        manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
-        )
+        manifest = json.loads(Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text())
         config = manifest["configuration"]
-        ordered = [
-            key for key, _ in sorted(
-                config.items(), key=lambda item: item[1]["order"]
-            )
-        ]
+        ordered = [key for key, _ in sorted(config.items(), key=lambda item: item[1]["order"])]
         assert ordered[:8] == [
             "webhook_url",
             "azure_subscription_id",
@@ -1422,16 +1431,11 @@ class TestInitialize:
             "azure_client_secret",
             "exchange_organization",
         ]
-        assert sorted(item["order"] for item in config.values()) == list(
-            range(len(config))
-        )
+        assert sorted(item["order"] for item in config.values()) == list(range(len(config)))
         prefixes = [config[key]["description"].split(": ", 1)[0] for key in ordered]
-        blocks = [value for index, value in enumerate(prefixes)
-                  if index == 0 or value != prefixes[index - 1]]
+        blocks = [value for index, value in enumerate(prefixes) if index == 0 or value != prefixes[index - 1]]
         assert blocks == ["Connection", "Email import", "Mail fields", "Advanced"]
-        for key in (
-            "azure_tenant_id", "azure_client_id", "azure_client_secret"
-        ):
+        for key in ("azure_tenant_id", "azure_client_id", "azure_client_secret"):
             assert config[key]["required"] is True
             assert "not Exchange" in config[key]["description"]
         assert config["azure_client_secret"]["data_type"] == "password"
@@ -1439,31 +1443,23 @@ class TestInitialize:
         assert config["exchange_organization"]["required"] is False
 
     def test_manifest_has_no_exchange_credential_or_method_fields(self):
-        raw = Path(__file__).with_name(
-            "ms_quarantine_for_splunk_soar.json"
-        ).read_text()
+        raw = Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
         manifest = json.loads(raw)
         config = manifest["configuration"]
-        assert not [key for key in config if key.startswith("exchange_")
-                    and key != "exchange_organization"]
+        assert not [key for key in config if key.startswith("exchange_") and key != "exchange_organization"]
         assert "exchange_credential" not in raw
-        assert "exchange_auth_method\"," not in raw.split('"actions"')[0]
+        assert 'exchange_auth_method",' not in raw.split('"actions"')[0]
         for action in manifest["actions"]:
             for item in action.get("output", []):
                 assert "exchange_credential" not in item["data_path"]
 
     def test_manifest_declares_optional_on_poll_configuration(self):
-        manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
-        )
+        manifest = json.loads(Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text())
         config = manifest["configuration"]
         assert "enable_on_poll_ingestion" not in config
         assert config["on_poll_max_containers"]["default"] == 10
         assert config["worker_terminal_retention_days"]["default"] == 30
-        action = next(
-            item for item in manifest["actions"]
-            if item["identifier"] == "on_poll"
-        )
+        action = next(item for item in manifest["actions"] if item["identifier"] == "on_poll")
         assert action["action"] == "on poll"
         assert action["type"] == "ingest"
         assert action["read_only"] is True
@@ -1477,23 +1473,12 @@ class TestInitialize:
             "default": False,
             "order": 27,
         }
-        assert config["webhook_url"]["description"] == (
-            "Connection: HTTPS webhook URL with token; no redirects"
-        )
-        assert config["azure_tenant_id"]["description"] == (
-            "Connection: Azure API tenant ID (not Exchange)"
-        )
-        assert config["poll_interval_seconds"]["description"] == (
-            "Advanced: Job status check (whole seconds, 1-60; default 5)"
-        )
-        assert config["poll_timeout_seconds"]["description"] == (
-            "Advanced: Job timeout (whole seconds, 600-3600; default 600)"
-        )
+        assert config["webhook_url"]["description"] == ("Connection: HTTPS webhook URL with token; no redirects")
+        assert config["azure_tenant_id"]["description"] == ("Connection: Azure API tenant ID (not Exchange)")
+        assert config["poll_interval_seconds"]["description"] == ("Advanced: Job status check (whole seconds, 1-60; default 5)")
+        assert config["poll_timeout_seconds"]["description"] == ("Advanced: Job timeout (whole seconds, 600-3600; default 600)")
         assert config["artifact_field_from"]["description"] == "Mail fields: From"
-        assert all(
-            len(field["description"]) <= 64
-            for field in config.values()
-        )
+        assert all(len(field["description"]) <= 64 for field in config.values())
         assert config["artifact_layout"]["value_list"] == [
             "combined",
             "separate",
@@ -1501,29 +1486,20 @@ class TestInitialize:
 
         for field, config_key in ARTIFACT_FIELD_CONFIG_KEYS.items():
             assert config[config_key]["data_type"] == "boolean"
-            assert config[config_key]["default"] is (
-                field in DEFAULT_ARTIFACT_FIELDS
-            )
+            assert config[config_key]["default"] is (field in DEFAULT_ARTIFACT_FIELDS)
 
         assert all(item["identifier"] != "get_quarantine_message" for item in manifest["actions"])
 
     def test_manifest_declares_validated_offline_runtime_contract(self):
-        manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
-        )
+        manifest = json.loads(Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text())
         assert manifest["min_phantom_version"] == "8.5.0"
         assert manifest["python_version"] == "3.9, 3.13"
         assert "pip3_dependencies" not in manifest
         assert manifest["appid"] == "2e21b2c5-a6a6-4fb4-8df7-9dd1135ab08e"
 
-        inspect_action = next(
-            item for item in manifest["actions"]
-            if item["identifier"] == "inspect_release_environment"
-        )
+        inspect_action = next(item for item in manifest["actions"] if item["identifier"] == "inspect_release_environment")
         assert inspect_action["parameters"]["include_rbac"]["default"] is False
-        inspect_paths = {
-            item["data_path"] for item in inspect_action["output"]
-        }
+        inspect_paths = {item["data_path"] for item in inspect_action["output"]}
         for path in (
             "action_result.parameter.include_rbac",
             "action_result.data.*.rbac_included",
@@ -1533,20 +1509,12 @@ class TestInitialize:
             "action_result.data.*.permission_query_errors_truncated",
         ):
             assert path in inspect_paths
-        assert all(
-            "managed_identity_resource_id" not in path
-            for path in inspect_paths
-        )
+        assert all("managed_identity_resource_id" not in path for path in inspect_paths)
 
-        action = next(
-            item for item in manifest["actions"]
-            if item["identifier"] == "reconcile_quarantine_operation"
-        )
+        action = next(item for item in manifest["actions"] if item["identifier"] == "reconcile_quarantine_operation")
         assert action["read_only"] is True
         assert action["parameters"]["refresh_exchange_status"] == {
-            "description": action["parameters"][
-                "refresh_exchange_status"
-            ]["description"],
+            "description": action["parameters"]["refresh_exchange_status"]["description"],
             "data_type": "boolean",
             "required": False,
             "default": False,
@@ -1561,23 +1529,28 @@ class TestInitialize:
             assert "action_result.data.*.idempotent" in paths
 
     def test_removed_legacy_action_cannot_dispatch_or_mutate_state(self, monkeypatch):
-        manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
-        )
+        manifest = json.loads(Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text())
         assert {item["identifier"] for item in manifest["actions"]} == {
-            "test_connectivity", "on_poll", "on_es_poll",
-            "recover_quarantine_ingestion", "inspect_release_environment",
-            "release_quarantine_message", "deny_quarantine_release",
+            "test_connectivity",
+            "on_poll",
+            "on_es_poll",
+            "recover_quarantine_ingestion",
+            "inspect_release_environment",
+            "release_quarantine_message",
+            "deny_quarantine_release",
             "reconcile_quarantine_operation",
         }
         c = make_connector()
         c.save_state({"legacy_marker": {"state": "prompt_pending"}})
         before = Path(c.get_state_file_path()).read_bytes()
+
         def forbidden(*args, **kwargs):
             raise AssertionError("Removed legacy action was dispatched")
+
         monkeypatch.setattr(c, "_transition_worker_item", forbidden)
         for identifier in (
-            "update_quarantine_work_item", "list_quarantine_requests",
+            "update_quarantine_work_item",
+            "list_quarantine_requests",
             "get_quarantine_message",
         ):
             c._action_id = identifier
@@ -1585,11 +1558,13 @@ class TestInitialize:
         assert Path(c.get_state_file_path()).read_bytes() == before
 
     def test_asset_artifact_policy_normalizes_selected_fields(self):
-        options = parse_artifact_asset_config(artifact_asset_config(
-            enabled=True,
-            layout=" SEPARATE ",
-            fields={"subject", "from", "received_date"},
-        ))
+        options = parse_artifact_asset_config(
+            artifact_asset_config(
+                enabled=True,
+                layout=" SEPARATE ",
+                fields={"subject", "from", "received_date"},
+            )
+        )
         assert options == {
             "enabled": True,
             "layout": ARTIFACT_LAYOUT_SEPARATE,
@@ -1597,11 +1572,13 @@ class TestInitialize:
         }
 
     def test_missing_or_empty_new_asset_fields_use_documented_defaults(self):
-        options = parse_artifact_asset_config({
-            "artifact_layout": "",
-            "artifact_field_from": None,
-            "artifact_field_subject": "",
-        })
+        options = parse_artifact_asset_config(
+            {
+                "artifact_layout": "",
+                "artifact_field_from": None,
+                "artifact_field_subject": "",
+            }
+        )
         assert options == {
             "enabled": False,
             "layout": ARTIFACT_LAYOUT_COMBINED,
@@ -1624,10 +1601,12 @@ class TestInitialize:
     def test_legacy_enable_value_does_not_require_optional_mail_fields(self):
         c = MSQuarantineForSplunkSOARConnector()
         c._config = base_asset_config()
-        c._config.update(artifact_asset_config(
-            enabled=True,
-            fields=set(),
-        ))
+        c._config.update(
+            artifact_asset_config(
+                enabled=True,
+                fields=set(),
+            )
+        )
         assert c.initialize() == APP_SUCCESS
         assert c._asset_artifact_options["fields"] == ()
         assert c._config["create_email_artifacts"] is True
@@ -1637,8 +1616,8 @@ class TestInitialize:
 # TestTokenAcquisition
 # ---------------------------------------------------------------------------
 
-class TestTokenAcquisition:
 
+class TestTokenAcquisition:
     def test_token_acquired_successfully(self):
         utils = make_utils()
         with req_mock.Mocker() as m:
@@ -1650,10 +1629,12 @@ class TestTokenAcquisition:
         utils = make_utils()
         call_count = []
         with req_mock.Mocker() as m:
+
             def cb(req, ctx):
                 call_count.append(1)
                 ctx.status_code = 200
                 return {"access_token": MOCK_TOKEN}
+
             m.post(TOKEN_URL, json=cb)
             utils.get_mgmt_token()
             utils.get_mgmt_token()
@@ -1662,8 +1643,7 @@ class TestTokenAcquisition:
     def test_token_failure_raises(self):
         utils = make_utils()
         with req_mock.Mocker() as m:
-            m.post(TOKEN_URL, status_code=401,
-                   json={"error_description": "bad credentials"})
+            m.post(TOKEN_URL, status_code=401, json={"error_description": "bad credentials"})
             with pytest.raises(TokenError):
                 utils.get_mgmt_token()
 
@@ -1676,20 +1656,13 @@ class TestTokenAcquisition:
 
     def test_token_error_redacts_client_secret_and_jwt(self):
         utils = make_utils()
-        jwt = (
-            "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9."
-            "eyJhdWQiOiJodHRwczovL21hbmFnZW1lbnQuYXp1cmUuY29tIn0."
-            "signaturesignature"
-        )
+        # Synthetic JWT with a literal fake signature exercises error redaction.
+        jwt = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJodHRwczovL21hbmFnZW1lbnQuYXp1cmUuY29tIn0.signaturesignature"  # pragma: allowlist secret
         with req_mock.Mocker() as m:
             m.post(
                 TOKEN_URL,
                 status_code=401,
-                json={
-                    "error_description": (
-                        f"client_secret={CLIENT_SECRET}; token={jwt}"
-                    )
-                },
+                json={"error_description": (f"client_secret={CLIENT_SECRET}; token={jwt}")},
             )
             with pytest.raises(TokenError) as exc:
                 utils.get_mgmt_token()
@@ -1700,10 +1673,7 @@ class TestTokenAcquisition:
     @pytest.mark.parametrize(
         "text",
         [
-            (
-                "The mailbox is on server "
-                "nam02-am6-obe.outbound.protection.outlook.com and failed."
-            ),
+            ("The mailbox is on server nam02-am6-obe.outbound.protection.outlook.com and failed."),
             "Module Microsoft.Exchange.Management.RestApiClient.dll failed.",
             "Identifier abcdefgh.ijklmnop.qrstuvwx is not a JWT.",
         ],
@@ -1712,24 +1682,16 @@ class TestTokenAcquisition:
         assert automation_utils.redact_sensitive_text(text) == text
 
     def test_redaction_uses_last_three_segments_of_dotted_chain(self):
-        jwt = (
-            "eyJhbGciOiJSUzI1NiJ9."
-            "payloadxx."
-            "signature"
-        )
+        jwt = "eyJhbGciOiJSUzI1NiJ9.payloadxx.signature"
         candidate = f"login.microsoftonline.{jwt}"
-        assert automation_utils.redact_sensitive_text(candidate) == (
-            "login.microsoftonline.[REDACTED-JWT]"
-        )
+        assert automation_utils.redact_sensitive_text(candidate) == ("login.microsoftonline.[REDACTED-JWT]")
 
     def test_redaction_fails_closed_for_oversized_jwt_header(
         self,
         monkeypatch,
     ):
         nested_json = "[" * 10000 + "0" + "]" * 10000
-        header_segment = base64.urlsafe_b64encode(
-            nested_json.encode("utf-8")
-        ).rstrip(b"=").decode("ascii")
+        header_segment = base64.urlsafe_b64encode(nested_json.encode("utf-8")).rstrip(b"=").decode("ascii")
         assert len(header_segment) > automation_utils.MAX_JWT_HEADER_SEGMENT_CHARS
         candidate = f"{header_segment}.payloadxx.signature"
 
@@ -1741,10 +1703,7 @@ class TestTokenAcquisition:
             "urlsafe_b64decode",
             unexpected_decode,
         )
-        assert (
-            automation_utils.redact_sensitive_text(candidate, max_chars=None)
-            == "[REDACTED-JWT]"
-        )
+        assert automation_utils.redact_sensitive_text(candidate, max_chars=None) == "[REDACTED-JWT]"
 
     def test_redaction_preserves_candidate_when_json_parser_recurses(
         self,
@@ -1783,8 +1742,8 @@ class TestTokenAcquisition:
 # TestWebhook
 # ---------------------------------------------------------------------------
 
-class TestWebhook:
 
+class TestWebhook:
     def test_webhook_returns_job_id(self):
         utils = make_utils()
         with req_mock.Mocker() as m:
@@ -1796,10 +1755,12 @@ class TestWebhook:
         utils = make_utils()
         bodies = []
         with req_mock.Mocker() as m:
+
             def cb(req, ctx):
                 bodies.append(req.json())
                 ctx.status_code = 200
                 return {"JobIds": [JOB_ID]}
+
             m.post(WEBHOOK_URL, json=cb)
             utils.fire_webhook("list")
         assert bodies[0]["action"] == "list"
@@ -1808,10 +1769,12 @@ class TestWebhook:
         utils = make_utils()
         bodies = []
         with req_mock.Mocker() as m:
+
             def cb(req, ctx):
                 bodies.append(req.json())
                 ctx.status_code = 200
                 return {"JobIds": [JOB_ID]}
+
             m.post(WEBHOOK_URL, json=cb)
             utils.fire_webhook("export", identity=IDENTITY)
         assert bodies[0]["identity"] == IDENTITY
@@ -1820,53 +1783,63 @@ class TestWebhook:
         utils = make_utils()
         bodies = []
         with req_mock.Mocker() as m:
+
             def cb(req, ctx):
                 bodies.append(req.json())
                 ctx.status_code = 200
                 return {"JobIds": [JOB_ID]}
+
             m.post(WEBHOOK_URL, json=cb)
             utils.fire_webhook(
                 "reconcile",
                 identity=IDENTITY,
                 operation_action="release",
             )
-        assert bodies == [{
-            "action": "reconcile",
-            "auth_method": "ManagedIdentity",
-            "identity": IDENTITY,
-            "operation_action": "release",
-        }]
+        assert bodies == [
+            {
+                "action": "reconcile",
+                "auth_method": "ManagedIdentity",
+                "identity": IDENTITY,
+                "operation_action": "release",
+            }
+        ]
 
     @pytest.mark.parametrize("include_rbac", [False, True])
     def test_webhook_sends_explicit_rbac_opt_in(self, include_rbac):
         utils = make_utils()
         bodies = []
         with req_mock.Mocker() as m:
+
             def cb(req, ctx):
                 bodies.append(req.json())
                 ctx.status_code = 200
                 return {"JobIds": [JOB_ID]}
+
             m.post(WEBHOOK_URL, json=cb)
             utils.fire_webhook(
                 "diagnose",
                 identity=IDENTITY,
                 include_rbac=include_rbac,
             )
-        assert bodies == [{
-            "action": "diagnose",
-            "auth_method": "ManagedIdentity",
-            "identity": IDENTITY,
-            "include_rbac": include_rbac,
-        }]
+        assert bodies == [
+            {
+                "action": "diagnose",
+                "auth_method": "ManagedIdentity",
+                "identity": IDENTITY,
+                "include_rbac": include_rbac,
+            }
+        ]
 
     def test_webhook_no_identity_for_list(self):
         utils = make_utils()
         bodies = []
         with req_mock.Mocker() as m:
+
             def cb(req, ctx):
                 bodies.append(req.json())
                 ctx.status_code = 200
                 return {"JobIds": [JOB_ID]}
+
             m.post(WEBHOOK_URL, json=cb)
             utils.fire_webhook("list")
         assert "identity" not in bodies[0]
@@ -1888,10 +1861,7 @@ class TestWebhook:
 
     def test_webhook_transport_exception_never_persists_url_token(self):
         utils = make_utils()
-        leaked = (
-            "HTTPSConnectionPool failed with url: "
-            "/webhooks?token=abc123 and " + WEBHOOK_URL
-        )
+        leaked = "HTTPSConnectionPool failed with url: /webhooks?token=abc123 and " + WEBHOOK_URL
         with req_mock.Mocker() as m:
             m.post(
                 WEBHOOK_URL,
@@ -1910,10 +1880,7 @@ class TestWebhook:
 
     def test_validated_runbook_message_is_not_normalised_by_connector(self):
         connector = make_connector()
-        message = (
-            "Microsoft Exchange failure\r\n"
-            "ErrorAccessDenied – request-id=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-        )
+        message = "Microsoft Exchange failure\r\nErrorAccessDenied – request-id=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         exc = RunbookActionError(
             message,
             result={"error": True, "message": message},
@@ -1925,8 +1892,8 @@ class TestWebhook:
 # TestPolling
 # ---------------------------------------------------------------------------
 
-class TestPolling:
 
+class TestPolling:
     def test_completed_job_succeeds(self):
         utils = make_utils()
         with req_mock.Mocker() as m:
@@ -1961,11 +1928,13 @@ class TestPolling:
         call = [0]
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
+
             def cb(req, ctx):
                 ctx.status_code = 200
-                r = responses[min(call[0], len(responses)-1)]
+                r = responses[min(call[0], len(responses) - 1)]
                 call[0] += 1
                 return r
+
             m.get(job_url(), json=cb)
             status = utils.poll_job(JOB_ID)
         assert status == "Completed"
@@ -1998,8 +1967,7 @@ class TestPolling:
         utils = make_utils()
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
-            m.get(job_url(), status_code=403,
-                  json={"error": {"code": "AuthorizationFailed"}})
+            m.get(job_url(), status_code=403, json={"error": {"code": "AuthorizationFailed"}})
             with pytest.raises(AutomationError) as exc:
                 utils.poll_job(JOB_ID)
         assert "Automation Job Operator" in str(exc.value)
@@ -2018,10 +1986,7 @@ class TestPolling:
         utils = make_utils()
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
-            m.get(job_url(), json={"properties": {
-                "status": "Failed",
-                "exception": "Connect-ExchangeOnline: UnAuthorized"
-            }})
+            m.get(job_url(), json={"properties": {"status": "Failed", "exception": "Connect-ExchangeOnline: UnAuthorized"}})
             with pytest.raises(JobFailedError) as exc:
                 utils.poll_job(JOB_ID)
         assert "Connect-ExchangeOnline" in str(exc.value)
@@ -2032,12 +1997,14 @@ class TestPolling:
         calls = [0]
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
+
             def cb(req, ctx):
                 calls[0] += 1
                 if calls[0] == 1:
                     raise requests.exceptions.ConnectionError("blip")
                 ctx.status_code = 200
                 return {"properties": {"status": "Completed"}}
+
             m.get(job_url(), json=cb)
             status = utils.poll_job(JOB_ID)
         assert status == "Completed"
@@ -2049,11 +2016,14 @@ class TestPolling:
         token_calls = [0]
         poll_calls = [0]
         with req_mock.Mocker() as m:
+
             def token_cb(req, ctx):
                 token_calls[0] += 1
                 ctx.status_code = 200
                 return {"access_token": MOCK_TOKEN}
+
             m.post(TOKEN_URL, json=token_cb)
+
             def poll_cb(req, ctx):
                 poll_calls[0] += 1
                 if poll_calls[0] == 1:
@@ -2061,6 +2031,7 @@ class TestPolling:
                     return {"error": "token expired"}
                 ctx.status_code = 200
                 return {"properties": {"status": "Completed"}}
+
             m.get(job_url(), json=poll_cb)
             status = utils.poll_job(JOB_ID)
         assert status == "Completed"
@@ -2081,10 +2052,7 @@ class TestPolling:
                 if poll_calls[0] == 1:
                     ctx.status_code = 429
                     ctx.headers["Retry-After"] = "2"
-                    return {
-                        "code": 429,
-                        "message": "The request rate is currently too large."
-                    }
+                    return {"code": 429, "message": "The request rate is currently too large."}
                 ctx.status_code = 200
                 return {"properties": {"status": "Completed"}}
 
@@ -2099,13 +2067,10 @@ class TestPolling:
         utils = make_utils()
         calls = []
         utils.new_poll_deadline = lambda: 123.0
-        utils.poll_job = lambda job_id, deadline=None: calls.append(
-            ("status", job_id, deadline)
-        ) or "Completed"
-        utils.get_job_output = (
-            lambda job_id, action=None, deadline=None: calls.append(
-                ("output", job_id, deadline)
-            ) or {
+        utils.poll_job = lambda job_id, deadline=None: calls.append(("status", job_id, deadline)) or "Completed"
+        utils.get_job_output = lambda job_id, action=None, deadline=None: (
+            calls.append(("output", job_id, deadline))
+            or {
                 "action": "list",
                 "count": 0,
                 "messages": [],
@@ -2135,6 +2100,7 @@ class TestPolling:
         monkeypatch.setattr(automation_utils, "time", fake_time)
 
         with req_mock.Mocker() as m:
+
             def status_cb(_request, context):
                 now[0] = 9.0
                 context.status_code = 200
@@ -2171,6 +2137,7 @@ class TestPolling:
         monkeypatch.setattr(automation_utils, "time", fake_time)
 
         with req_mock.Mocker() as m:
+
             def status_cb(_request, context):
                 now[0] = 9.0
                 context.status_code = 200
@@ -2203,8 +2170,8 @@ class TestPolling:
 # TestJobOutput
 # ---------------------------------------------------------------------------
 
-class TestJobOutput:
 
+class TestJobOutput:
     def test_output_parsed_as_json(self):
         utils = make_utils()
         payload = {"action": "list", "count": 1, "messages": []}
@@ -2230,10 +2197,7 @@ class TestJobOutput:
                 if calls[0] == 1:
                     ctx.status_code = 429
                     ctx.headers["Retry-After"] = "3"
-                    return {
-                        "code": 429,
-                        "message": "The request rate is currently too large."
-                    }
+                    return {"code": 429, "message": "The request rate is currently too large."}
                 ctx.status_code = 200
                 return payload
 
@@ -2284,9 +2248,7 @@ class TestJobOutput:
             result = utils.get_job_output(JOB_ID, action="list")
         assert result["action"] == "list"
         assert result["count"] == 2
-        assert [item["Subject"] for item in result["messages"]] == [
-            "Invoice", "Second"
-        ]
+        assert [item["Subject"] for item in result["messages"]] == ["Invoice", "Second"]
 
     def test_chunked_list_without_trailer_is_rejected(self):
         utils = make_utils()
@@ -2303,7 +2265,8 @@ class TestJobOutput:
         utils = make_utils()
         second = dict(MOCK_MESSAGES[0], Subject="Second")
         records = [
-            json.loads(line) for line in chunked_list_output(
+            json.loads(line)
+            for line in chunked_list_output(
                 messages=[MOCK_MESSAGES[0], second],
                 groups=[[MOCK_MESSAGES[0]], [second]],
             ).splitlines()
@@ -2329,9 +2292,7 @@ class TestJobOutput:
 
     def test_chunked_list_count_limit_is_enforced(self):
         utils = make_utils()
-        records = [
-            json.loads(line) for line in chunked_list_output().splitlines()
-        ]
+        records = [json.loads(line) for line in chunked_list_output().splitlines()]
         records[-1]["count"] = MAX_LIST_RESULT_COUNT + 1
         output = "\n".join(json.dumps(record) for record in records)
         with req_mock.Mocker() as m:
@@ -2345,22 +2306,28 @@ class TestJobOutput:
     def test_chunked_list_messages_must_be_nonempty_object_array(self, messages):
         utils = make_utils()
         record_messages = [] if messages is None else messages
-        output = "\n".join([
-            json.dumps({
-                "action": "list",
-                "mode": LIST_CHUNK_MODE,
-                "chunk_index": 0,
-                "messages": record_messages,
-                "runbook_version": RUNBOOK_VERSION,
-            }),
-            json.dumps({
-                "action": "list",
-                "mode": LIST_COMPLETE_MODE,
-                "chunk_count": 1,
-                "count": 1,
-                "runbook_version": RUNBOOK_VERSION,
-            }),
-        ])
+        output = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "action": "list",
+                        "mode": LIST_CHUNK_MODE,
+                        "chunk_index": 0,
+                        "messages": record_messages,
+                        "runbook_version": RUNBOOK_VERSION,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "action": "list",
+                        "mode": LIST_COMPLETE_MODE,
+                        "chunk_count": 1,
+                        "count": 1,
+                        "runbook_version": RUNBOOK_VERSION,
+                    }
+                ),
+            ]
+        )
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
@@ -2369,9 +2336,7 @@ class TestJobOutput:
 
     def test_chunked_list_record_version_must_match_trailer(self):
         utils = make_utils()
-        records = [
-            json.loads(line) for line in chunked_list_output().splitlines()
-        ]
+        records = [json.loads(line) for line in chunked_list_output().splitlines()]
         records[0]["runbook_version"] = "3.4.0"
         output = "\n".join(json.dumps(record) for record in records)
         with req_mock.Mocker() as m:
@@ -2400,10 +2365,7 @@ class TestJobOutput:
 
     def test_validated_runbook_error_has_no_connector_prefix(self):
         utils = make_utils()
-        message = (
-            "Microsoft native failure\r\n"
-            "ErrorAccessDenied; RequestId=12345678-1234-1234-1234-123456789abc"
-        )
+        message = "Microsoft native failure\r\nErrorAccessDenied; RequestId=12345678-1234-1234-1234-123456789abc"
         error_output = {
             "action": "list",
             "error": True,
@@ -2486,9 +2448,7 @@ class TestJobOutput:
             "message": "native error " * 100,
             **build_metadata(),
         }
-        output = "\n".join(
-            chunked_error_output(error_result).splitlines()[:-1]
-        )
+        output = "\n".join(chunked_error_output(error_result).splitlines()[:-1])
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
@@ -2520,9 +2480,7 @@ class TestJobOutput:
     def test_chunked_export_inline_cap_rejected_before_join(self, monkeypatch):
         import ms_quarantine_for_splunk_soar_utils as utils_mod
 
-        monkeypatch.setattr(
-            utils_mod, "MAX_INLINE_DECODED_EML_BYTES", len(EML_RAW) - 1
-        )
+        monkeypatch.setattr(utils_mod, "MAX_INLINE_DECODED_EML_BYTES", len(EML_RAW) - 1)
         utils = make_utils(retain_chunked_base64=True)
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
@@ -2534,7 +2492,7 @@ class TestJobOutput:
     def test_chunked_export_ignores_output_order(self):
         utils = make_utils()
         lines = chunked_export_output().splitlines()
-        output = "\n".join(list(reversed(lines[:-1])) + [lines[-1]])
+        output = "\n".join([*reversed(lines[:-1]), lines[-1]])
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
@@ -2713,13 +2671,15 @@ class TestJobOutput:
             with pytest.raises(JobFailedError):
                 utils.run_action("export", identity=IDENTITY)
 
-    @pytest.mark.parametrize("field,value", [
-        ("identity", "00000000-0000-0000-0000-000000000000\\"
-                     "00000000-0000-0000-0000-000000000000"),
-        ("handling", "retry"),
-        ("decoded_size", MAX_DECODED_EML_BYTES),
-        ("max_decoded_size", MAX_DECODED_EML_BYTES + 2),
-    ])
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("identity", "00000000-0000-0000-0000-000000000000\\00000000-0000-0000-0000-000000000000"),
+            ("handling", "retry"),
+            ("decoded_size", MAX_DECODED_EML_BYTES),
+            ("max_decoded_size", MAX_DECODED_EML_BYTES + 2),
+        ],
+    )
     def test_oversized_error_metadata_is_validated(self, field, value):
         utils = make_utils()
         details = {
@@ -2772,11 +2732,7 @@ class TestJobOutput:
 
     def test_chunked_export_noise_ignored(self):
         utils = make_utils()
-        output = (
-            "VERBOSE: connecting\n"
-            "{not really json\n"
-            + chunked_export_output()
-        )
+        output = "VERBOSE: connecting\n{not really json\n" + chunked_export_output()
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
@@ -2786,9 +2742,7 @@ class TestJobOutput:
     def test_chunked_export_size_cap_raises(self, monkeypatch):
         import ms_quarantine_for_splunk_soar_utils as utils_mod
 
-        monkeypatch.setattr(
-            utils_mod, "MAX_DECODED_EML_BYTES", len(EML_RAW) - 1
-        )
+        monkeypatch.setattr(utils_mod, "MAX_DECODED_EML_BYTES", len(EML_RAW) - 1)
         utils = make_utils()
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
@@ -2826,23 +2780,48 @@ class TestJobOutput:
                 utils.get_job_output(JOB_ID)
         assert "must be an object" in str(exc_info.value)
 
-    @pytest.mark.parametrize("action,identity,output", [
-        ("list", None, {
-            "action": "list", "count": 0, "messages": [],
-        }),
-        ("export", IDENTITY, {
-            "action": "export", "identity": IDENTITY, "eml": EML_B64,
-        }),
-        ("release", IDENTITY, {
-            "action": "release", "identity": IDENTITY, "status": "released",
-        }),
-        ("deny", IDENTITY, {
-            "action": "deny", "identity": IDENTITY, "status": "denied",
-        }),
-    ])
-    def test_current_version_is_required_for_every_action(
-        self, action, identity, output
-    ):
+    @pytest.mark.parametrize(
+        "action,identity,output",
+        [
+            (
+                "list",
+                None,
+                {
+                    "action": "list",
+                    "count": 0,
+                    "messages": [],
+                },
+            ),
+            (
+                "export",
+                IDENTITY,
+                {
+                    "action": "export",
+                    "identity": IDENTITY,
+                    "eml": EML_B64,
+                },
+            ),
+            (
+                "release",
+                IDENTITY,
+                {
+                    "action": "release",
+                    "identity": IDENTITY,
+                    "status": "released",
+                },
+            ),
+            (
+                "deny",
+                IDENTITY,
+                {
+                    "action": "deny",
+                    "identity": IDENTITY,
+                    "status": "denied",
+                },
+            ),
+        ],
+    )
+    def test_current_version_is_required_for_every_action(self, action, identity, output):
         utils = make_utils()
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
@@ -2853,9 +2832,7 @@ class TestJobOutput:
         "action,business_status",
         [("release", "released"), ("deny", "denied")],
     )
-    def test_irreversible_success_requires_exchange_postcondition(
-        self, action, business_status
-    ):
+    def test_irreversible_success_requires_exchange_postcondition(self, action, business_status):
         utils = make_utils()
         output = {
             "action": action,
@@ -2903,9 +2880,7 @@ class TestJobOutput:
         output = {
             "action": "diagnose",
             "error": True,
-            "message": (
-                "Failed to connect to Exchange Online: AADSTS700016"
-            ),
+            "message": ("Failed to connect to Exchange Online: AADSTS700016"),
             **build_metadata(),
         }
         with req_mock.Mocker() as m:
@@ -2942,9 +2917,7 @@ class TestJobOutput:
             ("cmdlet_warning", None, "cmdlet_warning"),
         ],
     )
-    def test_release_success_rejects_invalid_postcondition_evidence(
-        self, field, value, expected_message
-    ):
+    def test_release_success_rejects_invalid_postcondition_evidence(self, field, value, expected_message):
         utils = make_utils()
         output = {
             "action": "release",
@@ -3002,9 +2975,7 @@ class TestJobOutput:
             mock_full_flow(m, output)
             with pytest.raises(RunbookActionError) as exc_info:
                 utils.run_action("release", identity=IDENTITY)
-        assert exc_info.value.result["error_code"] == (
-            "postcondition_unconfirmed"
-        )
+        assert exc_info.value.result["error_code"] == ("postcondition_unconfirmed")
 
     @pytest.mark.parametrize("action", ["release", "deny"])
     def test_disposition_rejected_is_a_validated_action_error(self, action):
@@ -3057,13 +3028,15 @@ class TestJobOutput:
         utils = make_utils()
         output = disposition_rejected_output()
         trace = json.loads(output["details"]["postcondition_trace"])
-        trace[1].update({
-            "result_count": 0,
-            "observed_identity": "",
-            "observed_release_status": "",
-            "exact_identity_match": False,
-            "error": "Transient Exchange read error.",
-        })
+        trace[1].update(
+            {
+                "result_count": 0,
+                "observed_identity": "",
+                "observed_release_status": "",
+                "exact_identity_match": False,
+                "error": "Transient Exchange read error.",
+            }
+        )
         output["details"]["postcondition_trace"] = json.dumps(
             trace,
             separators=(",", ":"),
@@ -3072,23 +3045,17 @@ class TestJobOutput:
             mock_full_flow(m, output)
             with pytest.raises(AutomationError) as exc_info:
                 utils.run_action("release", identity=IDENTITY)
-        assert "declared number of exact, error-free Requested" in str(
-            exc_info.value
-        )
+        assert "declared number of exact, error-free Requested" in str(exc_info.value)
 
     @pytest.mark.parametrize("action", ["release", "deny"])
-    def test_precondition_unconfirmed_is_a_validated_disposition_error(
-        self, action
-    ):
+    def test_precondition_unconfirmed_is_a_validated_disposition_error(self, action):
         utils = make_utils()
         output = precondition_error_output(action=action)
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
             with pytest.raises(RunbookActionError) as exc_info:
                 utils.run_action(action, identity=IDENTITY)
-        assert exc_info.value.result["error_code"] == (
-            "precondition_unconfirmed"
-        )
+        assert exc_info.value.result["error_code"] == ("precondition_unconfirmed")
 
     @pytest.mark.parametrize(
         "field,value,expected_message",
@@ -3113,9 +3080,7 @@ class TestJobOutput:
         ],
     )
     @pytest.mark.parametrize("action", ["release", "deny"])
-    def test_precondition_unconfirmed_rejects_malformed_details(
-        self, action, field, value, expected_message
-    ):
+    def test_precondition_unconfirmed_rejects_malformed_details(self, action, field, value, expected_message):
         utils = make_utils()
         output = precondition_error_output(action=action)
         output["details"][field] = value
@@ -3152,9 +3117,7 @@ class TestJobOutput:
             ("handling", "retry", "reconcile_before_retry"),
         ],
     )
-    def test_postcondition_unconfirmed_rejects_malformed_details(
-        self, field, value, expected_message
-    ):
+    def test_postcondition_unconfirmed_rejects_malformed_details(self, field, value, expected_message):
         utils = make_utils()
         output = postcondition_error_output()
         output["details"][field] = value
@@ -3164,23 +3127,48 @@ class TestJobOutput:
                 utils.run_action("release", identity=IDENTITY)
         assert expected_message in str(exc_info.value)
 
-    @pytest.mark.parametrize("action,identity,output", [
-        ("list", None, {
-            "action": "list", "count": 0, "messages": [],
-        }),
-        ("export", IDENTITY, {
-            "action": "export", "identity": IDENTITY, "eml": EML_B64,
-        }),
-        ("release", IDENTITY, {
-            "action": "release", "identity": IDENTITY, "status": "released",
-        }),
-        ("deny", IDENTITY, {
-            "action": "deny", "identity": IDENTITY, "status": "denied",
-        }),
-    ])
-    def test_old_version_is_rejected_for_every_action(
-        self, action, identity, output
-    ):
+    @pytest.mark.parametrize(
+        "action,identity,output",
+        [
+            (
+                "list",
+                None,
+                {
+                    "action": "list",
+                    "count": 0,
+                    "messages": [],
+                },
+            ),
+            (
+                "export",
+                IDENTITY,
+                {
+                    "action": "export",
+                    "identity": IDENTITY,
+                    "eml": EML_B64,
+                },
+            ),
+            (
+                "release",
+                IDENTITY,
+                {
+                    "action": "release",
+                    "identity": IDENTITY,
+                    "status": "released",
+                },
+            ),
+            (
+                "deny",
+                IDENTITY,
+                {
+                    "action": "deny",
+                    "identity": IDENTITY,
+                    "status": "denied",
+                },
+            ),
+        ],
+    )
+    def test_old_version_is_rejected_for_every_action(self, action, identity, output):
         utils = make_utils()
         output = dict(output, runbook_version="3.3.2")
         with req_mock.Mocker() as m:
@@ -3237,19 +3225,19 @@ class TestJobOutput:
                 utils.run_action("release", identity=IDENTITY)
         assert "does not match requested action" in str(exc_info.value)
 
-    @pytest.mark.parametrize("action,status", [
-        ("export", None),
-        ("release", "released"),
-        ("deny", "denied"),
-    ])
+    @pytest.mark.parametrize(
+        "action,status",
+        [
+            ("export", None),
+            ("release", "released"),
+            ("deny", "denied"),
+        ],
+    )
     def test_success_identity_must_match_request(self, action, status):
         utils = make_utils()
         output = {
             "action": action,
-            "identity": (
-                "00000000-0000-0000-0000-000000000000\\"
-                "11111111-1111-1111-1111-111111111111"
-            ),
+            "identity": ("00000000-0000-0000-0000-000000000000\\11111111-1111-1111-1111-111111111111"),
         }
         if action == "export":
             output["eml"] = EML_B64
@@ -3280,8 +3268,8 @@ class TestJobOutput:
 # TestConnectivity
 # ---------------------------------------------------------------------------
 
-class TestConnectivity:
 
+class TestConnectivity:
     def test_connectivity_success(self):
         c = make_connector()
         output = {"action": "list", "count": 0, "messages": []}
@@ -3309,10 +3297,7 @@ class TestConnectivity:
         """Job completes but runbook reports error:true (e.g. missing EXO role)."""
         c = make_connector()
         ar = patch_ar(c)
-        error_output = {
-            "action": "list", "error": True,
-            "message": "Failed to connect to Exchange Online: Unauthorized"
-        }
+        error_output = {"action": "list", "error": True, "message": "Failed to connect to Exchange Online: Unauthorized"}
         with req_mock.Mocker() as m:
             mock_full_flow(m, error_output)
             assert c._handle_test_connectivity({}) == APP_ERROR
@@ -3336,8 +3321,7 @@ class TestConnectivity:
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.post(WEBHOOK_URL, json={"JobIds": [JOB_ID]})
-            m.get(job_url(), status_code=403,
-                  json={"error": {"code": "AuthorizationFailed"}})
+            m.get(job_url(), status_code=403, json={"error": {"code": "AuthorizationFailed"}})
             assert c._handle_test_connectivity({}) == APP_ERROR
         assert "Automation Job Operator" in ar.get_message()
 
@@ -3355,28 +3339,34 @@ class TestConnectivity:
 # TestList
 # ---------------------------------------------------------------------------
 
-class TestList:
 
-    @pytest.mark.parametrize(("value", "expected"), [
-        ("user@contoso.com", "user@contoso.com"),
-        ("  user@contoso.com  ", "user@contoso.com"),
-        (["user@contoso.com"], "user@contoso.com"),
-        (
-            ["first@contoso.com", " second@contoso.com "],
-            "first@contoso.com, second@contoso.com",
-        ),
-        ([], ""),
-        ([None, "", "  "], ""),
-        (None, ""),
-    ])
+class TestList:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("user@contoso.com", "user@contoso.com"),
+            ("  user@contoso.com  ", "user@contoso.com"),
+            (["user@contoso.com"], "user@contoso.com"),
+            (
+                ["first@contoso.com", " second@contoso.com "],
+                "first@contoso.com, second@contoso.com",
+            ),
+            ([], ""),
+            ([None, "", "  "], ""),
+            (None, ""),
+        ],
+    )
     def test_normalize_recipient_address(self, value, expected):
         assert normalize_recipient_address(value) == expected
 
-    @pytest.mark.parametrize("value", [
-        {"address": "user@contoso.com"},
-        7,
-        ["user@contoso.com", {"address": "other@contoso.com"}],
-    ])
+    @pytest.mark.parametrize(
+        "value",
+        [
+            {"address": "user@contoso.com"},
+            7,
+            ["user@contoso.com", {"address": "other@contoso.com"}],
+        ],
+    )
     def test_normalize_recipient_address_rejects_structured_values(self, value):
         with pytest.raises(ValueError):
             normalize_recipient_address(value)
@@ -3408,9 +3398,7 @@ class TestList:
         with req_mock.Mocker() as m:
             mock_full_flow_text(m, output)
             assert c._handle_list_quarantine_requests({}) == APP_SUCCESS
-        assert [item["Subject"] for item in ar.get_data()] == [
-            "Invoice", "Second"
-        ]
+        assert [item["Subject"] for item in ar.get_data()] == ["Invoice", "Second"]
         assert ar.get_summary()["total_found"] == 2
 
     def test_list_required_fields(self):
@@ -3421,23 +3409,23 @@ class TestList:
             mock_full_flow(m, output)
             c._handle_list_quarantine_requests({})
         row = ar.get_data()[0]
-        for f in ["Identity", "SenderAddress", "RecipientAddress",
-                  "Subject", "Type", "ReleaseStatus"]:
+        for f in ["Identity", "SenderAddress", "RecipientAddress", "Subject", "Type", "ReleaseStatus"]:
             assert f in row
 
-    @pytest.mark.parametrize(("recipient_address", "expected"), [
-        ("user@contoso.com", "user@contoso.com"),
-        (["user@contoso.com"], "user@contoso.com"),
-        (
-            ["first@contoso.com", "second@contoso.com"],
-            "first@contoso.com, second@contoso.com",
-        ),
-        ([], ""),
-        (None, ""),
-    ])
-    def test_list_recipient_address_matches_manifest_string(
-        self, recipient_address, expected
-    ):
+    @pytest.mark.parametrize(
+        ("recipient_address", "expected"),
+        [
+            ("user@contoso.com", "user@contoso.com"),
+            (["user@contoso.com"], "user@contoso.com"),
+            (
+                ["first@contoso.com", "second@contoso.com"],
+                "first@contoso.com, second@contoso.com",
+            ),
+            ([], ""),
+            (None, ""),
+        ],
+    )
+    def test_list_recipient_address_matches_manifest_string(self, recipient_address, expected):
         c = make_connector()
         ar = patch_ar(c)
         message = dict(
@@ -3488,9 +3476,7 @@ class TestList:
         output = {"action": "list", "count": 1, "messages": MOCK_MESSAGES}
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_list_quarantine_requests(
-                {"max_results": 1}
-            ) == APP_SUCCESS
+            assert c._handle_list_quarantine_requests({"max_results": 1}) == APP_SUCCESS
         assert ar.get_summary() == {
             "total_found": 1,
             "max_results": 1,
@@ -3581,45 +3567,50 @@ class TestList:
         bodies = []
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
+
             def webhook_cb(req, ctx):
                 bodies.append(req.json())
                 ctx.status_code = 200
                 return {"JobIds": [JOB_ID]}
+
             m.post(WEBHOOK_URL, json=webhook_cb)
             m.get(job_url(), json={"properties": {"status": "Completed"}})
-            m.get(job_output_url(),
-                  text=json.dumps({
-                      "action": "list",
-                      "count": 0,
-                      "messages": [],
-                      "runbook_version": RUNBOOK_VERSION,
-                  }))
-            c._handle_list_quarantine_requests({
-                "max_results": max_results,
-            })
+            m.get(
+                job_output_url(),
+                text=json.dumps(
+                    {
+                        "action": "list",
+                        "count": 0,
+                        "messages": [],
+                        "runbook_version": RUNBOOK_VERSION,
+                    }
+                ),
+            )
+            c._handle_list_quarantine_requests(
+                {
+                    "max_results": max_results,
+                }
+            )
         assert bodies[0]["page_size"] == max_results
 
     def test_list_max_results_too_high_rejected(self):
         c = make_connector()
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
-            assert c._handle_list_quarantine_requests(
-                {"max_results": 5000}) == APP_ERROR
+            assert c._handle_list_quarantine_requests({"max_results": 5000}) == APP_ERROR
         assert "1000" in ar.get_message()
 
     def test_list_max_results_zero_rejected(self):
         c = make_connector()
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
-            assert c._handle_list_quarantine_requests(
-                {"max_results": 0}) == APP_ERROR
+            assert c._handle_list_quarantine_requests({"max_results": 0}) == APP_ERROR
 
     def test_list_max_results_non_numeric_rejected(self):
         c = make_connector()
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
-            assert c._handle_list_quarantine_requests(
-                {"max_results": "abc"}) == APP_ERROR
+            assert c._handle_list_quarantine_requests({"max_results": "abc"}) == APP_ERROR
 
     @pytest.mark.parametrize("param", [{}, {"max_results": None}])
     def test_list_without_max_results_works(self, param):
@@ -3629,23 +3620,29 @@ class TestList:
         bodies = []
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
+
             def webhook_cb(req, ctx):
                 bodies.append(req.json())
                 ctx.status_code = 200
                 return {"JobIds": [JOB_ID]}
+
             m.post(WEBHOOK_URL, json=webhook_cb)
             m.get(job_url(), json={"properties": {"status": "Completed"}})
-            m.get(job_output_url(), text=json.dumps({
-                "action": "list",
-                "count": 0,
-                "messages": [],
-                **build_metadata(),
-            }))
+            m.get(
+                job_output_url(),
+                text=json.dumps(
+                    {
+                        "action": "list",
+                        "count": 0,
+                        "messages": [],
+                        **build_metadata(),
+                    }
+                ),
+            )
             assert c._handle_list_quarantine_requests(param) == APP_SUCCESS
         assert bodies[0]["page_size"] == 2
         assert ar.get_summary()["max_results"] == 2
-        manifest = json.loads(Path(__file__).with_name(
-            "ms_quarantine_for_splunk_soar.json").read_text())
+        manifest = json.loads(Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text())
         assert all(item["identifier"] != "list_quarantine_requests" for item in manifest["actions"])
 
 
@@ -3657,8 +3654,8 @@ class TestList:
 # TestExportVaultMode
 # ---------------------------------------------------------------------------
 
-class TestExportVaultMode:
 
+class TestExportVaultMode:
     def test_oversized_export_fails_closed_without_vault_import(self):
         c = make_connector(export_mode=EXPORT_VAULT)
         ar = patch_ar(c)
@@ -3677,17 +3674,17 @@ class TestExportVaultMode:
         }
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_get_quarantine_message(
-                {"identity": IDENTITY}
-            ) == APP_ERROR
+            assert c._handle_get_quarantine_message({"identity": IDENTITY}) == APP_ERROR
         assert VAULT_ADDS == []
-        assert ar.get_data() == [{
-            "status": "oversized",
-            "handling": "fail_closed",
-            "identity": IDENTITY,
-            "decoded_size": MAX_DECODED_EML_BYTES + 1,
-            "max_decoded_size": MAX_DECODED_EML_BYTES,
-        }]
+        assert ar.get_data() == [
+            {
+                "status": "oversized",
+                "handling": "fail_closed",
+                "identity": IDENTITY,
+                "decoded_size": MAX_DECODED_EML_BYTES + 1,
+                "max_decoded_size": MAX_DECODED_EML_BYTES,
+            }
+        ]
         assert ar.get_summary()["status"] == "oversized"
         assert ar.get_summary()["handling"] == "fail_closed"
         assert "remains quarantined" in ar.get_message()
@@ -3697,8 +3694,7 @@ class TestExportVaultMode:
         output = {"action": "export", "identity": IDENTITY, "eml": EML_B64}
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_get_quarantine_message(
-                {"identity": IDENTITY}) == APP_SUCCESS
+            assert c._handle_get_quarantine_message({"identity": IDENTITY}) == APP_SUCCESS
 
     def test_vault_id_returned(self):
         c = make_connector(export_mode=EXPORT_VAULT)
@@ -3718,8 +3714,12 @@ class TestExportVaultMode:
             c._handle_get_quarantine_message({"identity": IDENTITY})
         d = ar.get_data()[0]
         assert d["sha256"] == hashlib.sha256(EML_RAW).hexdigest()
-        assert d["sha1"]   == hashlib.sha1(EML_RAW).hexdigest()
-        assert d["md5"]    == hashlib.md5(EML_RAW).hexdigest()
+        # Verify legacy metadata for synthetic email bytes, not cryptographic trust.
+        # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
+        assert d["sha1"] == hashlib.sha1(EML_RAW).hexdigest()
+        # Verify legacy metadata for synthetic email bytes, not cryptographic trust.
+        # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
+        assert d["md5"] == hashlib.md5(EML_RAW).hexdigest()
 
     def test_legacy_hashes_are_explicitly_nonsecurity_for_fips(
         self,
@@ -3790,13 +3790,12 @@ class TestExportVaultMode:
         assert VAULT_ADDS[0]["metadata"]["identity"] == IDENTITY
 
     def test_vault_pascalcase_eml_accepted(self):
-        """PowerShell returns 'Eml' not 'eml' – must be tolerated."""
+        """PowerShell returns 'Eml' not 'eml' - must be tolerated."""
         c = make_connector(export_mode=EXPORT_VAULT)
         output = {"action": "export", "identity": IDENTITY, "Eml": EML_B64}
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_get_quarantine_message(
-                {"identity": IDENTITY}) == APP_SUCCESS
+            assert c._handle_get_quarantine_message({"identity": IDENTITY}) == APP_SUCCESS
         assert len(VAULT_ADDS) == 1
 
     def test_vault_summary_mode(self):
@@ -3813,8 +3812,7 @@ class TestExportVaultMode:
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
             mock_full_flow_text(m, chunked_export_output())
-            assert c._handle_get_quarantine_message(
-                {"identity": IDENTITY}) == APP_SUCCESS
+            assert c._handle_get_quarantine_message({"identity": IDENTITY}) == APP_SUCCESS
         assert ar.get_data()[0]["sha256"] == hashlib.sha256(EML_RAW).hexdigest()
         assert VAULT_ADDS[0]["content"] == EML_RAW
 
@@ -3824,8 +3822,7 @@ class TestExportVaultMode:
         output = {"action": "export", "identity": IDENTITY, "eml": "not-base64!"}
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_get_quarantine_message(
-                {"identity": IDENTITY}) == APP_ERROR
+            assert c._handle_get_quarantine_message({"identity": IDENTITY}) == APP_ERROR
         assert "invalid base64" in ar.get_message().lower()
 
     def test_vault_base64_whitespace_tolerated(self):
@@ -3834,23 +3831,19 @@ class TestExportVaultMode:
         output = {"action": "export", "identity": IDENTITY, "eml": spaced}
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_get_quarantine_message(
-                {"identity": IDENTITY}) == APP_SUCCESS
+            assert c._handle_get_quarantine_message({"identity": IDENTITY}) == APP_SUCCESS
         assert VAULT_ADDS[0]["content"] == EML_RAW
 
     def test_vault_decoded_size_cap_rejected(self, monkeypatch):
         import ms_quarantine_for_splunk_soar_connector as connector_mod
 
-        monkeypatch.setattr(
-            connector_mod, "MAX_DECODED_EML_BYTES", len(EML_RAW) - 1
-        )
+        monkeypatch.setattr(connector_mod, "MAX_DECODED_EML_BYTES", len(EML_RAW) - 1)
         c = make_connector(export_mode=EXPORT_VAULT)
         ar = patch_ar(c)
         output = {"action": "export", "identity": IDENTITY, "eml": EML_B64}
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_get_quarantine_message(
-                {"identity": IDENTITY}) == APP_ERROR
+            assert c._handle_get_quarantine_message({"identity": IDENTITY}) == APP_ERROR
         assert "supported maximum" in ar.get_message().lower()
 
 
@@ -3858,15 +3851,14 @@ class TestExportVaultMode:
 # TestExportInlineMode
 # ---------------------------------------------------------------------------
 
-class TestExportInlineMode:
 
+class TestExportInlineMode:
     def test_inline_success(self):
         c = make_connector(export_mode=EXPORT_INLINE)
         output = {"action": "export", "identity": IDENTITY, "eml": EML_B64}
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_get_quarantine_message(
-                {"identity": IDENTITY}) == APP_SUCCESS
+            assert c._handle_get_quarantine_message({"identity": IDENTITY}) == APP_SUCCESS
 
     def test_inline_eml_returned(self):
         c = make_connector(export_mode=EXPORT_INLINE)
@@ -3909,8 +3901,8 @@ class TestExportInlineMode:
 # TestEmailArtifactCreation
 # ---------------------------------------------------------------------------
 
-class TestEmailArtifactCreation:
 
+class TestEmailArtifactCreation:
     @staticmethod
     def _run(
         params=None,
@@ -3947,12 +3939,8 @@ class TestEmailArtifactCreation:
         )
         assert status == APP_SUCCESS
         assert len(ARTIFACT_ADDS) == 1
-        assert ar.get_data()[0]["artifact_layout"] == (
-            ARTIFACT_LAYOUT_COMBINED
-        )
-        assert ar.get_data()[0]["artifact_fields"] == ",".join(
-            DEFAULT_ARTIFACT_FIELDS
-        )
+        assert ar.get_data()[0]["artifact_layout"] == (ARTIFACT_LAYOUT_COMBINED)
+        assert ar.get_data()[0]["artifact_fields"] == ",".join(DEFAULT_ARTIFACT_FIELDS)
 
     def test_asset_policy_selects_fields_and_separate_layout(self):
         _c, ar, status = self._run(
@@ -3964,9 +3952,7 @@ class TestEmailArtifactCreation:
         )
         assert status == APP_SUCCESS
         assert len(ARTIFACT_ADDS) == 3
-        assert ar.get_data()[0]["artifact_layout"] == (
-            ARTIFACT_LAYOUT_SEPARATE
-        )
+        assert ar.get_data()[0]["artifact_layout"] == (ARTIFACT_LAYOUT_SEPARATE)
         assert ar.get_data()[0]["artifact_fields"] == "to,subject"
 
     def test_explicit_legacy_false_overrides_enabled_asset_policy(self):
@@ -3979,16 +3965,16 @@ class TestEmailArtifactCreation:
         assert "artifact_created" not in ar.get_data()[0]
 
     def test_legacy_action_policy_overrides_disabled_asset_policy(self):
-        _c, ar, status = self._run({
-            "create_email_artifacts": True,
-            "artifact_layout": "separate",
-            "artifact_fields": "to,subject",
-        })
+        _c, ar, status = self._run(
+            {
+                "create_email_artifacts": True,
+                "artifact_layout": "separate",
+                "artifact_fields": "to,subject",
+            }
+        )
         assert status == APP_SUCCESS
         assert len(ARTIFACT_ADDS) == 3
-        assert ar.get_data()[0]["artifact_layout"] == (
-            ARTIFACT_LAYOUT_SEPARATE
-        )
+        assert ar.get_data()[0]["artifact_layout"] == (ARTIFACT_LAYOUT_SEPARATE)
         assert ar.get_data()[0]["artifact_fields"] == "to,subject"
 
     def test_legacy_layout_without_enable_preserves_disabled_behavior(self):
@@ -4001,11 +3987,13 @@ class TestEmailArtifactCreation:
         assert "artifact_created" not in ar.get_data()[0]
 
     def test_explicit_false_preserves_legacy_output_and_ignores_other_options(self):
-        _c, ar, status = self._run({
-            "create_email_artifacts": False,
-            "artifact_layout": "invalid",
-            "artifact_fields": "not_a_field",
-        })
+        _c, ar, status = self._run(
+            {
+                "create_email_artifacts": False,
+                "artifact_layout": "invalid",
+                "artifact_fields": "not_a_field",
+            }
+        )
         assert status == APP_SUCCESS
         assert ARTIFACT_ADDS == []
         assert set(ar.get_data()[0]) == {
@@ -4018,9 +4006,11 @@ class TestEmailArtifactCreation:
         }
 
     def test_combined_default_fields_create_one_artifact(self):
-        _c, ar, status = self._run({
-            "create_email_artifacts": True,
-        })
+        _c, ar, status = self._run(
+            {
+                "create_email_artifacts": True,
+            }
+        )
         assert status == APP_SUCCESS
         assert len(ARTIFACT_ADDS) == 1
         artifact = ARTIFACT_ADDS[0]
@@ -4035,18 +4025,9 @@ class TestEmailArtifactCreation:
             "carol@example.com",
         ]
         assert artifact["cef_data"]["emailSubject"] == "Prüfung"
-        assert (
-            artifact["cef_data"]["emailMessageId"]
-            == "<message-123@example.com>"
-        )
-        assert (
-            artifact["cef_data"]["emailDateRaw"]
-            == "Tue, 28 Jul 2026 14:34:56 +0200"
-        )
-        assert (
-            artifact["cef_data"]["emailDate"]
-            == "2026-07-28T14:34:56+02:00"
-        )
+        assert artifact["cef_data"]["emailMessageId"] == "<message-123@example.com>"
+        assert artifact["cef_data"]["emailDateRaw"] == "Tue, 28 Jul 2026 14:34:56 +0200"
+        assert artifact["cef_data"]["emailDate"] == "2026-07-28T14:34:56+02:00"
         row = ar.get_data()[0]
         assert row["artifact_created"] is True
         assert row["artifact_count"] == 1
@@ -4056,25 +4037,27 @@ class TestEmailArtifactCreation:
         assert ar.get_summary()["artifact_count"] == 1
 
     def test_combined_artifact_keeps_correlation_in_raw_data(self):
-        _c, _ar, status = self._run({
-            "create_email_artifacts": True,
-            "artifact_fields": "subject",
-        })
+        _c, _ar, status = self._run(
+            {
+                "create_email_artifacts": True,
+                "artifact_fields": "subject",
+            }
+        )
         assert status == APP_SUCCESS
         raw = ARTIFACT_ADDS[0]["raw_data"]
         assert raw["quarantine_identity"] == IDENTITY
         assert raw["container_id"] == 1
         assert raw["vault_id"] == VAULT_ADDS[0]["vault_id"]
-        assert raw["eml_sha256"] == hashlib.sha256(
-            ARTIFACT_EML_RAW
-        ).hexdigest()
+        assert raw["eml_sha256"] == hashlib.sha256(ARTIFACT_EML_RAW).hexdigest()
 
     def test_separate_layout_creates_one_artifact_per_value(self):
-        _c, ar, status = self._run({
-            "create_email_artifacts": True,
-            "artifact_layout": "separate",
-            "artifact_fields": "to,subject,email_date",
-        })
+        _c, ar, status = self._run(
+            {
+                "create_email_artifacts": True,
+                "artifact_layout": "separate",
+                "artifact_fields": "to,subject,email_date",
+            }
+        )
         assert status == APP_SUCCESS
         assert len(ARTIFACT_ADDS) == 4
         cef_rows = [artifact["cef_data"] for artifact in ARTIFACT_ADDS]
@@ -4086,54 +4069,47 @@ class TestEmailArtifactCreation:
             "emailDate": "2026-07-28T14:34:56+02:00",
         } in cef_rows
         assert ar.get_data()[0]["artifact_count"] == 4
-        assert (
-            ar.get_data()[0]["artifact_layout"]
-            == ARTIFACT_LAYOUT_SEPARATE
-        )
+        assert ar.get_data()[0]["artifact_layout"] == ARTIFACT_LAYOUT_SEPARATE
 
     def test_all_fields_include_topmost_received_date(self):
-        _c, ar, status = self._run({
-            "create_email_artifacts": True,
-            "artifact_fields": "all",
-        })
+        _c, ar, status = self._run(
+            {
+                "create_email_artifacts": True,
+                "artifact_fields": "all",
+            }
+        )
         assert status == APP_SUCCESS
         cef = ARTIFACT_ADDS[0]["cef_data"]
         assert cef["senderAddress"] == "sender@example.com"
         assert cef["recipientAddress"] == "envelope@example.com"
         assert cef["replyToEmail"] == "replies@example.com"
         assert cef["ccEmail"] == "security@example.com"
-        assert (
-            cef["receivedDateRaw"]
-            == "Tue, 28 Jul 2026 14:35:10 +0200"
-        )
+        assert cef["receivedDateRaw"] == "Tue, 28 Jul 2026 14:35:10 +0200"
         assert cef["receivedDate"] == "2026-07-28T14:35:10+02:00"
-        assert ar.get_data()[0]["artifact_fields"] == ",".join(
-            ARTIFACT_FIELD_ORDER
-        )
+        assert ar.get_data()[0]["artifact_fields"] == ",".join(ARTIFACT_FIELD_ORDER)
 
     def test_missing_selected_headers_are_reported_without_failure(self):
-        minimal = base64.b64encode(
-            b"From: sender@example.com\r\n\r\nBody"
-        ).decode()
-        _c, ar, status = self._run({
-            "create_email_artifacts": True,
-            "artifact_fields": "from,to,cc,email_date",
-        }, eml_b64=minimal)
+        minimal = base64.b64encode(b"From: sender@example.com\r\n\r\nBody").decode()
+        _c, ar, status = self._run(
+            {
+                "create_email_artifacts": True,
+                "artifact_fields": "from,to,cc,email_date",
+            },
+            eml_b64=minimal,
+        )
         assert status == APP_SUCCESS
         assert len(ARTIFACT_ADDS) == 1
-        assert ar.get_data()[0]["missing_artifact_fields"] == (
-            "to,cc,email_date"
-        )
+        assert ar.get_data()[0]["missing_artifact_fields"] == ("to,cc,email_date")
 
     def test_date_without_timezone_keeps_raw_and_warns(self):
-        no_timezone = base64.b64encode(
-            b"Date: Tue, 28 Jul 2026 14:34:56\r\n"
-            b"Subject: Test\r\n\r\nBody"
-        ).decode()
-        _c, ar, status = self._run({
-            "create_email_artifacts": True,
-            "artifact_fields": "email_date",
-        }, eml_b64=no_timezone)
+        no_timezone = base64.b64encode(b"Date: Tue, 28 Jul 2026 14:34:56\r\nSubject: Test\r\n\r\nBody").decode()
+        _c, ar, status = self._run(
+            {
+                "create_email_artifacts": True,
+                "artifact_fields": "email_date",
+            },
+            eml_b64=no_timezone,
+        )
         assert status == APP_SUCCESS
         cef = ARTIFACT_ADDS[0]["cef_data"]
         assert cef["emailDateRaw"] == "Tue, 28 Jul 2026 14:34:56"
@@ -4170,16 +4146,19 @@ class TestEmailArtifactCreation:
             ),
         ],
     )
-    def test_invalid_artifact_options_fail_before_webhook(
-        self, params, expected
-    ):
+    def test_invalid_artifact_options_fail_before_webhook(self, params, expected):
         c = make_connector()
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
-            assert c._handle_get_quarantine_message({
-                "identity": IDENTITY,
-                **params,
-            }) == APP_ERROR
+            assert (
+                c._handle_get_quarantine_message(
+                    {
+                        "identity": IDENTITY,
+                        **params,
+                    }
+                )
+                == APP_ERROR
+            )
             assert m.request_history == []
         assert expected in ar.get_message().lower()
         assert ARTIFACT_ADDS == []
@@ -4198,18 +4177,18 @@ class TestEmailArtifactCreation:
         assert "vault_id" in ar.get_data()[0]["missing_artifact_fields"]
         assert "vault_id" not in ARTIFACT_ADDS[0]["raw_data"]
 
-    def test_artifact_api_failure_fails_action_but_preserves_vault_evidence(
-        self, monkeypatch
-    ):
+    def test_artifact_api_failure_fails_action_but_preserves_vault_evidence(self, monkeypatch):
         monkeypatch.setattr(
             phrules_stub,
             "add_artifact",
             lambda **_kwargs: (False, "database unavailable", None),
         )
-        _c, ar, status = self._run({
-            "create_email_artifacts": True,
-            "artifact_fields": "subject",
-        })
+        _c, ar, status = self._run(
+            {
+                "create_email_artifacts": True,
+                "artifact_fields": "subject",
+            }
+        )
         assert status == APP_ERROR
         assert len(VAULT_ADDS) == 1
         row = ar.get_data()[0]
@@ -4218,18 +4197,18 @@ class TestEmailArtifactCreation:
         assert "database unavailable" in row["artifact_error"]
         assert "stored in the Vault" in ar.get_message()
 
-    def test_duplicate_artifact_with_existing_id_is_not_an_error(
-        self, monkeypatch
-    ):
+    def test_duplicate_artifact_with_existing_id_is_not_an_error(self, monkeypatch):
         monkeypatch.setattr(
             phrules_stub,
             "add_artifact",
             lambda **_kwargs: (False, "already exists", 777),
         )
-        _c, ar, status = self._run({
-            "create_email_artifacts": True,
-            "artifact_fields": "subject",
-        })
+        _c, ar, status = self._run(
+            {
+                "create_email_artifacts": True,
+                "artifact_fields": "subject",
+            }
+        )
         assert status == APP_SUCCESS
         row = ar.get_data()[0]
         assert row["artifact_created"] is False
@@ -4243,14 +4222,10 @@ class TestEmailArtifactCreation:
             "artifact_fields": "to,subject",
         }
         self._run(params)
-        first_identifiers = [
-            artifact["identifier"] for artifact in ARTIFACT_ADDS
-        ]
-        ARTIFACT_ADDS.clear()
+        first_identifiers = [artifact["identifier"] for artifact in ARTIFACT_ADDS]
+        ARTIFACT_ADDS.clear()  # pylint: disable=no-global-updates
         self._run(params)
-        second_identifiers = [
-            artifact["identifier"] for artifact in ARTIFACT_ADDS
-        ]
+        second_identifiers = [artifact["identifier"] for artifact in ARTIFACT_ADDS]
         assert first_identifiers == second_identifiers
 
     def test_field_parser_canonicalizes_order_and_duplicates(self):
@@ -4265,21 +4240,22 @@ class TestEmailArtifactCreation:
 # TestInspectReleaseEnvironment
 # ---------------------------------------------------------------------------
 
-class TestInspectReleaseEnvironment:
 
+class TestInspectReleaseEnvironment:
     def test_default_inspection_skips_tenant_rbac_and_preserves_opt_in(self):
         c = make_connector()
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
             mock_full_flow(m, diagnostic_identity_only_output())
-            assert c._handle_inspect_release_environment({
-                "identity": IDENTITY,
-            }) == APP_SUCCESS
-            webhook_body = next(
-                request.json()
-                for request in m.request_history
-                if request.url == WEBHOOK_URL
+            assert (
+                c._handle_inspect_release_environment(
+                    {
+                        "identity": IDENTITY,
+                    }
+                )
+                == APP_SUCCESS
             )
+            webhook_body = next(request.json() for request in m.request_history if request.url == WEBHOOK_URL)
 
         assert webhook_body["include_rbac"] is False
         assert ar.get_data()[0]["rbac_included"] is False
@@ -4290,15 +4266,16 @@ class TestInspectReleaseEnvironment:
         c = make_connector()
         with req_mock.Mocker() as m:
             mock_full_flow(m, diagnostic_success_output())
-            assert c._handle_inspect_release_environment({
-                "identity": IDENTITY,
-                "include_rbac": True,
-            }) == APP_SUCCESS
-            webhook_body = next(
-                request.json()
-                for request in m.request_history
-                if request.url == WEBHOOK_URL
+            assert (
+                c._handle_inspect_release_environment(
+                    {
+                        "identity": IDENTITY,
+                        "include_rbac": True,
+                    }
+                )
+                == APP_SUCCESS
             )
+            webhook_body = next(request.json() for request in m.request_history if request.url == WEBHOOK_URL)
         assert webhook_body["include_rbac"] is True
 
     def test_inspection_accepts_guid_case_variant_as_same_identity(self):
@@ -4307,9 +4284,14 @@ class TestInspectReleaseEnvironment:
         output["observed_identity"] = IDENTITY.upper()
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_inspect_release_environment({
-                "identity": IDENTITY,
-            }) == APP_SUCCESS
+            assert (
+                c._handle_inspect_release_environment(
+                    {
+                        "identity": IDENTITY,
+                    }
+                )
+                == APP_SUCCESS
+            )
 
     def test_generic_runbook_failure_surfaces_root_cause(self):
         c = make_connector()
@@ -4317,16 +4299,19 @@ class TestInspectReleaseEnvironment:
         output = {
             "action": "diagnose",
             "error": True,
-            "message": (
-                "Failed to connect to Exchange Online: AADSTS700016"
-            ),
+            "message": ("Failed to connect to Exchange Online: AADSTS700016"),
             **build_metadata(),
         }
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_inspect_release_environment({
-                "identity": IDENTITY,
-            }) == APP_ERROR
+            assert (
+                c._handle_inspect_release_environment(
+                    {
+                        "identity": IDENTITY,
+                    }
+                )
+                == APP_ERROR
+            )
         assert "AADSTS700016" in ar.get_message()
         assert "protocol error" not in ar.get_message().lower()
 
@@ -4356,10 +4341,15 @@ class TestInspectReleaseEnvironment:
         }
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_inspect_release_environment({
-                "identity": IDENTITY,
-                "include_rbac": True,
-            }) == APP_ERROR
+            assert (
+                c._handle_inspect_release_environment(
+                    {
+                        "identity": IDENTITY,
+                        "include_rbac": True,
+                    }
+                )
+                == APP_ERROR
+            )
         assert ar.get_data()[0]["inspection_error"] == "Exchange read failed."
         assert ar.get_message() == details["inspection_error"]
 
@@ -4368,10 +4358,15 @@ class TestInspectReleaseEnvironment:
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
             mock_full_flow(m, diagnostic_success_output())
-            assert c._handle_inspect_release_environment({
-                "identity": IDENTITY,
-                "include_rbac": True,
-            }) == APP_SUCCESS
+            assert (
+                c._handle_inspect_release_environment(
+                    {
+                        "identity": IDENTITY,
+                        "include_rbac": True,
+                    }
+                )
+                == APP_SUCCESS
+            )
 
         row = ar.get_data()[0]
         summary = ar.get_summary()
@@ -4391,15 +4386,19 @@ class TestInspectReleaseEnvironment:
         c = make_connector()
         ar = patch_ar(c)
         record = diagnostic_success_output()
-        record.update(rbac_diagnostics(
-            status="partial",
-            error_records=[{
-                "query": "quarantine_role_assignments",
-                "error": "The cmdlet is not available.",
-                "exception_type": "CommandNotFoundException",
-            }],
-            membership_confirmed=False,
-        ))
+        record.update(
+            rbac_diagnostics(
+                status="partial",
+                error_records=[
+                    {
+                        "query": "quarantine_role_assignments",
+                        "error": "The cmdlet is not available.",
+                        "exception_type": "CommandNotFoundException",
+                    }
+                ],
+                membership_confirmed=False,
+            )
+        )
         record["service_principal_registered"] = False
         record["registered_service_principal_identity"] = ""
         record["registered_service_principal_app_id"] = ""
@@ -4415,10 +4414,15 @@ class TestInspectReleaseEnvironment:
         }
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_inspect_release_environment({
-                "identity": IDENTITY,
-                "include_rbac": True,
-            }) == APP_ERROR
+            assert (
+                c._handle_inspect_release_environment(
+                    {
+                        "identity": IDENTITY,
+                        "include_rbac": True,
+                    }
+                )
+                == APP_ERROR
+            )
 
         assert ar.get_summary()["rbac_diagnostics_status"] == "partial"
         assert ar.get_summary()["permission_query_error_count"] == 1
@@ -4434,17 +4438,17 @@ class TestInspectReleaseEnvironment:
             }
             for index in range(2)
         ]
-        record.update({
-            "rbac_diagnostics_status": "partial",
-            "rbac_diagnostics_reason": (
-                "one_or_more_permission_queries_failed"
-            ),
-            "permission_query_error_count": 5,
-            "permission_query_error_retained_count": 2,
-            "permission_query_error_dropped_count": 3,
-            "permission_query_errors_truncated": True,
-            "permission_query_errors": retained,
-        })
+        record.update(
+            {
+                "rbac_diagnostics_status": "partial",
+                "rbac_diagnostics_reason": ("one_or_more_permission_queries_failed"),
+                "permission_query_error_count": 5,
+                "permission_query_error_retained_count": 2,
+                "permission_query_error_dropped_count": 3,
+                "permission_query_errors_truncated": True,
+                "permission_query_errors": retained,
+            }
+        )
 
         MSQuarantineForSplunkSOARUtils._validate_rbac_diagnostics(
             record,
@@ -4453,18 +4457,20 @@ class TestInspectReleaseEnvironment:
 
     def test_truncated_role_group_inspection_is_partial_and_unknown(self):
         record = diagnostic_success_output()
-        record.update({
-            "rbac_diagnostics_status": "partial",
-            "rbac_diagnostics_reason": "role_group_inspection_truncated",
-            "quarantine_role_groups": "",
-            "matched_quarantine_role_groups": "",
-            "quarantine_role_group_total_count": 25,
-            "quarantine_role_group_inspected_count": 20,
-            "quarantine_role_group_inspection_truncated": True,
-            "quarantine_group_membership_confirmed": None,
-            "quarantine_administrator_membership_confirmed": None,
-            "role_assignment_matches_identity": None,
-        })
+        record.update(
+            {
+                "rbac_diagnostics_status": "partial",
+                "rbac_diagnostics_reason": "role_group_inspection_truncated",
+                "quarantine_role_groups": "",
+                "matched_quarantine_role_groups": "",
+                "quarantine_role_group_total_count": 25,
+                "quarantine_role_group_inspected_count": 20,
+                "quarantine_role_group_inspection_truncated": True,
+                "quarantine_group_membership_confirmed": None,
+                "quarantine_administrator_membership_confirmed": None,
+                "role_assignment_matches_identity": None,
+            }
+        )
 
         MSQuarantineForSplunkSOARUtils._validate_rbac_diagnostics(
             record,
@@ -4494,18 +4500,20 @@ class TestInspectReleaseEnvironment:
         expected,
     ):
         record = diagnostic_success_output()
-        record.update({
-            "rbac_diagnostics_status": "partial",
-            "rbac_diagnostics_reason": "role_group_inspection_truncated",
-            "quarantine_role_groups": "",
-            "matched_quarantine_role_groups": "",
-            "quarantine_role_group_total_count": 25,
-            "quarantine_role_group_inspected_count": 20,
-            "quarantine_role_group_inspection_truncated": True,
-            "quarantine_group_membership_confirmed": None,
-            "quarantine_administrator_membership_confirmed": None,
-            "role_assignment_matches_identity": None,
-        })
+        record.update(
+            {
+                "rbac_diagnostics_status": "partial",
+                "rbac_diagnostics_reason": "role_group_inspection_truncated",
+                "quarantine_role_groups": "",
+                "matched_quarantine_role_groups": "",
+                "quarantine_role_group_total_count": 25,
+                "quarantine_role_group_inspected_count": 20,
+                "quarantine_role_group_inspection_truncated": True,
+                "quarantine_group_membership_confirmed": None,
+                "quarantine_administrator_membership_confirmed": None,
+                "role_assignment_matches_identity": None,
+            }
+        )
         mutation(record)
 
         with pytest.raises(AutomationError) as exc_info:
@@ -4530,46 +4538,32 @@ class TestInspectReleaseEnvironment:
     ):
         utils = make_utils()
         output = diagnostic_success_output()
-        output.update({
-            "rbac_diagnostics_status": "partial",
-            "quarantine_group_membership_confirmed": group_membership,
-            "quarantine_administrator_membership_confirmed": (
-                group_membership
-            ),
-            "matched_quarantine_role_groups": (
-                "Quarantine Administrator" if group_membership else ""
-            ),
-            "quarantine_role_groups": (
-                "Quarantine Administrator" if group_membership else ""
-            ),
-            "role_assignment_matches_identity": direct_assignment,
-            "service_principal_registered": service_principal_registered,
-            "registered_service_principal_identity": (
-                "service-principal-ms_quarantine_for_splunk_soar"
-                if service_principal_registered
-                else ""
-            ),
-            "registered_service_principal_app_id": (
-                "11111111-2222-3333-4444-555555555555"
-                if service_principal_registered
-                else ""
-            ),
-            "registered_service_principal_object_id": (
-                "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-                if service_principal_registered
-                else ""
-            ),
-            "permission_query_error_count": 1,
-            "permission_query_error_retained_count": 1,
-            "permission_query_errors": [{
-                "query": "exchange_service_principal",
-                "error": "Lookup unavailable.",
-                "exception_type": "RuntimeException",
-            }],
-        })
-        output["rbac_diagnostics_reason"] = (
-            "one_or_more_permission_queries_failed"
+        output.update(
+            {
+                "rbac_diagnostics_status": "partial",
+                "quarantine_group_membership_confirmed": group_membership,
+                "quarantine_administrator_membership_confirmed": (group_membership),
+                "matched_quarantine_role_groups": ("Quarantine Administrator" if group_membership else ""),
+                "quarantine_role_groups": ("Quarantine Administrator" if group_membership else ""),
+                "role_assignment_matches_identity": direct_assignment,
+                "service_principal_registered": service_principal_registered,
+                "registered_service_principal_identity": (
+                    "service-principal-ms_quarantine_for_splunk_soar" if service_principal_registered else ""
+                ),
+                "registered_service_principal_app_id": ("11111111-2222-3333-4444-555555555555" if service_principal_registered else ""),
+                "registered_service_principal_object_id": ("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" if service_principal_registered else ""),
+                "permission_query_error_count": 1,
+                "permission_query_error_retained_count": 1,
+                "permission_query_errors": [
+                    {
+                        "query": "exchange_service_principal",
+                        "error": "Lookup unavailable.",
+                        "exception_type": "RuntimeException",
+                    }
+                ],
+            }
         )
+        output["rbac_diagnostics_reason"] = "one_or_more_permission_queries_failed"
         error_output = {
             "action": "diagnose",
             "error": True,
@@ -4586,10 +4580,7 @@ class TestInspectReleaseEnvironment:
                     identity=IDENTITY,
                     include_rbac=True,
                 )
-        assert (
-            exc_info.value.result["details"]["rbac_diagnostics_status"]
-            == "partial"
-        )
+        assert exc_info.value.result["details"]["rbac_diagnostics_status"] == "partial"
 
     def test_missing_rbac_cmdlets_fail_with_explicit_unknown_evidence(self):
         c = make_connector()
@@ -4600,55 +4591,53 @@ class TestInspectReleaseEnvironment:
             {
                 "query": f"required_cmdlet.{cmdlet}",
                 "cmdlet": cmdlet,
-                "error": (
-                    f"Required diagnostic cmdlet '{cmdlet}' is unavailable."
-                ),
-                "exception_type": (
-                    "System.Management.Automation.CommandNotFoundException"
-                ),
+                "error": (f"Required diagnostic cmdlet '{cmdlet}' is unavailable."),
+                "exception_type": ("System.Management.Automation.CommandNotFoundException"),
             }
             for cmdlet in required
         ]
-        record.update({
-            "status": "inspection_incomplete",
-            "rbac_diagnostics_status": "not_evaluated",
-            "rbac_diagnostics_reason": (
-                "required_cmdlets_unavailable_in_current_exchange_session"
-            ),
-            "rbac_available_cmdlets": [],
-            "missing_cmdlets": required,
-            "missing_cmdlet_count": len(required),
-            "quarantine_role_present": None,
-            "service_principal_registered": None,
-            "quarantine_role_group_total_count": 0,
-            "quarantine_role_group_inspected_count": 0,
-            "quarantine_role_group_inspection_truncated": False,
-            "role_group_membership_evaluated": None,
-            "quarantine_group_membership_confirmed": None,
-            "quarantine_administrator_membership_confirmed": None,
-            "role_assignment_matches_identity": None,
-            "permission_query_error_count": len(missing_errors),
-            "permission_query_error_retained_count": len(missing_errors),
-            "permission_query_errors": missing_errors,
-        })
+        record.update(
+            {
+                "status": "inspection_incomplete",
+                "rbac_diagnostics_status": "not_evaluated",
+                "rbac_diagnostics_reason": ("required_cmdlets_unavailable_in_current_exchange_session"),
+                "rbac_available_cmdlets": [],
+                "missing_cmdlets": required,
+                "missing_cmdlet_count": len(required),
+                "quarantine_role_present": None,
+                "service_principal_registered": None,
+                "quarantine_role_group_total_count": 0,
+                "quarantine_role_group_inspected_count": 0,
+                "quarantine_role_group_inspection_truncated": False,
+                "role_group_membership_evaluated": None,
+                "quarantine_group_membership_confirmed": None,
+                "quarantine_administrator_membership_confirmed": None,
+                "role_assignment_matches_identity": None,
+                "permission_query_error_count": len(missing_errors),
+                "permission_query_error_retained_count": len(missing_errors),
+                "permission_query_errors": missing_errors,
+            }
+        )
         output = {
             "action": "diagnose",
             "error": True,
             "error_code": "diagnostic_rbac_not_evaluated",
-            "message": (
-                "Tenant RBAC was NOT EVALUATED. Required cmdlets missing: "
-                + ", ".join(required)
-            ),
+            "message": ("Tenant RBAC was NOT EVALUATED. Required cmdlets missing: " + ", ".join(required)),
             "details": record,
             **build_metadata(),
         }
 
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_inspect_release_environment({
-                "identity": IDENTITY,
-                "include_rbac": True,
-            }) == APP_ERROR
+            assert (
+                c._handle_inspect_release_environment(
+                    {
+                        "identity": IDENTITY,
+                        "include_rbac": True,
+                    }
+                )
+                == APP_ERROR
+            )
 
         row = ar.get_data()[0]
         summary = ar.get_summary()
@@ -4657,9 +4646,7 @@ class TestInspectReleaseEnvironment:
         assert row["role_assignment_matches_identity"] is None
         assert isinstance(row["permission_query_errors"], list)
         assert summary["rbac_diagnostics_status"] == "not_evaluated"
-        assert summary["service_principal_registered_evaluation"] == (
-            "not_evaluated"
-        )
+        assert summary["service_principal_registered_evaluation"] == ("not_evaluated")
         assert "service_principal_registered" not in summary
         for cmdlet in required:
             assert cmdlet in ar.get_message()
@@ -4689,9 +4676,7 @@ class TestInspectReleaseEnvironment:
             ),
             (
                 lambda record: record.update(
-                    quarantine_role_groups=(
-                        "Quarantine Administrator | Unmatched Tenant Group"
-                    ),
+                    quarantine_role_groups=("Quarantine Administrator | Unmatched Tenant Group"),
                 ),
                 "exposes unmatched role-group names",
             ),
@@ -4724,22 +4709,19 @@ class TestInspectReleaseEnvironment:
 # TestRelease
 # ---------------------------------------------------------------------------
 
-class TestRelease:
 
+class TestRelease:
     def test_release_success(self):
         c = make_connector()
-        output = {"action": "release", "identity": IDENTITY, "status": "released",
-                  "message": "Message released."}
+        output = {"action": "release", "identity": IDENTITY, "status": "released", "message": "Message released."}
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_release_quarantine_message(
-                {"identity": IDENTITY}) == APP_SUCCESS
+            assert c._handle_release_quarantine_message({"identity": IDENTITY}) == APP_SUCCESS
 
     def test_release_status_in_data(self):
         c = make_connector()
         ar = patch_ar(c)
-        output = {"action": "release", "identity": IDENTITY,
-                  "status": "released", "message": "ok"}
+        output = {"action": "release", "identity": IDENTITY, "status": "released", "message": "ok"}
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
             c._handle_release_quarantine_message({"identity": IDENTITY})
@@ -4758,8 +4740,7 @@ class TestRelease:
             m.post(WEBHOOK_URL, json={"JobIds": [JOB_ID]})
             m.get(job_url(), json={"properties": {"status": "Failed"}})
             m.get(job_output_url(), text="PowerShell crashed")
-            assert c._handle_release_quarantine_message(
-                {"identity": IDENTITY}) == APP_ERROR
+            assert c._handle_release_quarantine_message({"identity": IDENTITY}) == APP_ERROR
 
     def test_release_timeout_is_unknown_outcome_without_second_webhook(self):
         c = make_connector()
@@ -4767,13 +4748,9 @@ class TestRelease:
         webhook_calls = []
         with req_mock.Mocker() as m:
             mock_preflight_then_unfinished_operation(m, c, webhook_calls)
-            assert c._handle_release_quarantine_message(
-                {"identity": IDENTITY}
-            ) == APP_ERROR
+            assert c._handle_release_quarantine_message({"identity": IDENTITY}) == APP_ERROR
 
-        assert [body["action"] for body in webhook_calls] == [
-            "config_check", "release"
-        ]
+        assert [body["action"] for body in webhook_calls] == ["config_check", "release"]
         row = ar.get_data()[0]
         assert row["status"] == "outcome_unknown"
         assert row["handling"] == "reconcile_before_retry"
@@ -4788,22 +4765,19 @@ class TestRelease:
 # TestDeny
 # ---------------------------------------------------------------------------
 
-class TestDeny:
 
+class TestDeny:
     def test_deny_success(self):
         c = make_connector()
-        output = {"action": "deny", "identity": IDENTITY, "status": "denied",
-                  "message": "Denied."}
+        output = {"action": "deny", "identity": IDENTITY, "status": "denied", "message": "Denied."}
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_deny_quarantine_release(
-                {"identity": IDENTITY}) == APP_SUCCESS
+            assert c._handle_deny_quarantine_release({"identity": IDENTITY}) == APP_SUCCESS
 
     def test_deny_status_in_data(self):
         c = make_connector()
         ar = patch_ar(c)
-        output = {"action": "deny", "identity": IDENTITY,
-                  "status": "denied", "message": "ok"}
+        output = {"action": "deny", "identity": IDENTITY, "status": "denied", "message": "ok"}
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
             c._handle_deny_quarantine_release({"identity": IDENTITY})
@@ -4820,13 +4794,9 @@ class TestDeny:
         webhook_calls = []
         with req_mock.Mocker() as m:
             mock_preflight_then_unfinished_operation(m, c, webhook_calls)
-            assert c._handle_deny_quarantine_release(
-                {"identity": IDENTITY}
-            ) == APP_ERROR
+            assert c._handle_deny_quarantine_release({"identity": IDENTITY}) == APP_ERROR
 
-        assert [body["action"] for body in webhook_calls] == [
-            "config_check", "deny"
-        ]
+        assert [body["action"] for body in webhook_calls] == ["config_check", "deny"]
         row = ar.get_data()[0]
         assert row["status"] == "outcome_unknown"
         assert row["handling"] == "reconcile_before_retry"
@@ -4836,13 +4806,14 @@ class TestDeny:
         assert ar.get_summary()["status"] == "outcome_unknown"
         assert "Do not retry blindly" in ar.get_message()
 
-    @pytest.mark.parametrize("identifier,handler_name", [
-        ("release_quarantine_message", "_handle_release_quarantine_message"),
-        ("deny_quarantine_release", "_handle_deny_quarantine_release"),
-    ])
-    def test_irreversible_timeout_datapaths_are_declared(
-        self, identifier, handler_name
-    ):
+    @pytest.mark.parametrize(
+        "identifier,handler_name",
+        [
+            ("release_quarantine_message", "_handle_release_quarantine_message"),
+            ("deny_quarantine_release", "_handle_deny_quarantine_release"),
+        ],
+    )
+    def test_irreversible_timeout_datapaths_are_declared(self, identifier, handler_name):
         c = make_connector(poll_timeout=0)
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
@@ -4859,16 +4830,8 @@ class TestDeny:
         from pathlib import Path
 
         runbook = Path(__file__).with_name("runbook.ps1").read_text()
-        assert (
-            "Release-QuarantineMessage `\n"
-            "                    -Identity $Identity `\n"
-            "                    -ReleaseToAll `"
-        ) in runbook
-        assert (
-            "Release-QuarantineMessage `\n"
-            "                    -Identities @($Identity) `\n"
-            "                    -ActionType Deny `"
-        ) in runbook
+        assert ("Release-QuarantineMessage `\n                    -Identity $Identity `\n                    -ReleaseToAll `") in runbook
+        assert ("Release-QuarantineMessage `\n                    -Identities @($Identity) `\n                    -ActionType Deny `") in runbook
         assert '-Identity "000"' not in runbook
         # The release/deny state machine is shared; each action must still
         # bind its own Exchange ActionType and expected terminal status.
@@ -4889,38 +4852,23 @@ class TestDeny:
         assert '$completedStatus = "denied"' in deny_branch
         assert '$dispositionActionType = "Release"' not in deny_branch
         assert (
-            "    $disposition = Invoke-QuarantineDisposition `\n"
-            "        -Identity $identity `\n"
-            "        -ActionType $dispositionActionType\n"
+            "    $disposition = Invoke-QuarantineDisposition `\n        -Identity $identity `\n        -ActionType $dispositionActionType\n"
         ) in runbook
         assert (
-            "    $verification = Wait-QuarantinePostcondition `\n"
-            "        -Identity $identity `\n"
-            "        -ExpectedStatus $expectedStatus\n"
+            "    $verification = Wait-QuarantinePostcondition `\n        -Identity $identity `\n        -ExpectedStatus $expectedStatus\n"
         ) in runbook
-        assert (
-            '"release" {\n'
-            '            Invoke-RequestedDisposition -Action "release" '
-            "-Identity $identity\n"
-        ) in runbook
-        assert (
-            '"deny" {\n'
-            '            Invoke-RequestedDisposition -Action "deny" '
-            "-Identity $identity\n"
-        ) in runbook
-        assert "$ReleaseContractId        = \"identity_releasetoall\"" in runbook
-        assert (
-            "$DenyContractId           = "
-            "\"identities_actiontype_no_dummy\""
-        ) in runbook
+        assert ('"release" {\n            Invoke-RequestedDisposition -Action "release" -Identity $identity\n') in runbook
+        assert ('"deny" {\n            Invoke-RequestedDisposition -Action "deny" -Identity $identity\n') in runbook
+        assert '$ReleaseContractId        = "identity_releasetoall"' in runbook
+        assert ('$DenyContractId           = "identities_actiontype_no_dummy"') in runbook
 
 
 # ---------------------------------------------------------------------------
 # TestIrreversibleOperationReconciliation
 # ---------------------------------------------------------------------------
 
-class TestIrreversibleOperationReconciliation:
 
+class TestIrreversibleOperationReconciliation:
     @staticmethod
     def reconcile_params(operation_id="case-42", action="release"):
         return {
@@ -4932,9 +4880,7 @@ class TestIrreversibleOperationReconciliation:
 
     @staticmethod
     def successful_result(action="release"):
-        expected_release_status = (
-            "Released" if action == "release" else "Denied"
-        )
+        expected_release_status = "Released" if action == "release" else "Denied"
         return {
             "action": action,
             "identity": IDENTITY,
@@ -4955,25 +4901,25 @@ class TestIrreversibleOperationReconciliation:
 
     @staticmethod
     def idempotent_result(action="release"):
-        expected_release_status = (
-            "Released" if action == "release" else "Denied"
+        expected_release_status = "Released" if action == "release" else "Denied"
+        precondition_trace = json.dumps(
+            [
+                {
+                    "attempt": 1,
+                    "observed_at_utc": "2026-08-02T09:00:00Z",
+                    "result_count": 1,
+                    "observed_identity": IDENTITY,
+                    "observed_release_status": expected_release_status,
+                    "exact_identity_match": True,
+                    "error": "",
+                }
+            ],
+            separators=(",", ":"),
         )
-        precondition_trace = json.dumps([{
-            "attempt": 1,
-            "observed_at_utc": "2026-08-02T09:00:00Z",
-            "result_count": 1,
-            "observed_identity": IDENTITY,
-            "observed_release_status": expected_release_status,
-            "exact_identity_match": True,
-            "error": "",
-        }], separators=(",", ":"))
         return {
             "action": action,
             "identity": IDENTITY,
-            "status": (
-                "already_released" if action == "release"
-                else "already_denied"
-            ),
+            "status": ("already_released" if action == "release" else "already_denied"),
             "handling": "no_retry_needed",
             "idempotent": True,
             "message": "The target state was already confirmed.",
@@ -5006,15 +4952,20 @@ class TestIrreversibleOperationReconciliation:
         else:
             state = "outcome_unknown"
             handling = "reconcile_before_retry"
-        trace = json.dumps([{
-            "attempt": 1,
-            "observed_at_utc": "2026-08-02T09:00:00Z",
-            "result_count": 1,
-            "observed_identity": IDENTITY,
-            "observed_release_status": observed,
-            "exact_identity_match": True,
-            "error": "",
-        }], separators=(",", ":"))
+        trace = json.dumps(
+            [
+                {
+                    "attempt": 1,
+                    "observed_at_utc": "2026-08-02T09:00:00Z",
+                    "result_count": 1,
+                    "observed_identity": IDENTITY,
+                    "observed_release_status": observed,
+                    "exact_identity_match": True,
+                    "error": "",
+                }
+            ],
+            separators=(",", ":"),
+        )
         return {
             "action": "reconcile",
             "operation_action": action,
@@ -5040,15 +4991,20 @@ class TestIrreversibleOperationReconciliation:
     @staticmethod
     def read_only_refresh_error(action="release"):
         expected = "Released" if action == "release" else "Denied"
-        trace = json.dumps([{
-            "attempt": 1,
-            "observed_at_utc": "2026-08-02T09:00:00Z",
-            "result_count": 0,
-            "observed_identity": "",
-            "observed_release_status": "",
-            "exact_identity_match": False,
-            "error": "Transient Exchange read error.",
-        }], separators=(",", ":"))
+        trace = json.dumps(
+            [
+                {
+                    "attempt": 1,
+                    "observed_at_utc": "2026-08-02T09:00:00Z",
+                    "result_count": 0,
+                    "observed_identity": "",
+                    "observed_release_status": "",
+                    "exact_identity_match": False,
+                    "error": "Transient Exchange read error.",
+                }
+            ],
+            separators=(",", ":"),
+        )
         details = {
             "action": "reconcile",
             "operation_action": action,
@@ -5091,10 +5047,15 @@ class TestIrreversibleOperationReconciliation:
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
             mock_full_flow(m, self.successful_result(action))
-            assert getattr(c, handler_name)({
-                "identity": IDENTITY,
-                "operation_id": f"{action}-compact",
-            }) == APP_SUCCESS
+            assert (
+                getattr(c, handler_name)(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": f"{action}-compact",
+                    }
+                )
+                == APP_SUCCESS
+            )
 
         row = ar.get_data()[0]
         assert set(row) == {
@@ -5121,16 +5082,23 @@ class TestIrreversibleOperationReconciliation:
         }
 
     def test_success_is_verbose_when_asset_setting_is_enabled(self):
-        c = make_connector(config_overrides={
-            "include_verbose_action_diagnostics": True,
-        })
+        c = make_connector(
+            config_overrides={
+                "include_verbose_action_diagnostics": True,
+            }
+        )
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
             mock_full_flow(m, self.successful_result())
-            assert c._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": "release-verbose",
-            }) == APP_SUCCESS
+            assert (
+                c._handle_release_quarantine_message(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": "release-verbose",
+                    }
+                )
+                == APP_SUCCESS
+            )
 
         row = ar.get_data()[0]
         assert row["state"] == "confirmed_success"
@@ -5144,10 +5112,15 @@ class TestIrreversibleOperationReconciliation:
         output["observed_identity"] = IDENTITY.upper()
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": "release-guid-case-variant",
-            }) == APP_SUCCESS
+            assert (
+                c._handle_release_quarantine_message(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": "release-guid-case-variant",
+                    }
+                )
+                == APP_SUCCESS
+            )
 
     @pytest.mark.parametrize(
         "action,handler_name,expected_status",
@@ -5170,9 +5143,11 @@ class TestIrreversibleOperationReconciliation:
         handler_name,
         expected_status,
     ):
-        c = make_connector(config_overrides={
-            "include_verbose_action_diagnostics": True,
-        })
+        c = make_connector(
+            config_overrides={
+                "include_verbose_action_diagnostics": True,
+            }
+        )
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
             mock_full_flow(
@@ -5180,10 +5155,15 @@ class TestIrreversibleOperationReconciliation:
                 self.idempotent_result(action),
                 include_postcondition=False,
             )
-            assert getattr(c, handler_name)({
-                "identity": IDENTITY,
-                "operation_id": f"{action}-already-achieved",
-            }) == APP_SUCCESS
+            assert (
+                getattr(c, handler_name)(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": f"{action}-already-achieved",
+                    }
+                )
+                == APP_SUCCESS
+            )
 
         row = ar.get_data()[0]
         assert row["status"] == expected_status
@@ -5207,10 +5187,15 @@ class TestIrreversibleOperationReconciliation:
         mutation(output)
         with req_mock.Mocker() as m:
             mock_full_flow(m, output, include_postcondition=False)
-            assert c._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": "release-malformed-idempotent",
-            }) == APP_ERROR
+            assert (
+                c._handle_release_quarantine_message(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": "release-malformed-idempotent",
+                    }
+                )
+                == APP_ERROR
+            )
 
     @pytest.mark.parametrize(
         "action,handler_name",
@@ -5219,18 +5204,21 @@ class TestIrreversibleOperationReconciliation:
             ("deny", "_handle_deny_quarantine_release"),
         ],
     )
-    def test_unconfirmed_postcondition_is_unknown_and_blocks_retry(
-        self, action, handler_name
-    ):
+    def test_unconfirmed_postcondition_is_unknown_and_blocks_retry(self, action, handler_name):
         c = make_connector()
         ar = patch_ar(c)
         output = postcondition_error_output(action=action)
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert getattr(c, handler_name)({
-                "identity": IDENTITY,
-                "operation_id": f"{action}-postcondition",
-            }) == APP_ERROR
+            assert (
+                getattr(c, handler_name)(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": f"{action}-postcondition",
+                    }
+                )
+                == APP_ERROR
+            )
             webhook_calls = irreversible_webhook_bodies(m)
 
         assert len(webhook_calls) == 1
@@ -5239,18 +5227,12 @@ class TestIrreversibleOperationReconciliation:
         assert row["status"] == "outcome_unknown"
         assert row["handling"] == "reconcile_before_retry"
         assert row["verification_method"] == "Get-QuarantineMessage"
-        assert row["expected_release_status"] == (
-            "Released" if action == "release" else "Denied"
-        )
+        assert row["expected_release_status"] == ("Released" if action == "release" else "Denied")
         assert row["observed_release_status"] == "Requested"
         assert row["verification_attempts"] == 3
         assert ar.get_summary()["state"] == "outcome_unknown"
         assert ar.get_message() == output["message"]
-        identifier = (
-            "release_quarantine_message"
-            if action == "release"
-            else "deny_quarantine_release"
-        )
+        identifier = "release_quarantine_message" if action == "release" else "deny_quarantine_release"
         assert action_result_paths(ar) <= manifest_action_paths(identifier)
 
     def test_release_precondition_failure_does_not_claim_cmdlet_success(self):
@@ -5258,10 +5240,15 @@ class TestIrreversibleOperationReconciliation:
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
             mock_full_flow(m, precondition_error_output())
-            assert c._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": "release-precondition",
-            }) == APP_ERROR
+            assert (
+                c._handle_release_quarantine_message(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": "release-precondition",
+                    }
+                )
+                == APP_ERROR
+            )
 
         row = ar.get_data()[0]
         assert row["state"] == "confirmed_failed"
@@ -5270,26 +5257,25 @@ class TestIrreversibleOperationReconciliation:
         assert row["observed_release_status"] == "Approved"
         assert row["exchange_online_management_version"] == "3.5.0"
         assert ar.get_message() == precondition_error_output()["message"]
-        assert action_result_paths(ar) <= manifest_action_paths(
-            "release_quarantine_message"
-        )
+        assert action_result_paths(ar) <= manifest_action_paths("release_quarantine_message")
 
     def test_release_action_result_keeps_exact_runbook_error_message(self):
         c = make_connector()
         ar = patch_ar(c)
-        message = (
-            "Microsoft Exchange Online returned:\r\n"
-            "ErrorAccessDenied – Ω\n"
-            "RequestId: 12345678-1234-1234-1234-123456789abc"
-        )
+        message = "Microsoft Exchange Online returned:\r\nErrorAccessDenied – Ω\nRequestId: 12345678-1234-1234-1234-123456789abc"
         output = precondition_error_output()
         output["message"] = message
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": "release-exact-error",
-            }) == APP_ERROR
+            assert (
+                c._handle_release_quarantine_message(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": "release-exact-error",
+                    }
+                )
+                == APP_ERROR
+            )
         assert ar.get_message() == message
 
     @pytest.mark.parametrize(
@@ -5308,18 +5294,21 @@ class TestIrreversibleOperationReconciliation:
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
             mock_full_flow(m, disposition_capability_error_output(action))
-            assert getattr(c, handler_name)({
-                "identity": IDENTITY,
-                "operation_id": f"{action}-capability",
-            }) == APP_ERROR
+            assert (
+                getattr(c, handler_name)(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": f"{action}-capability",
+                    }
+                )
+                == APP_ERROR
+            )
 
         row = ar.get_data()[0]
         assert row["state"] == "confirmed_failed"
         assert row["handling"] == "retry_requires_new_operation"
         assert row["cmdlet_executed"] is False
-        assert ar.get_message() == (
-            disposition_capability_error_output(action)["message"]
-        )
+        assert ar.get_message() == (disposition_capability_error_output(action)["message"])
 
     def test_release_cmdlet_error_with_unconfirmed_status_is_unknown(self):
         c = make_connector()
@@ -5330,10 +5319,15 @@ class TestIrreversibleOperationReconciliation:
         )
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": "release-cmdlet-unknown",
-            }) == APP_ERROR
+            assert (
+                c._handle_release_quarantine_message(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": "release-cmdlet-unknown",
+                    }
+                )
+                == APP_ERROR
+            )
 
         row = ar.get_data()[0]
         assert row["state"] == "outcome_unknown"
@@ -5358,10 +5352,15 @@ class TestIrreversibleOperationReconciliation:
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
             mock_full_flow(m, disposition_rejected_output(action))
-            assert getattr(c, handler_name)({
-                "identity": IDENTITY,
-                "operation_id": f"{action}-rejected",
-            }) == APP_ERROR
+            assert (
+                getattr(c, handler_name)(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": f"{action}-rejected",
+                    }
+                )
+                == APP_ERROR
+            )
 
         row = ar.get_data()[0]
         assert row["state"] == "confirmed_failed"
@@ -5379,17 +5378,20 @@ class TestIrreversibleOperationReconciliation:
             ("deny", "_handle_deny_quarantine_release"),
         ],
     )
-    def test_cmdlet_failure_preserves_exact_diagnostics(
-        self, action, handler_name
-    ):
+    def test_cmdlet_failure_preserves_exact_diagnostics(self, action, handler_name):
         c = make_connector()
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
             mock_full_flow(m, cmdlet_failure_output(action=action))
-            assert getattr(c, handler_name)({
-                "identity": IDENTITY,
-                "operation_id": f"{action}-cmdlet-failure",
-            }) == APP_ERROR
+            assert (
+                getattr(c, handler_name)(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": f"{action}-cmdlet-failure",
+                    }
+                )
+                == APP_ERROR
+            )
 
         row = ar.get_data()[0]
         assert row["state"] == "confirmed_failed"
@@ -5405,23 +5407,18 @@ class TestIrreversibleOperationReconciliation:
         assert "cmdlet_error_details" in diagnostic_bundle
         assert "runbook_build_id" not in diagnostic_bundle
         assert "cmdlet_error" not in diagnostic_bundle
-        identifier = (
-            "release_quarantine_message"
-            if action == "release"
-            else "deny_quarantine_release"
-        )
+        identifier = "release_quarantine_message" if action == "release" else "deny_quarantine_release"
         assert action_result_paths(ar) <= manifest_action_paths(identifier)
 
     def test_diagnostic_integer_fallback_is_non_throwing(self):
-        updates = (
-            MSQuarantineForSplunkSOARConnector
-            ._postcondition_operation_updates({
+        updates = MSQuarantineForSplunkSOARConnector._postcondition_operation_updates(
+            {
                 "details": {
                     "verification_attempts": "not-an-integer",
                     "cmdlet_duration_ms": None,
                 },
                 "error": True,
-            })
+            }
         )
         assert updates["verification_attempts"] == 0
         assert updates["cmdlet_duration_ms"] == 0
@@ -5436,9 +5433,7 @@ class TestIrreversibleOperationReconciliation:
                 "operation_id": f"case-{index}",
                 "action": "release",
                 "identity": IDENTITY,
-                "state": (
-                    "confirmed_success" if index == 0 else "outcome_unknown"
-                ),
+                "state": ("confirmed_success" if index == 0 else "outcome_unknown"),
                 "updated_at": f"2026-08-01T00:00:{index:02d}+00:00",
             }
             for index in range(MAX_OPERATION_RECORDS)
@@ -5461,18 +5456,28 @@ class TestIrreversibleOperationReconciliation:
         output = self.successful_result()
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": "case-42",
-            }) == APP_SUCCESS
+            assert (
+                c._handle_release_quarantine_message(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": "case-42",
+                    }
+                )
+                == APP_SUCCESS
+            )
             first_webhook_count = len(irreversible_webhook_bodies(m))
 
         second_ar = patch_ar(c)
         with req_mock.Mocker() as m:
-            assert c._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": "case-42",
-            }) == APP_SUCCESS
+            assert (
+                c._handle_release_quarantine_message(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": "case-42",
+                    }
+                )
+                == APP_SUCCESS
+            )
             assert not m.called
 
         assert first_webhook_count == 1
@@ -5486,35 +5491,48 @@ class TestIrreversibleOperationReconciliation:
         first_ar = patch_ar(first)
         with req_mock.Mocker() as m:
             mock_preflight_then_unfinished_operation(m, first, [])
-            assert first._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": "case-restart",
-            }) == APP_ERROR
+            assert (
+                first._handle_release_quarantine_message(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": "case-restart",
+                    }
+                )
+                == APP_ERROR
+            )
 
         restarted = make_connector(state_path=state_path)
         restarted_ar = patch_ar(restarted)
         with req_mock.Mocker() as m:
-            assert restarted._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": "case-restart",
-            }) == APP_ERROR
+            assert (
+                restarted._handle_release_quarantine_message(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": "case-restart",
+                    }
+                )
+                == APP_ERROR
+            )
             assert not m.called
 
         assert first_ar.get_summary()["azure_job_id"] == JOB_ID
         assert restarted_ar.get_summary()["state"] == "outcome_unknown"
         assert "No second webhook" in restarted_ar.get_message()
 
-    def test_restart_then_reconcile_updates_same_durable_operation(
-        self, tmp_path
-    ):
+    def test_restart_then_reconcile_updates_same_durable_operation(self, tmp_path):
         state_path = tmp_path / "reconcile_restart_state.json"
         first = make_connector(state_path=state_path)
         with req_mock.Mocker() as m:
             mock_preflight_then_unfinished_operation(m, first, [])
-            assert first._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": "case-reconcile-restart",
-            }) == APP_ERROR
+            assert (
+                first._handle_release_quarantine_message(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": "case-reconcile-restart",
+                    }
+                )
+                == APP_ERROR
+            )
 
         restarted = make_connector(state_path=state_path)
         reconcile_ar = patch_ar(restarted)
@@ -5525,11 +5543,7 @@ class TestIrreversibleOperationReconciliation:
                 job_output_url(),
                 text=json.dumps(self.successful_result()),
             )
-            assert restarted._handle_reconcile_quarantine_operation(
-                self.reconcile_params(
-                    operation_id="case-reconcile-restart"
-                )
-            ) == APP_SUCCESS
+            assert restarted._handle_reconcile_quarantine_operation(self.reconcile_params(operation_id="case-reconcile-restart")) == APP_SUCCESS
             assert all(request.url != WEBHOOK_URL for request in m.request_history)
 
         assert reconcile_ar.get_summary()["status"] == "confirmed_success"
@@ -5537,10 +5551,15 @@ class TestIrreversibleOperationReconciliation:
         third = make_connector(state_path=state_path)
         third_ar = patch_ar(third)
         with req_mock.Mocker() as m:
-            assert third._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": "case-reconcile-restart",
-            }) == APP_SUCCESS
+            assert (
+                third._handle_release_quarantine_message(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": "case-reconcile-restart",
+                    }
+                )
+                == APP_SUCCESS
+            )
             assert not m.called
         assert third_ar.get_summary()["status"] == "confirmed_success"
 
@@ -5576,10 +5595,12 @@ class TestIrreversibleOperationReconciliation:
 
         def worker(connector):
             ar = patch_ar(connector)
-            status = connector._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": "parallel-case",
-            })
+            status = connector._handle_release_quarantine_message(
+                {
+                    "identity": IDENTITY,
+                    "operation_id": "parallel-case",
+                }
+            )
             results.append((status, ar.get_summary()))
 
         first = threading.Thread(target=worker, args=(connectors[0],))
@@ -5594,25 +5615,33 @@ class TestIrreversibleOperationReconciliation:
         assert not second.is_alive()
         assert webhook_count == 1
         assert len(results) == 2
-        assert {summary["operation_id"] for _, summary in results} == {
-            "parallel-case"
-        }
+        assert {summary["operation_id"] for _, summary in results} == {"parallel-case"}
 
     def test_same_operation_id_cannot_cross_release_and_deny(self):
         c = make_connector()
         with req_mock.Mocker() as m:
             mock_full_flow(m, self.successful_result("release"))
-            assert c._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": "shared-case",
-            }) == APP_SUCCESS
+            assert (
+                c._handle_release_quarantine_message(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": "shared-case",
+                    }
+                )
+                == APP_SUCCESS
+            )
 
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
-            assert c._handle_deny_quarantine_release({
-                "identity": IDENTITY,
-                "operation_id": "shared-case",
-            }) == APP_ERROR
+            assert (
+                c._handle_deny_quarantine_release(
+                    {
+                        "identity": IDENTITY,
+                        "operation_id": "shared-case",
+                    }
+                )
+                == APP_ERROR
+            )
             assert not m.called
         assert "different action or identity" in ar.get_message()
 
@@ -5622,9 +5651,7 @@ class TestIrreversibleOperationReconciliation:
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_url(), json={"properties": {"status": "Running"}})
-            assert c._handle_reconcile_quarantine_operation(
-                self.reconcile_params()
-            ) == APP_SUCCESS
+            assert c._handle_reconcile_quarantine_operation(self.reconcile_params()) == APP_SUCCESS
             assert all(request.url != WEBHOOK_URL for request in m.request_history)
 
         assert ar.get_data()[0]["status"] == "pending"
@@ -5637,9 +5664,7 @@ class TestIrreversibleOperationReconciliation:
         assert ar.get_summary()["last_job_status"] == "Running"
 
     @pytest.mark.parametrize("action", ["release", "deny"])
-    def test_reconcile_completed_validates_action_identity_and_version(
-        self, action
-    ):
+    def test_reconcile_completed_validates_action_identity_and_version(self, action):
         c = make_connector()
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
@@ -5649,19 +5674,20 @@ class TestIrreversibleOperationReconciliation:
                 job_output_url(),
                 text=json.dumps(self.successful_result(action)),
             )
-            assert c._handle_reconcile_quarantine_operation(
-                self.reconcile_params(
-                    operation_id=f"{action}-complete",
-                    action=action,
+            assert (
+                c._handle_reconcile_quarantine_operation(
+                    self.reconcile_params(
+                        operation_id=f"{action}-complete",
+                        action=action,
+                    )
                 )
-            ) == APP_SUCCESS
+                == APP_SUCCESS
+            )
             assert all(request.url != WEBHOOK_URL for request in m.request_history)
 
         assert ar.get_summary()["status"] == "confirmed_success"
         assert "state" not in ar.get_data()[0]
-        assert ar.get_data()[0]["status"] == (
-            "released" if action == "release" else "denied"
-        )
+        assert ar.get_data()[0]["status"] == ("released" if action == "release" else "denied")
         assert ar.get_data()[0]["runbook_version"] == RUNBOOK_VERSION
 
     def test_reconcile_validated_structured_failure_is_confirmed_failed(self):
@@ -5678,9 +5704,7 @@ class TestIrreversibleOperationReconciliation:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_url(), json={"properties": {"status": "Failed"}})
             m.get(job_output_url(), text=json.dumps(failure))
-            assert c._handle_reconcile_quarantine_operation(
-                self.reconcile_params(operation_id="case-failed")
-            ) == APP_SUCCESS
+            assert c._handle_reconcile_quarantine_operation(self.reconcile_params(operation_id="case-failed")) == APP_SUCCESS
 
         assert ar.get_data()[0]["state"] == "confirmed_failed"
         assert ar.get_data()[0]["handling"] == "retry_requires_new_operation"
@@ -5695,12 +5719,8 @@ class TestIrreversibleOperationReconciliation:
                 job_output_url(),
                 text=json.dumps(disposition_rejected_output()),
             )
-            assert c._handle_reconcile_quarantine_operation(
-                self.reconcile_params(operation_id="case-rejected")
-            ) == APP_SUCCESS
-            assert all(
-                request.url != WEBHOOK_URL for request in m.request_history
-            )
+            assert c._handle_reconcile_quarantine_operation(self.reconcile_params(operation_id="case-rejected")) == APP_SUCCESS
+            assert all(request.url != WEBHOOK_URL for request in m.request_history)
 
         row = ar.get_data()[0]
         assert row["state"] == "confirmed_failed"
@@ -5719,12 +5739,8 @@ class TestIrreversibleOperationReconciliation:
                 job_output_url(),
                 text=json.dumps(disposition_capability_error_output()),
             )
-            assert c._handle_reconcile_quarantine_operation(
-                self.reconcile_params(operation_id="case-capability")
-            ) == APP_SUCCESS
-            assert all(
-                request.url != WEBHOOK_URL for request in m.request_history
-            )
+            assert c._handle_reconcile_quarantine_operation(self.reconcile_params(operation_id="case-capability")) == APP_SUCCESS
+            assert all(request.url != WEBHOOK_URL for request in m.request_history)
 
         row = ar.get_data()[0]
         assert row["state"] == "confirmed_failed"
@@ -5733,9 +5749,7 @@ class TestIrreversibleOperationReconciliation:
         assert "cmdlet_capability_status" not in row
 
     @pytest.mark.parametrize("action", ["release", "deny"])
-    def test_reconcile_unconfirmed_postcondition_stays_unknown(
-        self, action
-    ):
+    def test_reconcile_unconfirmed_postcondition_stays_unknown(self, action):
         c = make_connector()
         ar = patch_ar(c)
         failure = postcondition_error_output(action=action)
@@ -5743,15 +5757,16 @@ class TestIrreversibleOperationReconciliation:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_url(), json={"properties": {"status": "Completed"}})
             m.get(job_output_url(), text=json.dumps(failure))
-            assert c._handle_reconcile_quarantine_operation(
-                self.reconcile_params(
-                    operation_id=f"{action}-unconfirmed",
-                    action=action,
+            assert (
+                c._handle_reconcile_quarantine_operation(
+                    self.reconcile_params(
+                        operation_id=f"{action}-unconfirmed",
+                        action=action,
+                    )
                 )
-            ) == APP_ERROR
-            assert all(
-                request.url != WEBHOOK_URL for request in m.request_history
+                == APP_ERROR
             )
+            assert all(request.url != WEBHOOK_URL for request in m.request_history)
 
         row = ar.get_data()[0]
         assert row["state"] == "outcome_unknown"
@@ -5794,16 +5809,16 @@ class TestIrreversibleOperationReconciliation:
         )
         params["refresh_exchange_status"] = True
         assert c._handle_reconcile_quarantine_operation(params) == APP_SUCCESS
-        assert refresh_calls == [(
-            "reconcile",
-            IDENTITY,
-            {"operation_action": action},
-        )]
+        assert refresh_calls == [
+            (
+                "reconcile",
+                IDENTITY,
+                {"operation_action": action},
+            )
+        ]
         row = ar.get_data()[0]
         assert row["state"] == "confirmed_success"
-        assert row["observed_release_status"] == (
-            "Released" if action == "release" else "Denied"
-        )
+        assert row["observed_release_status"] == ("Released" if action == "release" else "Denied")
         assert row["last_job_status"] == "exchange_refresh_completed"
 
     def test_explicit_exchange_refresh_keeps_requested_outcome_unknown(self):
@@ -5814,14 +5829,8 @@ class TestIrreversibleOperationReconciliation:
             "status": "Completed",
             "exception": "",
         }
-        c._utils.get_validated_job_output = (
-            lambda *args, **kwargs: (_ for _ in ()).throw(
-                RunbookActionError("unconfirmed", failure)
-            )
-        )
-        c._utils.run_action = lambda *args, **kwargs: (
-            self.read_only_refresh_result("release", "Requested")
-        )
+        c._utils.get_validated_job_output = lambda *args, **kwargs: (_ for _ in ()).throw(RunbookActionError("unconfirmed", failure))
+        c._utils.run_action = lambda *args, **kwargs: self.read_only_refresh_result("release", "Requested")
         params = self.reconcile_params(operation_id="release-still-requested")
         params["refresh_exchange_status"] = True
         assert c._handle_reconcile_quarantine_operation(params) == APP_ERROR
@@ -5836,15 +5845,9 @@ class TestIrreversibleOperationReconciliation:
             "status": "Completed",
             "exception": "",
         }
-        c._utils.get_validated_job_output = (
-            lambda *args, **kwargs: (_ for _ in ()).throw(
-                RunbookActionError("unconfirmed", failure)
-            )
-        )
+        c._utils.get_validated_job_output = lambda *args, **kwargs: (_ for _ in ()).throw(RunbookActionError("unconfirmed", failure))
         refresh_error = self.read_only_refresh_error()
-        c._utils.run_action = lambda *args, **kwargs: (_ for _ in ()).throw(
-            RunbookActionError("refresh unconfirmed", refresh_error)
-        )
+        c._utils.run_action = lambda *args, **kwargs: (_ for _ in ()).throw(RunbookActionError("refresh unconfirmed", refresh_error))
         params = self.reconcile_params(operation_id="release-refresh-error")
         params["refresh_exchange_status"] = True
         assert c._handle_reconcile_quarantine_operation(params) == APP_ERROR
@@ -5852,9 +5855,7 @@ class TestIrreversibleOperationReconciliation:
         assert row["state"] == "outcome_unknown"
         assert row["handling"] == "reconcile_before_retry"
         assert row["last_job_status"] == "exchange_refresh_unconfirmed"
-        assert row["last_verification_error"] == (
-            "Transient Exchange read error."
-        )
+        assert row["last_verification_error"] == ("Transient Exchange read error.")
         assert row["cmdlet_executed"] is False
 
     @pytest.mark.parametrize(
@@ -5915,36 +5916,36 @@ class TestIrreversibleOperationReconciliation:
             ("Suspended", "PowerShell host stopped"),
             (
                 "Completed",
-                json.dumps({
-                    "action": "deny",
-                    "identity": IDENTITY,
-                    "status": "denied",
-                    "runbook_version": RUNBOOK_VERSION,
-                }),
+                json.dumps(
+                    {
+                        "action": "deny",
+                        "identity": IDENTITY,
+                        "status": "denied",
+                        "runbook_version": RUNBOOK_VERSION,
+                    }
+                ),
             ),
             (
                 "Completed",
-                json.dumps({
-                    "action": "release",
-                    "identity": IDENTITY + "0",
-                    "status": "released",
-                    "runbook_version": RUNBOOK_VERSION,
-                }),
+                json.dumps(
+                    {
+                        "action": "release",
+                        "identity": IDENTITY + "0",
+                        "status": "released",
+                        "runbook_version": RUNBOOK_VERSION,
+                    }
+                ),
             ),
         ],
     )
-    def test_reconcile_malformed_or_wrong_envelope_stays_unknown(
-        self, azure_status, raw_output
-    ):
+    def test_reconcile_malformed_or_wrong_envelope_stays_unknown(self, azure_status, raw_output):
         c = make_connector()
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_url(), json={"properties": {"status": azure_status}})
             m.get(job_output_url(), text=raw_output)
-            assert c._handle_reconcile_quarantine_operation(
-                self.reconcile_params(operation_id="case-unknown")
-            ) == APP_ERROR
+            assert c._handle_reconcile_quarantine_operation(self.reconcile_params(operation_id="case-unknown")) == APP_ERROR
 
         assert ar.get_data()[0]["state"] == "outcome_unknown"
         assert ar.get_data()[0]["handling"] == "manual_review"
@@ -5953,10 +5954,12 @@ class TestIrreversibleOperationReconciliation:
         c = make_connector()
         with req_mock.Mocker() as m:
             mock_preflight_then_unfinished_operation(m, c, [])
-            c._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": "secret-check",
-            })
+            c._handle_release_quarantine_message(
+                {
+                    "identity": IDENTITY,
+                    "operation_id": "secret-check",
+                }
+            )
 
         raw_state = Path(c.get_state_file_path()).read_text()
         assert CLIENT_SECRET not in raw_state
@@ -5970,13 +5973,9 @@ class TestIrreversibleOperationReconciliation:
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_url(), json={"properties": {"status": "Running"}})
-            assert c._handle_reconcile_quarantine_operation(
-                self.reconcile_params()
-            ) == APP_SUCCESS
+            assert c._handle_reconcile_quarantine_operation(self.reconcile_params()) == APP_SUCCESS
 
-        assert action_result_paths(ar) <= manifest_action_paths(
-            "reconcile_quarantine_operation"
-        )
+        assert action_result_paths(ar) <= manifest_action_paths("reconcile_quarantine_operation")
 
 
 # ---------------------------------------------------------------------------
@@ -6004,13 +6003,8 @@ def upgrade_to_connection_contract(
             continue
         target.update(evidence or connection_evidence())
         target.setdefault("exchange_online_management_version", "3.5.0")
-        target["cmdlet_invocation_attempted"] = (
-            target["cmdlet_executed"] if attempted is None else attempted
-        )
-        target["cmdlet_invocation_form"] = (
-            "Release-QuarantineMessage -Identity <identity> -ReleaseToAll "
-            "-Confirm:$false -ErrorAction Stop"
-        )
+        target["cmdlet_invocation_attempted"] = target["cmdlet_executed"] if attempted is None else attempted
+        target["cmdlet_invocation_form"] = "Release-QuarantineMessage -Identity <identity> -ReleaseToAll -Confirm:$false -ErrorAction Stop"
         target["cmdlet_error_position"] = ""
         target["cmdlet_script_stack_trace"] = ""
         for legacy in (
@@ -6038,10 +6032,12 @@ def config_check_output(**overrides):
 def config_check_for_request(body):
     """What a 3.4.2 runbook reports for the settings in this webhook body."""
     organization = body.get("organization")
-    return config_check_output(**connection_evidence(
-        organization=organization or ORG,
-        organization_source="webhook" if organization else "automation_variable",
-    ))
+    return config_check_output(
+        **connection_evidence(
+            organization=organization or ORG,
+            organization_source="webhook" if organization else "automation_variable",
+        )
+    )
 
 
 def released_output(action="release"):
@@ -6093,32 +6089,30 @@ STALE_LEGACY_SETTINGS = {
     "exchange_credential_name": "StaleCredential",
 }
 ALL_WEBHOOK_ACTIONS = (
-    "list", "export", "diagnose", "reconcile",
-    "release", "deny", "config_check",
+    "list",
+    "export",
+    "diagnose",
+    "reconcile",
+    "release",
+    "deny",
+    "config_check",
 )
 
 
 def fire_every_route(utils, m):
     """Drive every webhook route and return the bodies that were sent."""
-    bodies = dispatch_flow(m, {
-        action: {"action": action} for action in ALL_WEBHOOK_ACTIONS
-    })
+    bodies = dispatch_flow(m, {action: {"action": action} for action in ALL_WEBHOOK_ACTIONS})
     for action in ("list", "export", "diagnose", "release", "deny"):
         utils.fire_webhook(action, identity=IDENTITY)
-    utils.fire_webhook(
-        "reconcile", identity=IDENTITY, operation_action="release"
-    )
+    utils.fire_webhook("reconcile", identity=IDENTITY, operation_action="release")
     utils.fire_webhook("config_check")
     return bodies
 
 
 class TestExchangeConnectionAssets:
-
     def test_blank_organization_still_forwards_managed_identity(self):
         c = make_connector(config_overrides={"exchange_organization": "  "})
-        assert c._utils._connection_settings == {
-            "auth_method": "ManagedIdentity"
-        }
+        assert c._utils._connection_settings == {"auth_method": "ManagedIdentity"}
         with req_mock.Mocker() as m:
             bodies = dispatch_flow(m, {"list": {"action": "list"}})
             c._utils.fire_webhook("list")
@@ -6127,55 +6121,71 @@ class TestExchangeConnectionAssets:
     def test_missing_organization_asset_forwards_managed_identity_only(self):
         c = make_connector()
         assert "exchange_organization" not in c.get_config()
-        assert c._utils._connection_settings == {
-            "auth_method": "ManagedIdentity"
-        }
+        assert c._utils._connection_settings == {"auth_method": "ManagedIdentity"}
 
-    @pytest.mark.parametrize("overrides,expected", [
-        ({}, {"auth_method": "ManagedIdentity"}),
-        (
-            {"exchange_organization": ORG},
-            {"auth_method": "ManagedIdentity", "organization": ORG},
-        ),
-        (
-            {"exchange_organization": f"  {ORG}  "},
-            {"auth_method": "ManagedIdentity", "organization": ORG},
-        ),
-    ])
-    def test_managed_identity_reaches_every_webhook_route(
-        self, overrides, expected
-    ):
+    @pytest.mark.parametrize(
+        "overrides,expected",
+        [
+            ({}, {"auth_method": "ManagedIdentity"}),
+            (
+                {"exchange_organization": ORG},
+                {"auth_method": "ManagedIdentity", "organization": ORG},
+            ),
+            (
+                {"exchange_organization": f"  {ORG}  "},
+                {"auth_method": "ManagedIdentity", "organization": ORG},
+            ),
+        ],
+    )
+    def test_managed_identity_reaches_every_webhook_route(self, overrides, expected):
         c = make_connector(config_overrides=overrides)
         with req_mock.Mocker() as m:
             bodies = fire_every_route(c._utils, m)
         assert [body["action"] for body in bodies] == [
-            "list", "export", "diagnose", "release", "deny",
-            "reconcile", "config_check",
+            "list",
+            "export",
+            "diagnose",
+            "release",
+            "deny",
+            "reconcile",
+            "config_check",
         ]
         for body in bodies:
             for key, value in expected.items():
                 assert body[key] == value
             assert ("organization" in body) == ("organization" in expected)
             assert set(body) <= {
-                "action", "identity", "operation_action", "auth_method",
-                "organization", "page_size", "include_rbac",
+                "action",
+                "identity",
+                "operation_action",
+                "auth_method",
+                "organization",
+                "page_size",
+                "include_rbac",
             }
 
-    @pytest.mark.parametrize("stale", [
-        {"exchange_auth_method": "Credential"},
-        {"exchange_auth_method": "Password"},
-        {"exchange_auth_method": "managedidentity"},
-        {"exchange_credential_name": "StaleCredential"},
-        {"exchange_credential_name": "bad\nname"},
-        {"exchange_credential_name": "x" * 300},
-        STALE_LEGACY_SETTINGS,
-    ])
+    @pytest.mark.parametrize(
+        "stale",
+        [
+            {"exchange_auth_method": "Credential"},
+            {"exchange_auth_method": "Password"},
+            {"exchange_auth_method": "managedidentity"},
+            {"exchange_credential_name": "StaleCredential"},
+            {"exchange_credential_name": "bad\nname"},
+            {"exchange_credential_name": "x" * 300},
+            STALE_LEGACY_SETTINGS,
+        ],
+    )
     def test_stale_legacy_soar_values_are_ignored_not_forwarded(self, stale):
-        c = make_connector(config_overrides={
-            **stale, "exchange_organization": ORG,
-        })
+        c = make_connector(
+            config_overrides={
+                **stale,
+                "exchange_organization": ORG,
+            }
+        )
         assert c._utils._connection_settings == {
-            "auth_method": "ManagedIdentity", "organization": ORG,
+            "auth_method": "ManagedIdentity",
+            "organization": ORG,
         }
         with req_mock.Mocker() as m:
             bodies = fire_every_route(c._utils, m)
@@ -6188,27 +6198,36 @@ class TestExchangeConnectionAssets:
         assert "credential" not in text
         assert "password" not in text
 
-    @pytest.mark.parametrize("organization", [
-        "not a domain; drop",
-        "x" * 300,
-        "line\nbreak",
-        12,
-    ])
-    def test_invalid_organization_is_rejected_without_fallback(
-        self, organization
-    ):
+    @pytest.mark.parametrize(
+        "organization",
+        [
+            "not a domain; drop",
+            "x" * 300,
+            "line\nbreak",
+            12,
+        ],
+    )
+    def test_invalid_organization_is_rejected_without_fallback(self, organization):
         c = MSQuarantineForSplunkSOARConnector()
         c._config = {
-            **base_asset_config(), "exchange_organization": organization,
+            **base_asset_config(),
+            "exchange_organization": organization,
         }
         assert c.initialize() == APP_ERROR
         assert c._utils is None or c._utils._connection_settings == {}
 
-    @pytest.mark.parametrize("missing", [
-        "webhook_url", "azure_tenant_id", "azure_client_id",
-        "azure_client_secret", "azure_subscription_id",
-        "azure_resource_group", "azure_automation_account",
-    ])
+    @pytest.mark.parametrize(
+        "missing",
+        [
+            "webhook_url",
+            "azure_tenant_id",
+            "azure_client_id",
+            "azure_client_secret",
+            "azure_subscription_id",
+            "azure_resource_group",
+            "azure_automation_account",
+        ],
+    )
     def test_azure_api_inputs_stay_required(self, missing):
         c = MSQuarantineForSplunkSOARConnector()
         c._config = {
@@ -6218,23 +6237,25 @@ class TestExchangeConnectionAssets:
         }
         assert c.initialize() == APP_ERROR
 
-    @pytest.mark.parametrize("organization", [
-        "contoso.onmicrosoft.com",
-        "contoso",
-        "contoso.onmicrosoft.us",
-        "xn--bcher-kva.example",
-        "Contoso_Tenant.example.com",
-    ])
+    @pytest.mark.parametrize(
+        "organization",
+        [
+            "contoso.onmicrosoft.com",
+            "contoso",
+            "contoso.onmicrosoft.us",
+            "xn--bcher-kva.example",
+            "Contoso_Tenant.example.com",
+        ],
+    )
     def test_organization_is_not_gated_by_a_domain_regex(self, organization):
         from ms_quarantine_for_splunk_soar_utils import (
             normalize_exchange_connection_settings,
         )
 
-        settings = normalize_exchange_connection_settings(
-            organization=f"  {organization} "
-        )
+        settings = normalize_exchange_connection_settings(organization=f"  {organization} ")
         assert settings == {
-            "auth_method": "ManagedIdentity", "organization": organization,
+            "auth_method": "ManagedIdentity",
+            "organization": organization,
         }
 
     def test_normalizer_no_longer_accepts_credential_arguments(self):
@@ -6243,55 +6264,64 @@ class TestExchangeConnectionAssets:
         )
 
         with pytest.raises(TypeError):
-            normalize_exchange_connection_settings(auth_method="Credential")
+            # Negative API-contract test: removed keywords must raise TypeError.
+            normalize_exchange_connection_settings(auth_method="Credential")  # pylint: disable=unexpected-keyword-arg
         with pytest.raises(TypeError):
-            normalize_exchange_connection_settings(credential_name="X")
-        assert normalize_exchange_connection_settings() == {
-            "auth_method": "ManagedIdentity"
-        }
+            # Negative API-contract test: removed keywords must raise TypeError.
+            normalize_exchange_connection_settings(credential_name="X")  # pylint: disable=unexpected-keyword-arg
+        assert normalize_exchange_connection_settings() == {"auth_method": "ManagedIdentity"}
 
     def test_utils_constructor_has_no_credential_parameters(self):
         with pytest.raises(TypeError):
-            MSQuarantineForSplunkSOARUtils(
-                webhook_url=WEBHOOK_URL, tenant_id=TENANT_ID,
-                client_id=CLIENT_ID, client_secret=CLIENT_SECRET,
-                subscription_id=SUB_ID, resource_group=RG,
+            # Negative API-contract test: removed credential keyword must be rejected.
+            MSQuarantineForSplunkSOARUtils(  # pylint: disable=unexpected-keyword-arg
+                webhook_url=WEBHOOK_URL,
+                tenant_id=TENANT_ID,
+                client_id=CLIENT_ID,
+                client_secret=CLIENT_SECRET,
+                subscription_id=SUB_ID,
+                resource_group=RG,
                 automation_account=AA,
                 exchange_credential_name="X",
             )
 
 
 class TestExchangeCompatibilityPreflight:
-
     def release(self, c, outputs, operation_id="preflight"):
         with req_mock.Mocker() as m:
             bodies = dispatch_flow(m, outputs)
-            status = c._handle_release_quarantine_message({
-                "identity": IDENTITY,
-                "operation_id": operation_id,
-            })
+            status = c._handle_release_quarantine_message(
+                {
+                    "identity": IDENTITY,
+                    "operation_id": operation_id,
+                }
+            )
         return status, bodies
 
-    @pytest.mark.parametrize("overrides,source", [
-        ({}, "automation_variable"),
-        ({"exchange_organization": ORG}, "webhook"),
-        (
-            {**STALE_LEGACY_SETTINGS, "exchange_organization": ORG},
-            "webhook",
-        ),
-    ])
+    @pytest.mark.parametrize(
+        "overrides,source",
+        [
+            ({}, "automation_variable"),
+            ({"exchange_organization": ORG}, "webhook"),
+            (
+                {**STALE_LEGACY_SETTINGS, "exchange_organization": ORG},
+                "webhook",
+            ),
+        ],
+    )
     def test_preflight_always_runs_before_the_write(self, overrides, source):
         c = make_connector(config_overrides=overrides)
         ar = patch_ar(c)
-        check = config_check_for_request(
-            c._utils._connection_settings
-        )
+        check = config_check_for_request(c._utils._connection_settings)
         released = released_output()
         released.update(connection_evidence(organization_source=source))
-        status, bodies = self.release(c, {
-            "config_check": check,
-            "release": released,
-        })
+        status, bodies = self.release(
+            c,
+            {
+                "config_check": check,
+                "release": released,
+            },
+        )
         assert status == APP_SUCCESS
         assert [b["action"] for b in bodies] == ["config_check", "release"]
         for body in bodies:
@@ -6307,33 +6337,40 @@ class TestExchangeCompatibilityPreflight:
         c = make_connector(config_overrides={"exchange_organization": ORG})
         patch_ar(c)
         with req_mock.Mocker() as m:
-            bodies = dispatch_flow(m, {
-                "config_check": config_check_output(),
-                "release": released_output(),
-            })
+            bodies = dispatch_flow(
+                m,
+                {
+                    "config_check": config_check_output(),
+                    "release": released_output(),
+                },
+            )
             for number in range(2):
-                assert c._handle_release_quarantine_message({
-                    "identity": IDENTITY,
-                    "operation_id": f"once-{number}",
-                }) == APP_SUCCESS
+                assert (
+                    c._handle_release_quarantine_message(
+                        {
+                            "identity": IDENTITY,
+                            "operation_id": f"once-{number}",
+                        }
+                    )
+                    == APP_SUCCESS
+                )
         assert [b["action"] for b in bodies].count("config_check") == 1
 
-    @pytest.mark.parametrize("unsupported", [
-        {
-            "action": "config_check",
-            "error": True,
-            "error_code": "unknown_action",
-            "message": "Unknown action 'config_check'.",
-            **build_metadata(),
-        },
-        config_check_output(runbook_version="3.4.1"),
-        config_check_output(runbook_version="3.3.4"),
-        {
-            key: value
-            for key, value in config_check_output().items()
-            if key != "config_contract"
-        },
-    ])
+    @pytest.mark.parametrize(
+        "unsupported",
+        [
+            {
+                "action": "config_check",
+                "error": True,
+                "error_code": "unknown_action",
+                "message": "Unknown action 'config_check'.",
+                **build_metadata(),
+            },
+            config_check_output(runbook_version="3.4.1"),
+            config_check_output(runbook_version="3.3.4"),
+            {key: value for key, value in config_check_output().items() if key != "config_contract"},
+        ],
+    )
     def test_old_runbook_blocks_every_irreversible_write(self, unsupported):
         for action, handler in (
             ("release", "_handle_release_quarantine_message"),
@@ -6342,49 +6379,67 @@ class TestExchangeCompatibilityPreflight:
             c = make_connector(config_overrides={"exchange_organization": ORG})
             ar = patch_ar(c)
             with req_mock.Mocker() as m:
-                bodies = dispatch_flow(m, {
-                    "config_check": unsupported,
-                    action: released_output(action),
-                })
-                assert getattr(c, handler)({
-                    "identity": IDENTITY,
-                    "operation_id": f"old-{action}",
-                }) == APP_ERROR
+                bodies = dispatch_flow(
+                    m,
+                    {
+                        "config_check": unsupported,
+                        action: released_output(action),
+                    },
+                )
+                assert (
+                    getattr(c, handler)(
+                        {
+                            "identity": IDENTITY,
+                            "operation_id": f"old-{action}",
+                        }
+                    )
+                    == APP_ERROR
+                )
             assert [b["action"] for b in bodies] == ["config_check"]
             assert "no irreversible action was sent" in ar.get_message()
             assert "3.4.2" in ar.get_message()
 
-    @pytest.mark.parametrize("credential_field", [
-        {"exchange_credential_name": "ExchangeQuarantineAdmin"},
-        {"exchange_credential_source": "default"},
-    ])
-    def test_runbook_reporting_credential_evidence_blocks_the_write(
-        self, credential_field
-    ):
+    @pytest.mark.parametrize(
+        "credential_field",
+        [
+            {"exchange_credential_name": "ExchangeQuarantineAdmin"},
+            {"exchange_credential_source": "default"},
+        ],
+    )
+    def test_runbook_reporting_credential_evidence_blocks_the_write(self, credential_field):
         c = make_connector(config_overrides={"exchange_organization": ORG})
         ar = patch_ar(c)
-        status, bodies = self.release(c, {
-            "config_check": config_check_output(**credential_field),
-            "release": released_output(),
-        })
+        status, bodies = self.release(
+            c,
+            {
+                "config_check": config_check_output(**credential_field),
+                "release": released_output(),
+            },
+        )
         assert status == APP_ERROR
         assert [b["action"] for b in bodies] == ["config_check"]
         assert "credential" in ar.get_message().lower()
 
-    @pytest.mark.parametrize("effective", [
-        {"exchange_auth_method": "Credential"},
-        {"exchange_auth_method": ""},
-        {"exchange_auth_method_source": "automation_variable"},
-        {"exchange_organization": "other.onmicrosoft.com"},
-        {"exchange_organization_source": "automation_variable"},
-    ])
+    @pytest.mark.parametrize(
+        "effective",
+        [
+            {"exchange_auth_method": "Credential"},
+            {"exchange_auth_method": ""},
+            {"exchange_auth_method_source": "automation_variable"},
+            {"exchange_organization": "other.onmicrosoft.com"},
+            {"exchange_organization_source": "automation_variable"},
+        ],
+    )
     def test_effective_value_mismatch_blocks_the_write(self, effective):
         c = make_connector(config_overrides={"exchange_organization": ORG})
         ar = patch_ar(c)
-        status, bodies = self.release(c, {
-            "config_check": config_check_output(**effective),
-            "release": released_output(),
-        })
+        status, bodies = self.release(
+            c,
+            {
+                "config_check": config_check_output(**effective),
+                "release": released_output(),
+            },
+        )
         assert status == APP_ERROR
         assert [b["action"] for b in bodies] == ["config_check"]
         assert "No operation was claimed" in ar.get_message()
@@ -6392,12 +6447,13 @@ class TestExchangeCompatibilityPreflight:
     def test_variable_sourced_organization_must_be_reported_as_such(self):
         c = make_connector()
         ar = patch_ar(c)
-        status, bodies = self.release(c, {
-            "config_check": config_check_output(
-                exchange_organization_source="webhook"
-            ),
-            "release": released_output(),
-        })
+        status, bodies = self.release(
+            c,
+            {
+                "config_check": config_check_output(exchange_organization_source="webhook"),
+                "release": released_output(),
+            },
+        )
         assert status == APP_ERROR
         assert [b["action"] for b in bodies] == ["config_check"]
         assert "organization" in ar.get_message()
@@ -6405,10 +6461,14 @@ class TestExchangeCompatibilityPreflight:
     def test_failed_preflight_leaves_no_claimed_operation(self):
         c = make_connector()
         patch_ar(c)
-        status, bodies = self.release(c, {
-            "config_check": config_check_output(runbook_version="3.4.1"),
-            "release": released_output(),
-        }, operation_id="never-claimed")
+        status, _bodies = self.release(
+            c,
+            {
+                "config_check": config_check_output(runbook_version="3.4.1"),
+                "release": released_output(),
+            },
+            operation_id="never-claimed",
+        )
         assert status == APP_ERROR
         state_file = Path(c.get_state_file_path())
         if state_file.exists():
@@ -6419,9 +6479,7 @@ class TestExchangeCompatibilityPreflight:
             output = released_output(action)
             output["runbook_version"] = "3.4.1"
             with pytest.raises(AutomationError) as exc_info:
-                make_utils()._validate_runbook_result(
-                    output, action, IDENTITY
-                )
+                make_utils()._validate_runbook_result(output, action, IDENTITY)
             assert "3.4.2" in str(exc_info.value)
 
 
@@ -6465,20 +6523,20 @@ class TestIrreversibleRegistryLookup:
 
     def run(self, c, action, operation_id):
         with req_mock.Mocker() as m:
-            status = getattr(c, self.HANDLERS[action])({
-                "identity": IDENTITY,
-                "operation_id": operation_id,
-            })
+            status = getattr(c, self.HANDLERS[action])(
+                {
+                    "identity": IDENTITY,
+                    "operation_id": operation_id,
+                }
+            )
         return status, m.request_history
 
     def registry(self, c):
         return c.load_state().get(OPERATION_STATE_KEY, {})
 
     @pytest.mark.parametrize("action", ["release", "deny"])
-    def test_transient_first_read_failure_fails_closed(
-        self, action, monkeypatch, tmp_path
-    ):
-        c, ar, calls = self.setup_connector(monkeypatch, tmp_path)
+    def test_transient_first_read_failure_fails_closed(self, action, monkeypatch, tmp_path):
+        c, _ar, calls = self.setup_connector(monkeypatch, tmp_path)
         original = c._load_operation_registry_unlocked
         reads = {"count": 0}
 
@@ -6497,9 +6555,7 @@ class TestIrreversibleRegistryLookup:
         assert "transient-read" not in self.registry(c)
 
     @pytest.mark.parametrize("action", ["release", "deny"])
-    def test_record_vanishing_after_lookup_cannot_cause_a_write(
-        self, action, monkeypatch, tmp_path
-    ):
+    def test_record_vanishing_after_lookup_cannot_cause_a_write(self, action, monkeypatch, tmp_path):
         c, ar, calls = self.setup_connector(monkeypatch, tmp_path)
         original_claim = c._claim_irreversible_operation
         claimed, _ = original_claim("pruned-race", action, IDENTITY)
@@ -6514,9 +6570,7 @@ class TestIrreversibleRegistryLookup:
             assert c.save_state(state)
             return record
 
-        monkeypatch.setattr(
-            c, "_lookup_irreversible_operation", lookup_then_prune
-        )
+        monkeypatch.setattr(c, "_lookup_irreversible_operation", lookup_then_prune)
         status, history = self.run(c, action, "pruned-race")
         assert status == APP_ERROR
         assert "already exists" in ar.get_message()
@@ -6525,9 +6579,7 @@ class TestIrreversibleRegistryLookup:
         assert "pruned-race" not in self.registry(c)
 
     @pytest.mark.parametrize("action", ["release", "deny"])
-    def test_existing_record_replays_without_claim_or_azure(
-        self, action, monkeypatch, tmp_path
-    ):
+    def test_existing_record_replays_without_claim_or_azure(self, action, monkeypatch, tmp_path):
         c, ar, calls = self.setup_connector(monkeypatch, tmp_path)
         c._claim_irreversible_operation("replayed", action, IDENTITY)
         calls["claim"] = 0
@@ -6540,26 +6592,24 @@ class TestIrreversibleRegistryLookup:
         assert json.dumps(self.registry(c), sort_keys=True) == before
 
     @pytest.mark.parametrize("action", ["release", "deny"])
-    def test_confirmed_record_replays_success_without_azure(
-        self, action, monkeypatch, tmp_path
-    ):
-        c, ar, calls = self.setup_connector(monkeypatch, tmp_path)
+    def test_confirmed_record_replays_success_without_azure(self, action, monkeypatch, tmp_path):
+        c, _ar, calls = self.setup_connector(monkeypatch, tmp_path)
         c._claim_irreversible_operation("done", action, IDENTITY)
-        c._update_irreversible_operation(
-            "done", action, IDENTITY, state="confirmed_success"
-        )
+        c._update_irreversible_operation("done", action, IDENTITY, state="confirmed_success")
         calls["claim"] = 0
         status, history = self.run(c, action, "done")
         assert status == APP_SUCCESS
         assert calls == {"verify": 0, "webhook": 0, "claim": 0}
         assert history == []
 
-    @pytest.mark.parametrize("action,other", [
-        ("release", "deny"), ("deny", "release"),
-    ])
-    def test_binding_conflict_fails_closed_without_azure(
-        self, action, other, monkeypatch, tmp_path
-    ):
+    @pytest.mark.parametrize(
+        "action,other",
+        [
+            ("release", "deny"),
+            ("deny", "release"),
+        ],
+    )
+    def test_binding_conflict_fails_closed_without_azure(self, action, other, monkeypatch, tmp_path):
         c, ar, calls = self.setup_connector(monkeypatch, tmp_path)
         c._claim_irreversible_operation("bound", other, IDENTITY)
         calls["claim"] = 0
@@ -6570,9 +6620,7 @@ class TestIrreversibleRegistryLookup:
         assert history == []
 
     @pytest.mark.parametrize("action", ["release", "deny"])
-    def test_malformed_record_fails_closed_without_azure(
-        self, action, monkeypatch, tmp_path
-    ):
+    def test_malformed_record_fails_closed_without_azure(self, action, monkeypatch, tmp_path):
         c, ar, calls = self.setup_connector(monkeypatch, tmp_path)
         assert c.save_state({OPERATION_STATE_KEY: {"broken": "not-a-dict"}})
         status, history = self.run(c, action, "broken")
@@ -6582,32 +6630,35 @@ class TestIrreversibleRegistryLookup:
         assert history == []
 
     @pytest.mark.parametrize("action", ["release", "deny"])
-    def test_missing_record_preflights_before_the_atomic_claim(
-        self, action, monkeypatch, tmp_path
-    ):
-        c, ar, calls = self.setup_connector(monkeypatch, tmp_path)
+    def test_missing_record_preflights_before_the_atomic_claim(self, action, monkeypatch, tmp_path):
+        c, _ar, calls = self.setup_connector(monkeypatch, tmp_path)
         order = []
         original_verify = c._utils.verify_connection_contract
         original_claim = c._claim_irreversible_operation
         monkeypatch.setattr(
-            c._utils, "verify_connection_contract",
+            c._utils,
+            "verify_connection_contract",
             lambda: order.append("verify") or original_verify(),
         )
         monkeypatch.setattr(
-            c, "_claim_irreversible_operation",
+            c,
+            "_claim_irreversible_operation",
             lambda *a, **k: order.append("claim") or original_claim(*a, **k),
         )
         with req_mock.Mocker() as m:
-            bodies = dispatch_flow(m, {
-                "config_check": config_check_for_request(
-                    c._utils._connection_settings
-                ),
-                action: released_output(action),
-            })
-            status = getattr(c, self.HANDLERS[action])({
-                "identity": IDENTITY,
-                "operation_id": "fresh",
-            })
+            bodies = dispatch_flow(
+                m,
+                {
+                    "config_check": config_check_for_request(c._utils._connection_settings),
+                    action: released_output(action),
+                },
+            )
+            status = getattr(c, self.HANDLERS[action])(
+                {
+                    "identity": IDENTITY,
+                    "operation_id": "fresh",
+                }
+            )
         assert status == APP_ERROR
         assert order == ["verify", "claim"]
         assert [b["action"] for b in bodies] == ["config_check"]
@@ -6615,19 +6666,22 @@ class TestIrreversibleRegistryLookup:
         assert self.registry(c)["fresh"]["action"] == action
 
     @pytest.mark.parametrize("action", ["release", "deny"])
-    def test_failed_preflight_leaves_no_claim(
-        self, action, monkeypatch, tmp_path
-    ):
-        c, ar, calls = self.setup_connector(monkeypatch, tmp_path)
+    def test_failed_preflight_leaves_no_claim(self, action, monkeypatch, tmp_path):
+        c, _ar, calls = self.setup_connector(monkeypatch, tmp_path)
         with req_mock.Mocker() as m:
-            bodies = dispatch_flow(m, {
-                "config_check": config_check_output(runbook_version="3.4.1"),
-                action: released_output(action),
-            })
-            status = getattr(c, self.HANDLERS[action])({
-                "identity": IDENTITY,
-                "operation_id": "rejected",
-            })
+            bodies = dispatch_flow(
+                m,
+                {
+                    "config_check": config_check_output(runbook_version="3.4.1"),
+                    action: released_output(action),
+                },
+            )
+            status = getattr(c, self.HANDLERS[action])(
+                {
+                    "identity": IDENTITY,
+                    "operation_id": "rejected",
+                }
+            )
         assert status == APP_ERROR
         assert [b["action"] for b in bodies] == ["config_check"]
         assert calls["claim"] == 0
@@ -6635,13 +6689,12 @@ class TestIrreversibleRegistryLookup:
         assert "rejected" not in self.registry(c)
 
     @pytest.mark.parametrize("action", ["release", "deny"])
-    def test_concurrent_claim_during_preflight_returns_replay(
-        self, action, monkeypatch, tmp_path
-    ):
+    def test_concurrent_claim_during_preflight_returns_replay(self, action, monkeypatch, tmp_path):
         c, ar, calls = self.setup_connector(monkeypatch, tmp_path)
         original_claim = c._claim_irreversible_operation
         monkeypatch.setattr(
-            c._utils, "verify_connection_contract",
+            c._utils,
+            "verify_connection_contract",
             lambda: original_claim("raced", action, IDENTITY) and {},
         )
         status, history = self.run(c, action, "raced")
@@ -6651,10 +6704,8 @@ class TestIrreversibleRegistryLookup:
         assert history == []
 
     @pytest.mark.parametrize("action", ["release", "deny"])
-    def test_unreadable_registry_at_claim_time_still_fails_closed(
-        self, action, monkeypatch, tmp_path
-    ):
-        c, ar, calls = self.setup_connector(monkeypatch, tmp_path)
+    def test_unreadable_registry_at_claim_time_still_fails_closed(self, action, monkeypatch, tmp_path):
+        c, _ar, calls = self.setup_connector(monkeypatch, tmp_path)
         original = c._load_operation_registry_unlocked
         reads = {"count": 0}
 
@@ -6664,12 +6715,8 @@ class TestIrreversibleRegistryLookup:
                 raise AutomationError("claim-time state read failure")
             return original()
 
-        monkeypatch.setattr(
-            c._utils, "verify_connection_contract", lambda: {}
-        )
-        monkeypatch.setattr(
-            c, "_load_operation_registry_unlocked", second_read_fails
-        )
+        monkeypatch.setattr(c._utils, "verify_connection_contract", lambda: {})
+        monkeypatch.setattr(c, "_load_operation_registry_unlocked", second_read_fails)
         status, history = self.run(c, action, "claim-read")
         assert status == APP_ERROR
         assert calls["webhook"] == 0
@@ -6677,7 +6724,6 @@ class TestIrreversibleRegistryLookup:
 
 
 class TestConnectionContractEvidence:
-
     def validate(self, output, action="release"):
         make_utils()._validate_runbook_result(output, action, IDENTITY)
 
@@ -6689,21 +6735,19 @@ class TestConnectionContractEvidence:
 
     def test_attempted_without_execution_keeps_native_error_evidence(self):
         details = disposition_diagnostics(executed=False)
-        details.update({
-            "cmdlet_invocation_attempted": True,
-            "cmdlet_started_at_utc": "2026-07-30T08:00:00.0000000Z",
-            "cmdlet_completed_at_utc": "2026-07-30T08:00:00.0100000Z",
-            "cmdlet_duration_ms": 10,
-            "cmdlet_error": "A parameter cannot be found",
-            "cmdlet_fully_qualified_error_id": (
-                "NamedParameterNotFound,Release-QuarantineMessage"
-            ),
-            "cmdlet_exception_type": (
-                "System.Management.Automation.ParameterBindingException"
-            ),
-            "cmdlet_error_position": "At line:1 char:1",
-            "cmdlet_script_stack_trace": "at <ScriptBlock>",
-        })
+        details.update(
+            {
+                "cmdlet_invocation_attempted": True,
+                "cmdlet_started_at_utc": "2026-07-30T08:00:00.0000000Z",
+                "cmdlet_completed_at_utc": "2026-07-30T08:00:00.0100000Z",
+                "cmdlet_duration_ms": 10,
+                "cmdlet_error": "A parameter cannot be found",
+                "cmdlet_fully_qualified_error_id": ("NamedParameterNotFound,Release-QuarantineMessage"),
+                "cmdlet_exception_type": ("System.Management.Automation.ParameterBindingException"),
+                "cmdlet_error_position": "At line:1 char:1",
+                "cmdlet_script_stack_trace": "at <ScriptBlock>",
+            }
+        )
         output = {
             **cmdlet_failure_output(),
             "details": {
@@ -6726,27 +6770,33 @@ class TestConnectionContractEvidence:
         with pytest.raises(AutomationError):
             self.validate(output)
 
-    @pytest.mark.parametrize("field,value", [
-        ("exchange_auth_method", "Basic"),
-        ("exchange_auth_method", "Credential"),
-        ("exchange_auth_method_source", "guess"),
-        ("exchange_auth_method_source", "automation_variable"),
-        ("exchange_organization_source", "guess"),
-        ("exchange_disconnect_status", "unknown"),
-        ("cmdlet_invocation_attempted", "yes"),
-        ("exchange_organization", 7),
-    ])
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("exchange_auth_method", "Basic"),
+            ("exchange_auth_method", "Credential"),
+            ("exchange_auth_method_source", "guess"),
+            ("exchange_auth_method_source", "automation_variable"),
+            ("exchange_organization_source", "guess"),
+            ("exchange_disconnect_status", "unknown"),
+            ("cmdlet_invocation_attempted", "yes"),
+            ("exchange_organization", 7),
+        ],
+    )
     def test_invalid_connection_evidence_is_rejected(self, field, value):
         output = released_output()
         output[field] = value
         with pytest.raises(AutomationError):
             self.validate(output)
 
-    @pytest.mark.parametrize("field,value", [
-        ("exchange_credential_name", ""),
-        ("exchange_credential_name", "ExchangeQuarantineAdmin"),
-        ("exchange_credential_source", "not_applicable"),
-    ])
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("exchange_credential_name", ""),
+            ("exchange_credential_name", "ExchangeQuarantineAdmin"),
+            ("exchange_credential_source", "not_applicable"),
+        ],
+    )
     def test_credential_evidence_is_unsupported_in_results(self, field, value):
         output = released_output()
         output[field] = value
@@ -6767,13 +6817,15 @@ class TestConnectionContractEvidence:
 
     def test_idempotent_result_needs_no_cleanup_evidence_and_no_cmdlet(self):
         output = released_output()
-        output.update({
-            "status": "already_released",
-            "idempotent": True,
-            "handling": "no_retry_needed",
-            "postcondition_trace": "",
-            **disposition_diagnostics(executed=False),
-        })
+        output.update(
+            {
+                "status": "already_released",
+                "idempotent": True,
+                "handling": "no_retry_needed",
+                "postcondition_trace": "",
+                **disposition_diagnostics(executed=False),
+            }
+        )
         output["idempotent"] = True
         for field in ("exchange_disconnect_status", "exchange_disconnect_error"):
             output.pop(field)
@@ -6781,18 +6833,15 @@ class TestConnectionContractEvidence:
 
     def test_secret_values_are_never_part_of_the_connection_evidence(self):
         output = released_output()
-        assert not any(
-            "password" in key.lower() or "secret" in key.lower()
-            for key in output
-        )
+        assert not any("password" in key.lower() or "secret" in key.lower() for key in output)
 
 
 # ---------------------------------------------------------------------------
 # TestManifestActionResultContracts
 # ---------------------------------------------------------------------------
 
-class TestManifestActionResultContracts:
 
+class TestManifestActionResultContracts:
     @pytest.mark.parametrize(
         "identifier,export_mode,handler_name,param,output",
         [
@@ -6829,9 +6878,7 @@ class TestManifestActionResultContracts:
             ),
         ],
     )
-    def test_success_handlers_emit_only_declared_paths(
-        self, identifier, export_mode, handler_name, param, output
-    ):
+    def test_success_handlers_emit_only_declared_paths(self, identifier, export_mode, handler_name, param, output):
         c = make_connector(export_mode=export_mode)
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
@@ -6857,16 +6904,9 @@ class TestManifestActionResultContracts:
             row = ar.get_data()[0]
             assert row["handling"] == "read_only"
             assert row["observed_identity"] == IDENTITY
-            assert "no release or deny cmdlet was executed" in (
-                ar.get_message()
-            )
-            assert "action_result.data.*.cmdlet_parameter_sets" in (
-                declared_paths
-            )
-            assert (
-                "action_result.data.*.cmdlet_default_parameter_set"
-                in declared_paths
-            )
+            assert "no release or deny cmdlet was executed" in (ar.get_message())
+            assert "action_result.data.*.cmdlet_parameter_sets" in (declared_paths)
+            assert "action_result.data.*.cmdlet_default_parameter_set" in declared_paths
             for path in (
                 "action_result.data.*.rbac_diagnostics_status",
                 "action_result.data.*.release_to_all_roles",
@@ -6877,19 +6917,13 @@ class TestManifestActionResultContracts:
                 "action_result.data.*.role_assignment_matches_identity",
                 "action_result.data.*.quarantine_role_group_total_count",
                 "action_result.data.*.quarantine_role_group_inspected_count",
-                (
-                    "action_result.data.*."
-                    "quarantine_role_group_inspection_truncated"
-                ),
+                ("action_result.data.*.quarantine_role_group_inspection_truncated"),
                 "action_result.data.*.permission_query_errors.*.query",
                 "action_result.summary.rbac_diagnostics_status",
                 "action_result.summary.role_assignment_matches_identity",
                 "action_result.summary.quarantine_role_group_total_count",
                 "action_result.summary.quarantine_role_group_inspected_count",
-                (
-                    "action_result.summary."
-                    "quarantine_role_group_inspection_truncated"
-                ),
+                ("action_result.summary.quarantine_role_group_inspection_truncated"),
             ):
                 assert path in declared_paths
 
@@ -6898,8 +6932,8 @@ class TestManifestActionResultContracts:
 # TestRunbookExportContract
 # ---------------------------------------------------------------------------
 
-class TestRunbookExportContract:
 
+class TestRunbookExportContract:
     @staticmethod
     def _runbook():
         return Path(__file__).with_name("runbook.ps1").read_text()
@@ -6919,9 +6953,7 @@ class TestRunbookExportContract:
 
     def test_versions_and_limits_are_in_sync(self):
         runbook = self._runbook()
-        manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
-        )
+        manifest = json.loads(Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text())
         assert manifest["app_version"] == "3.7.4"
         assert '$RunbookVersion           = "3.4.5"' in runbook
         assert "$PostconditionMaxAttempts = 7" in runbook
@@ -6929,9 +6961,7 @@ class TestRunbookExportContract:
         assert MAX_RBAC_ROLE_GROUP_INSPECTIONS == 20
         assert "$RbacDiagnosticMaxGroups  = 20" in runbook
         assert "$PostconditionPollSeconds = 10" in runbook
-        assert self._integer_constant(
-            runbook, "ExportMaxDecodedBytes"
-        ) == MAX_DECODED_EML_BYTES
+        assert self._integer_constant(runbook, "ExportMaxDecodedBytes") == MAX_DECODED_EML_BYTES
         assert "$ExportMaxChunkCount      = 200" in runbook
         assert "$ErrorMaxChunkCount       = 200" in runbook
 
@@ -6966,19 +6996,14 @@ class TestRunbookExportContract:
 
     def test_managed_identity_resource_path_is_never_persisted(self):
         runbook = self._runbook()
-        manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
-        )
+        manifest = json.loads(Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text())
         assert "xms_mirid" not in runbook
         assert "managed_identity_resource_id" not in runbook
         assert "managed_identity_resource_id" not in json.dumps(manifest)
 
     def test_strong_rbac_identity_matching_uses_guid_fields_only(self):
         runbook = self._runbook()
-        helper = runbook[
-            runbook.index("function Get-ObjectIdentityGuids"):
-            runbook.index("function Test-ObjectIdentityMatch")
-        ]
+        helper = runbook[runbook.index("function Get-ObjectIdentityGuids") : runbook.index("function Test-ObjectIdentityMatch")]
         for field in (
             '"AppId"',
             '"ObjectId"',
@@ -7024,9 +7049,7 @@ class TestRunbookExportContract:
     def test_exact_24_mib_fits_chunk_contract(self):
         decoded_size = 24 * 1024 * 1024
         base64_length = ((decoded_size + 2) // 3) * 4
-        chunk_count = (
-            base64_length + (250 * 1024) - 1
-        ) // (250 * 1024)
+        chunk_count = (base64_length + (250 * 1024) - 1) // (250 * 1024)
         assert decoded_size == MAX_DECODED_EML_BYTES
         assert base64_length == 33_554_432
         assert chunk_count == 132
@@ -7036,9 +7059,7 @@ class TestRunbookExportContract:
     def test_known_24_602_271_byte_message_remains_supported(self):
         decoded_size = 24_602_271
         base64_length = ((decoded_size + 2) // 3) * 4
-        chunk_count = (
-            base64_length + (250 * 1024) - 1
-        ) // (250 * 1024)
+        chunk_count = (base64_length + (250 * 1024) - 1) // (250 * 1024)
         assert decoded_size < MAX_DECODED_EML_BYTES
         assert base64_length == 32_803_028
         assert chunk_count == 129
@@ -7046,7 +7067,7 @@ class TestRunbookExportContract:
     def test_large_path_has_no_full_payload_decode_or_cleanup_copy(self):
         runbook = self._runbook()
         assert "[System.Convert]::FromBase64String($emlBase64)" not in runbook
-        assert '$emlBase64 = ([string]$emlBase64) -replace' not in runbook
+        assert "$emlBase64 = ([string]$emlBase64) -replace" not in runbook
         assert "function Get-Base64PayloadInfo" in runbook
         assert "function Write-ChunkedExport" in runbook
         assert "$sha256.TransformBlock" in runbook
@@ -7063,39 +7084,37 @@ class TestRunbookExportContract:
         ).group(0)
         assert '$expectedStatus = "Released"' in flow
         assert '$expectedStatus = "Denied"' in flow
-        disposition = flow.index(
-            "    $disposition = Invoke-QuarantineDisposition `\n"
-        )
+        disposition = flow.index("    $disposition = Invoke-QuarantineDisposition `\n")
         verification = flow.index(
-            "    $verification = Wait-QuarantinePostcondition `\n"
-            "        -Identity $identity `\n"
-            "        -ExpectedStatus $expectedStatus\n"
+            "    $verification = Wait-QuarantinePostcondition `\n        -Identity $identity `\n        -ExpectedStatus $expectedStatus\n"
         )
         assert disposition < verification
         assert 'ErrorCode "postcondition_unconfirmed"' in flow[verification:]
-        assert (
-            'handling                = "reconcile_before_retry"'
-        ) in flow[verification:]
+        assert ('handling                = "reconcile_before_retry"') in flow[verification:]
 
 
 # ---------------------------------------------------------------------------
 # TestIdentityFormatValidation
 # ---------------------------------------------------------------------------
 
+
 class TestIdentityFormatValidation:
     """Malformed identity must fail instantly, without firing the webhook."""
 
     def test_valid_identity_passes(self):
         from ms_quarantine_for_splunk_soar_connector import validate_identity_format
+
         assert validate_identity_format(IDENTITY) == ""
 
     def test_missing_backslash_rejected(self):
         from ms_quarantine_for_splunk_soar_connector import validate_identity_format
+
         err = validate_identity_format("c14401cf-aa9a-465b-cfd5-08d0f0ca37c5")
         assert err != ""
 
     def test_garbage_rejected(self):
         from ms_quarantine_for_splunk_soar_connector import validate_identity_format
+
         assert validate_identity_format("not-an-identity") != ""
 
     def test_export_rejects_bad_identity_without_webhook(self):
@@ -7104,25 +7123,21 @@ class TestIdentityFormatValidation:
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
             # No mocks registered - any HTTP call would raise NoMockAddress
-            assert c._handle_get_quarantine_message(
-                {"identity": "garbage"}) == APP_ERROR
+            assert c._handle_get_quarantine_message({"identity": "garbage"}) == APP_ERROR
         assert "Invalid identity format" in ar.get_message()
 
     def test_release_rejects_bad_identity(self):
         c = make_connector()
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
-            assert c._handle_release_quarantine_message(
-                {"identity": "12345"}) == APP_ERROR
+            assert c._handle_release_quarantine_message({"identity": "12345"}) == APP_ERROR
         assert "Invalid identity format" in ar.get_message()
 
     def test_inspection_rejects_bad_identity_without_webhook(self):
         c = make_connector()
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
-            assert c._handle_inspect_release_environment(
-                {"identity": "12345"}
-            ) == APP_ERROR
+            assert c._handle_inspect_release_environment({"identity": "12345"}) == APP_ERROR
             assert not m.called
         assert "Invalid identity format" in ar.get_message()
 
@@ -7130,8 +7145,7 @@ class TestIdentityFormatValidation:
         c = make_connector()
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
-            assert c._handle_deny_quarantine_release(
-                {"identity": "abc\\def"}) == APP_ERROR
+            assert c._handle_deny_quarantine_release({"identity": "abc\\def"}) == APP_ERROR
         assert "Invalid identity format" in ar.get_message()
 
 
@@ -7139,8 +7153,8 @@ class TestIdentityFormatValidation:
 # TestExportErrors
 # ---------------------------------------------------------------------------
 
-class TestExportErrors:
 
+class TestExportErrors:
     def test_missing_identity_error(self):
         c = make_connector()
         patch_ar(c)
@@ -7152,8 +7166,7 @@ class TestExportErrors:
         output = {"action": "export", "identity": IDENTITY, "eml": ""}
         with req_mock.Mocker() as m:
             mock_full_flow(m, output)
-            assert c._handle_get_quarantine_message(
-                {"identity": IDENTITY}) == APP_ERROR
+            assert c._handle_get_quarantine_message({"identity": IDENTITY}) == APP_ERROR
 
     def test_timeout_error(self):
         c = make_connector(poll_timeout=0)
@@ -7162,12 +7175,14 @@ class TestExportErrors:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.post(WEBHOOK_URL, json={"JobIds": [JOB_ID]})
             m.get(job_url(), json={"properties": {"status": "Running"}})
-            assert c._handle_get_quarantine_message(
-                {"identity": IDENTITY}) == APP_ERROR
+            assert c._handle_get_quarantine_message({"identity": IDENTITY}) == APP_ERROR
         assert "timeout" in ar.get_message().lower() or "timed out" in ar.get_message().lower()
 
 
 def test_product_rename_preserves_persisted_deduplication_identifiers():
     connector = MSQuarantineForSplunkSOARConnector()
-    assert connector._artifact_identifier("ready", "message") == 'msqm-email-02c5527a5d903e1ef8c6604b3a05985dec481bf0e0cb208dc97edac433662c15'
-    assert connector._worker_source_identifier("identity", 4) == 'msqm-quarantine-asset-4-4788975f96aa7db080e5722a3b2c2e866997613dba36e60ec7ada4d7f9622f43'
+    assert connector._artifact_identifier("ready", "message") == "msqm-email-02c5527a5d903e1ef8c6604b3a05985dec481bf0e0cb208dc97edac433662c15"
+    assert (
+        connector._worker_source_identifier("identity", 4)
+        == "msqm-quarantine-asset-4-4788975f96aa7db080e5722a3b2c2e866997613dba36e60ec7ada4d7f9622f43"
+    )

@@ -2,9 +2,10 @@
 # Copyright 2026 Kai Seidenschnur
 # Licensed under the Apache License, Version 2.0.
 """Render self-contained distributable help from the shipped manifest."""
+
 import argparse
-from html import escape
 import json
+from html import escape
 from pathlib import Path
 
 
@@ -16,35 +17,55 @@ def render(manifest):
         return "<code>" + escape(str(value)) + "</code>"
 
     rows = []
-    for key, spec in sorted(manifest["configuration"].items(),
-                            key=lambda item: item[1].get("order", 999)):
+    for key, spec in sorted(manifest["configuration"].items(), key=lambda item: item[1].get("order", 999)):
         default = json.dumps(spec["default"]) if "default" in spec else "not set"
         desc = escape(spec["description"])
         if spec.get("value_list"):
             desc += " Choices: " + ", ".join(code(v) for v in spec["value_list"]) + "."
-        rows.append("<tr><td>" + code(key) + "</td><td>"
-                    + ("yes" if spec.get("required") else "no") + "</td><td>"
-                    + code(default) + "</td><td>" + desc + "</td></tr>")
+        rows.append(
+            "<tr><td>"
+            + code(key)
+            + "</td><td>"
+            + ("yes" if spec.get("required") else "no")
+            + "</td><td>"
+            + code(default)
+            + "</td><td>"
+            + desc
+            + "</td></tr>"
+        )
     actions = []
     for action in manifest["actions"]:
         params = []
-        for key, spec in sorted(action.get("parameters", {}).items(),
-                                key=lambda item: item[1].get("order", 999)):
+        for key, spec in sorted(action.get("parameters", {}).items(), key=lambda item: item[1].get("order", 999)):
             desc = escape(spec.get("description", ""))
             if spec.get("value_list"):
                 desc += " Choices: " + ", ".join(code(v) for v in spec["value_list"]) + "."
-            params.append("<li>" + code(key) + " ("
-                          + ("required" if spec.get("required") else "optional")
-                          + "): " + desc + "</li>")
-        actions.append("<h3>" + escape(action["action"]) + "</h3><p>"
-                       + escape(action.get("description", "")) + "</p>"
-                       + ("<ul>" + "".join(params) + "</ul>" if params else "<p>No parameters.</p>"))
+            params.append("<li>" + code(key) + " (" + ("required" if spec.get("required") else "optional") + "): " + desc + "</li>")
+        actions.append(
+            "<h3>"
+            + escape(action["action"])
+            + "</h3><p>"
+            + escape(action.get("description", ""))
+            + "</p>"
+            + ("<ul>" + "".join(params) + "</ul>" if params else "<p>No parameters.</p>")
+        )
     title = escape(manifest["name"]) + " " + escape(manifest["app_version"])
-    return """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>""" + title + """</title></head>
+    return (
+        """<!--
+Copyright 2026 Kai Seidenschnur
+Licensed under the Apache License, Version 2.0.
+-->
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>"""
+        + title
+        + """</title></head>
 <body>
-<h1>""" + title + """</h1>
-<p>Publisher: """ + escape(manifest["publisher"]) + """. Copyright 2026 Kai Seidenschnur.
+<h1>"""
+        + title
+        + """</h1>
+<p>Publisher: """
+        + escape(manifest["publisher"])
+        + """. Copyright 2026 Kai Seidenschnur.
 Apache-2.0; see the included <a href="LICENSE">LICENSE</a>.</p>
 <h2>Overview</h2>
 <p>Import Microsoft Defender quarantined email into Splunk SOAR or Enterprise
@@ -77,7 +98,7 @@ For SOAR, start analysis from the completed mail's ready artifact.</li>
 </ol>
 <p>Native email import requires authenticated local SOAR REST access, including
 when importing into SOAR rather than ES. Automation Broker is not supported;
-SOAR Cloud compatibility has not been verified.</p>
+The connector has been piloted successfully on Splunk SOAR Cloud.</p>
 <h2>Email import</h2>
 <p><code>on_poll_max_containers</code> is a maximum of simultaneously unresolved
 Microsoft quarantine identities, configurable 1–50 and default 10. It is not a
@@ -121,12 +142,16 @@ individual Azure jobs, not the mail-import schedule.</p>
 connections require HTTPS and certificate verification; webhook redirects are
 not followed. Configure the platform's trusted CA store for private certificates.</p>
 <table><thead><tr><th>Field</th><th>Required</th><th>Default</th><th>Description</th></tr></thead><tbody>
-""" + "\n".join(rows) + """
+"""
+        + "\n".join(rows)
+        + """
 </tbody></table>
 <h2>Available actions</h2>
 <p>Release and Deny run only when invoked by an operator or playbook. The app
 confirms the resulting Microsoft status before reporting a successful disposition.</p>
-""" + "\n".join(actions) + """
+"""
+        + "\n".join(actions)
+        + """
 <h2>Maintenance and removal</h2>
 <p>Back up the app, asset configuration and app state using the platform backup
 procedure. Stop ingestion and dependent automation before removing the app.
@@ -172,6 +197,7 @@ read-only reconciliation for an uncertain disposition. Do not include client
 secrets, webhook tokens or message contents in support reports.</p>
 </body></html>
 """
+    )
 
 
 def main():

@@ -6,7 +6,7 @@ Configure the schedule and container label in native **Ingest Settings**, or use
 
 Use one ingesting asset per tenant. Its state and locks are asset-specific; separate assets can admit the same source message. Select the tenant, Exchange organization, source mode and target before starting. Changing that scope while state exists is rejected. Do not delete state to bypass the check.
 
-Native email import requires authenticated local SOAR REST access. Automation Broker is unsupported; SOAR Cloud compatibility has not been verified. The optional `es_soar_base_url` overrides the trusted HTTPS endpoint for both SOAR and ES import. Native runtime authentication may supply its own URL. Azure TLS verification remains enforced independently of the SOAR platform's local transport policy.
+Native email import requires authenticated local SOAR REST access. Automation Broker is unsupported; Native SOAR Cloud execution has been pilot-tested. Automation Broker remains unsupported. The optional `es_soar_base_url` overrides the trusted HTTPS endpoint for both SOAR and ES import. Native runtime authentication may supply its own URL. Azure TLS verification remains enforced independently of the SOAR platform's local transport policy.
 
 | Selection | Microsoft source status |
 |---|---|
@@ -28,9 +28,9 @@ Free slots are filled from the first 50 candidates matching the source status. T
 For each admitted message, the app:
 
 1. Exports and validates the original EML.
-2. Creates a dedicated container with automation disabled.
-3. Saves the original EML, attachments and selected mail metadata.
-4. Publishes the completed message to the configured target.
+1. Creates a dedicated container with automation disabled.
+1. Saves the original EML, attachments and selected mail metadata.
+1. Publishes the completed message to the configured target.
 
 Preparation retries reuse recorded container/file references. A deterministic MIME or size defect blocks that message instead of publishing an incomplete email. Tracked state survives connector restarts.
 

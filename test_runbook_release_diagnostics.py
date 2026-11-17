@@ -1,17 +1,31 @@
+# Copyright (c) 2026 Kai Seidenschnur
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Paired offline PowerShell runbook regressions; never connects to Exchange."""
+
 import base64
 import json
-from pathlib import Path
 import shutil
 import subprocess
-
 import tempfile
 import unittest
+from pathlib import Path
+
 
 ROOT = Path(__file__).resolve().parent
 PWSH = shutil.which("pwsh")
 
-SECRET = "DIAGNOSTIC_SECRET_MUST_NOT_SURVIVE"
+SECRET = "DIAGNOSTIC_SECRET_MUST_NOT_SURVIVE"  # pragma: allowlist secret - synthetic redaction sentinel
 MOCK_STREAMS = r"""
     $large = '界"\\' * 262144
     Write-Warning ("https://example.invalid/?token=DIAGNOSTIC_SECRET_MUST_NOT_SURVIVE " + $large)
@@ -58,9 +72,16 @@ MOCK_LARGE_FAILURE = r"""
 """
 
 
-def run_fixture(tmp_path, action, authorization=False, large=True,
-                large_failure=False, terminal_override=None, metadata_error=None,
-                oversized_passive_metadata=False):
+def run_fixture(
+    tmp_path,
+    action,
+    authorization=False,
+    large=True,
+    large_failure=False,
+    terminal_override=None,
+    metadata_error=None,
+    oversized_passive_metadata=False,
+):
     shutil.copyfile(ROOT / "runbook.ps1", tmp_path / "runbook.ps1")
     harness = (ROOT / "test_runbook_irreversible_action.ps1").read_text()
     if oversized_passive_metadata:
@@ -72,32 +93,31 @@ def run_fixture(tmp_path, action, authorization=False, large=True,
         $metadata | Add-Member -Force -NotePropertyName DefaultParameterSet -NotePropertyValue ([string][char]1 * 180000)
         return $metadata
     }
-    return Microsoft.PowerShell.Core\Get-Command `"""
+    return Microsoft.PowerShell.Core\Get-Command `""",
         )
     if metadata_error is not None:
-        harness = harness.replace('throw "mock metadata lookup failure"', 'throw (' + metadata_error + ')')
+        harness = harness.replace('throw "mock metadata lookup failure"', "throw (" + metadata_error + ")")
     if large:
         harness = harness.replace('    Write-Warning "mock warning"', MOCK_STREAMS)
     harness = harness.replace(
-        '        throw [System.UnauthorizedAccessException]::new(\n'
+        "        throw [System.UnauthorizedAccessException]::new(\n"
         '            "HTTP 403 Forbidden: quarantine action is not authorized."\n'
-        '        )', MOCK_AUTH
+        "        )",
+        MOCK_AUTH,
     )
     if large_failure:
         start = harness.index('        $exception = [System.Exception]::new("mock cmdlet failure")')
-        end = harness.index('        throw $exception', start) + len('        throw $exception')
+        end = harness.index("        throw $exception", start) + len("        throw $exception")
         harness = harness[:start] + MOCK_LARGE_FAILURE + harness[end:]
     harness = harness.replace(
-        '& $runbookPath -WebhookData $webhookData',
-        '& $runbookPath -WebhookData $webhookData -Verbose\n'
-        'Write-Output ("DISPOSITION_CALLS=" + $global:IrreversibleTestCmdletCalls)'
+        "& $runbookPath -WebhookData $webhookData",
+        '& $runbookPath -WebhookData $webhookData -Verbose\nWrite-Output ("DISPOSITION_CALLS=" + $global:IrreversibleTestCmdletCalls)',
     )
     path = tmp_path / "fixture.ps1"
     path.write_text(harness)
     terminal = "Requested" if authorization else ("Released" if action == "release" else "Denied")
     terminal = terminal_override or terminal
-    args = [PWSH, "-NoLogo", "-NoProfile", "-File", str(path),
-            "-Action", action, "-StatusSequence", "Requested," + terminal]
+    args = [PWSH, "-NoLogo", "-NoProfile", "-File", str(path), "-Action", action, "-StatusSequence", "Requested," + terminal]
     if metadata_error is not None:
         args += ["-MetadataFailure"]
     if large_failure:
@@ -114,8 +134,7 @@ def run_fixture(tmp_path, action, authorization=False, large=True,
     assert records
     assert max(len(line.encode("utf-8")) for line in output.splitlines()) < 1024 * 1024
     if records[-1].get("mode") == "error_complete":
-        chunks = sorted((r for r in records if r.get("mode") == "error_chunk"),
-                        key=lambda r: r["chunk_index"])
+        chunks = sorted((r for r in records if r.get("mode") == "error_chunk"), key=lambda r: r["chunk_index"])
         payload = json.loads(base64.b64decode("".join(r["payload_chunk"] for r in chunks)))
         assert SECRET not in json.dumps(payload)
         return payload
@@ -155,14 +174,15 @@ class ReleaseDiagnosticTests(unittest.TestCase):
     def test_unconfirmed_large_error_preserves_chunked_error_contract(self):
         for action in ("release", "deny"):
             with self.subTest(action=action), tempfile.TemporaryDirectory() as directory:
-                data = run_fixture(Path(directory), action, large_failure=True,
-                                   terminal_override="Requested")
+                data = run_fixture(Path(directory), action, large_failure=True, terminal_override="Requested")
                 self.assertIs(data["error"], True)
                 self.assertEqual(data["error_code"], "postcondition_unconfirmed")
                 details = data["details"]
-                for key, suffix in (("cmdlet_error", "DETAILS_END"),
-                                    ("cmdlet_error_details", "DETAILS_END"),
-                                    ("cmdlet_inner_exception", "INNER_END")):
+                for key, suffix in (
+                    ("cmdlet_error", "DETAILS_END"),
+                    ("cmdlet_error_details", "DETAILS_END"),
+                    ("cmdlet_inner_exception", "INNER_END"),
+                ):
                     self.assertGreater(len(details[key]), 1024 * 1024, key)
                     self.assertTrue(details[key].endswith(suffix), key)
                     self.assertNotIn(key + "_truncated", details)
@@ -172,8 +192,12 @@ class ReleaseDiagnosticTests(unittest.TestCase):
         for action in ("release", "deny"):
             for payload in ("'x' * 1048576", "'界' * 524288", "('a' + [char]1 + '\"') * 524288"):
                 with self.subTest(action=action, payload=payload), tempfile.TemporaryDirectory() as directory:
-                    data = run_fixture(Path(directory), action, large=False,
-                                       metadata_error="'client_secret=DIAGNOSTIC_SECRET_MUST_NOT_SURVIVE ' + (" + payload + ")")
+                    data = run_fixture(
+                        Path(directory),
+                        action,
+                        large=False,
+                        metadata_error="'client_secret=DIAGNOSTIC_SECRET_MUST_NOT_SURVIVE ' + (" + payload + ")",
+                    )
                     self.assertEqual(data["status"], "released" if action == "release" else "denied")
                     self.assertEqual(data["observed_release_status"], "Released" if action == "release" else "Denied")
                     for key in ("cmdlet_metadata_error", "exchange_connection_metadata_error"):
@@ -202,9 +226,14 @@ class ReleaseDiagnosticTests(unittest.TestCase):
                     self.assertIs(data["error"], True)
                     self.assertEqual(data["error_code"], "disposition_rejected")
                     data = data["details"]
-                    for key in ("cmdlet_error_target_name", "cmdlet_fully_qualified_error_id",
-                                "cmdlet_request_id", "cmdlet_correlation_id", "cmdlet_server_timestamp",
-                                "cmdlet_error_details"):
+                    for key in (
+                        "cmdlet_error_target_name",
+                        "cmdlet_fully_qualified_error_id",
+                        "cmdlet_request_id",
+                        "cmdlet_correlation_id",
+                        "cmdlet_server_timestamp",
+                        "cmdlet_error_details",
+                    ):
                         self.assertIn("[redacted]", data[key], key)
 
 

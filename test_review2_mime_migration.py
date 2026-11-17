@@ -1,8 +1,23 @@
+# Copyright (c) 2026 Kai Seidenschnur
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Second-review MIME and canonical migration regressions; synthetic input only."""
+
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
 import pytest
+
 
 if __package__:
     from . import test_connector as t
@@ -11,23 +26,17 @@ else:
     import test_connector as t
     from test_native_ingestion import poll, setup
 
-from ms_quarantine_for_splunk_soar_utils import AutomationError
 from ms_quarantine_for_splunk_soar_ingestion import mail_files
+from ms_quarantine_for_splunk_soar_utils import AutomationError
 
 
 def malformed_mail(kind):
     if kind == "nested_multipart":
-        body = (
-            b"Content-Type: multipart/mixed; boundary=missing\r\n\r\n"
-            b"This multipart has no boundary.\r\n"
-        )
+        body = b"Content-Type: multipart/mixed; boundary=missing\r\n\r\nThis multipart has no boundary.\r\n"
     elif kind == "body_decode":
         # Decoding defects appear only on get_payload(decode=True). A body
         # without a filename used to skip the subsequent defect check.
-        body = (
-            b"Content-Type: text/plain\r\n"
-            b"Content-Transfer-Encoding: base64\r\n\r\n%%%%\r\n"
-        )
+        body = b"Content-Type: text/plain\r\nContent-Transfer-Encoding: base64\r\n\r\n%%%%\r\n"
     elif kind == "attached_mail":
         body = b"Content-Type: message/rfc822\r\n\r\n" + malformed_mail("body_decode")
     elif kind == "attached_multipart":
@@ -47,18 +56,30 @@ def malformed_mail(kind):
     )
 
 
-@pytest.mark.parametrize("kind", [
-    "nested_multipart", "body_decode", "attached_mail", "attached_multipart",
-])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "nested_multipart",
+        "body_decode",
+        "attached_mail",
+        "attached_multipart",
+    ],
+)
 def test_every_mime_node_must_validate_even_without_extracted_file(kind):
     with pytest.raises(AutomationError, match="Malformed MIME"):
         mail_files(malformed_mail(kind))
 
 
 @pytest.mark.parametrize("target", ["soar", "es"])
-@pytest.mark.parametrize("kind", [
-    "nested_multipart", "body_decode", "attached_mail", "attached_multipart",
-])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "nested_multipart",
+        "body_decode",
+        "attached_mail",
+        "attached_multipart",
+    ],
+)
 def test_malformed_mime_never_reaches_either_publication_target(tmp_path, target, kind):
     c = setup(tmp_path, target, limit=1)
     c.candidates = c.candidates[:1]
@@ -86,10 +107,8 @@ def test_canonical_migration_preserves_newest_terminal_evidence(tmp_path, target
     now = datetime.now(timezone.utc)
     stale = (now - timedelta(days=c._worker_terminal_retention_days + 1)).isoformat()
     fresh = now.isoformat()
-    newest = {"state": "completed", "identity": identity.upper(),
-              "container_id": 77, "created_at": fresh, "updated_at": fresh}
-    oldest = {"state": "failed", "identity": " " + identity.lower() + " ",
-              "container_id": 22, "created_at": stale, "updated_at": stale}
+    newest = {"state": "completed", "identity": identity.upper(), "container_id": 77, "created_at": fresh, "updated_at": fresh}
+    oldest = {"state": "failed", "identity": " " + identity.lower() + " ", "container_id": 22, "created_at": stale, "updated_at": stale}
     entries = [("new", newest), ("old", oldest)]
     if reverse:
         entries.reverse()
@@ -110,19 +129,22 @@ def test_canonical_migration_preserves_newest_terminal_evidence(tmp_path, target
     assert next(iter(c._ingest_records().values())) == row
 
 
-@pytest.mark.parametrize("timestamps", [
-    ("2026-11-07T10:00:00+00:00", "2026-11-07T11:00:00+01:00"),
-    (None, None),
-    ("2026-11-07T10:00:00+00:00", None),
-])
+@pytest.mark.parametrize(
+    "timestamps",
+    [
+        ("2026-11-07T10:00:00+00:00", "2026-11-07T11:00:00+01:00"),
+        (None, None),
+        ("2026-11-07T10:00:00+00:00", None),
+    ],
+)
 def test_migration_ties_offsets_and_missing_times_are_order_independent(tmp_path, timestamps):
     c = setup(tmp_path, limit=1)
     identity = c.candidates[0]["Identity"]
-    entries = [(str(i), {"state": state, "identity": identity,
-                        "container_id": i + 1, "updated_at": stamp})
-               for i, (state, stamp) in enumerate(zip(("failed", "completed"), timestamps))]
-    rows = [c._ingest_load({t.WORKER_STATE_KEY: dict(order)})["records"]
-            for order in (entries, list(reversed(entries)))]
+    entries = [
+        (str(i), {"state": state, "identity": identity, "container_id": i + 1, "updated_at": stamp})
+        for i, (state, stamp) in enumerate(zip(("failed", "completed"), timestamps))
+    ]
+    rows = [c._ingest_load({t.WORKER_STATE_KEY: dict(order)})["records"] for order in (entries, list(reversed(entries)))]
     assert rows[0] == rows[1]
     if timestamps[1] is None and timestamps[0] is not None:
         assert next(iter(rows[0].values()))["container_id"] == 1
@@ -132,9 +154,10 @@ def test_migration_ties_offsets_and_missing_times_are_order_independent(tmp_path
 def test_invalid_terminal_timestamp_refuses_migration_without_mutating_source(tmp_path, reverse):
     c = setup(tmp_path, limit=1)
     identity = c.candidates[0]["Identity"]
-    entries = [(str(i), {"state": "completed", "identity": identity,
-                        "updated_at": stamp})
-               for i, stamp in enumerate(("2026-11-07T10:00:00Z", "not-a-time"))]
+    entries = [
+        (str(i), {"state": "completed", "identity": identity, "updated_at": stamp})
+        for i, stamp in enumerate(("2026-11-07T10:00:00Z", "not-a-time"))
+    ]
     if reverse:
         entries.reverse()
     state = {t.WORKER_STATE_KEY: dict(entries)}

@@ -1,19 +1,31 @@
+# Copyright (c) 2026 Kai Seidenschnur
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Fault boundaries and native ES transport. No production endpoints."""
-import json
-from unittest.mock import Mock
 
 import pytest
 import requests_mock
 
+
 if __package__:
     from . import test_connector as t
-    from .test_native_ingestion import setup, poll
+    from .test_native_ingestion import poll, setup
 else:
     import test_connector as t
-    from test_native_ingestion import setup, poll
+    from test_native_ingestion import poll, setup
 
-from ms_quarantine_for_splunk_soar_utils import AutomationError
 from ms_quarantine_for_splunk_soar_es_ingestion import NativeESClient
+from ms_quarantine_for_splunk_soar_utils import AutomationError
 
 
 @pytest.mark.parametrize("target", ["soar", "es"])
@@ -32,6 +44,7 @@ def test_durable_boundary_fault_never_duplicates_dispatch(tmp_path, target, phas
                 original(key, **changes)
             raise AutomationError("synthetic state-write interruption")
         return original(key, **changes)
+
     c._ingest_update = update
     assert poll(c)[0] == t.APP_ERROR
     assert fired
@@ -51,12 +64,14 @@ def test_lost_container_binding_recovers_same_container(tmp_path, target):
     c = setup(tmp_path, target, limit=1)
     original = c._ingest_update
     fired = False
+
     def update(key, **changes):
         nonlocal fired
         if changes.get("container_id") and not fired:
             fired = True
             raise AutomationError("lost binding receipt")
         return original(key, **changes)
+
     c._ingest_update = update
     assert poll(c)[0] == t.APP_ERROR
     c._ingest_update = original
@@ -69,12 +84,14 @@ def test_incomplete_attachment_upload_never_publishes(tmp_path, target):
     c = setup(tmp_path, target, limit=1)
     original = c._store_in_vault
     count = 0
+
     def upload(*args, **kwargs):
         nonlocal count
         count += 1
         if count == 3:
             return False, "last attachment failed"
         return original(*args, **kwargs)
+
     c._store_in_vault = upload
     assert poll(c)[0] == t.APP_ERROR
     assert not [x for x in c.events if x[0] in {"publish", "es_publish"}]
@@ -87,10 +104,12 @@ def test_incomplete_attachment_upload_never_publishes(tmp_path, target):
 def test_metadata_artifact_failure_never_publishes(tmp_path, target):
     c = setup(tmp_path, target, limit=1)
     original = c.save_artifact
+
     def save(artifact):
         if "-metadata-" in artifact["source_data_identifier"]:
             return t.APP_ERROR, "failed", None
         return original(artifact)
+
     c.save_artifact = save
     assert poll(c)[0] == t.APP_ERROR
     assert not [x for x in c.events if x[0] in {"publish", "es_publish"}]
@@ -116,11 +135,13 @@ def test_native_es_asset_settings_override_missing_connector_config(tmp_path):
     c._ingest_runtime = {"asset_id": 8}
     client = c._ingest_es_client_instance
     original = client.request.side_effect
+
     def request(method, path, **kwargs):
         if method == "GET":
             assert path == "/rest/asset/8"
             return {"configuration": {"ingest": saved}}
         return original(method, path, **kwargs)
+
     client.request.side_effect = request
     status, ar = poll(c)
     assert status == t.APP_SUCCESS, ar.get_message()
@@ -147,8 +168,7 @@ def test_es_payload_validation_failure_does_not_mark_publication_intent(tmp_path
 @pytest.mark.parametrize("failure", ["wrong_container", "two_findings", "missing_receipt", "partial"])
 def test_es_ambiguous_receipts_are_not_resubmitted(tmp_path, failure):
     c = setup(tmp_path, "es", limit=1)
-    receipt = {"status": "success", "created": 1, "failed": 0,
-               "errors": [], "container_ids": [100], "findings": ["one"]}
+    receipt = {"status": "success", "created": 1, "failed": 0, "errors": [], "container_ids": [100], "findings": ["one"]}
     if failure == "wrong_container":
         receipt["container_ids"] = [999]
     if failure == "two_findings":
@@ -169,29 +189,35 @@ def test_native_es_client_uses_runtime_session_and_csrf():
     base = "https://soar.example.test"
     with requests_mock.Mocker() as m:
         m.get(base + "/login", headers={"Set-Cookie": "csrftoken=csrf-fixture; Path=/"})
+
         def create(request, context):
             assert "sessionid=synthetic-native-session" in request.headers.get("Cookie", "")
             assert request.headers["X-CSRFToken"] == "csrf-fixture"
             assert request.headers["Referer"] == base + "/"
             return {"status": "success"}
+
         m.post(base + "/rest/enterprise_security/findings/bulk_create", json=create)
         client = NativeESClient({"user_session_token": "synthetic-native-session"}, base)
-        assert client.request("POST", "/rest/enterprise_security/findings/bulk_create",
-                              json={"findings": []})["status"] == "success"
+        assert client.request("POST", "/rest/enterprise_security/findings/bulk_create", json={"findings": []})["status"] == "success"
 
 
 def test_native_es_client_rejects_external_login_redirect():
     base = "https://soar.example.test"
     with requests_mock.Mocker() as m:
-        m.get(base + "/login", status_code=302,
-              headers={"Location": "https://other.example.test/login"})
+        m.get(base + "/login", status_code=302, headers={"Location": "https://other.example.test/login"})
         with pytest.raises(AutomationError, match="outside"):
             NativeESClient({"user_session_token": "synthetic"}, base)
         assert m.call_count == 1
 
 
-@pytest.mark.parametrize("url", ["http://soar.example.test", "https://user:pass@soar.example.test",
-                                "https://soar.example.test/?token=one"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://soar.example.test",
+        "https://user:pass@soar.example.test",  # pragma: allowlist secret - synthetic rejected URL
+        "https://soar.example.test/?token=one",
+    ],
+)
 def test_native_es_client_rejects_unsafe_base(url):
     with pytest.raises(AutomationError):
         NativeESClient({"user_session_token": "synthetic"}, url)

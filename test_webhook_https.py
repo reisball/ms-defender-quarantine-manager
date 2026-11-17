@@ -1,7 +1,22 @@
+# Copyright (c) 2026 Kai Seidenschnur
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Webhook transport regressions for #116; all HTTP stays in requests-mock."""
+
 from unittest.mock import Mock
 
 import pytest
+
 
 if __package__:
     from . import test_connector as t
@@ -41,11 +56,14 @@ def test_direct_utility_rejects_invalid_webhook(url):
     assert "private-marker" not in str(exc.value)
 
 
-@pytest.mark.parametrize("url", [
-    t.WEBHOOK_URL,
-    "https://relay.example.invalid:8443/webhook?token=synthetic",
-    "HTTPS://example.invalid/webhook",
-])
+@pytest.mark.parametrize(
+    "url",
+    [
+        t.WEBHOOK_URL,
+        "https://relay.example.invalid:8443/webhook?token=synthetic",
+        "HTTPS://example.invalid/webhook",
+    ],
+)
 def test_valid_https_keeps_job_and_payload_contract(url):
     connector = t.make_connector(config_overrides={"webhook_url": url})
     with t.req_mock.Mocker() as mock:
@@ -57,20 +75,21 @@ def test_valid_https_keeps_job_and_payload_contract(url):
 
 
 @pytest.mark.parametrize("code", [301, 302, 303, 304, 307, 308])
-@pytest.mark.parametrize("target", [
-    "http://other.invalid/webhook?token=redirect-private-marker",
-    "https://other.invalid/webhook?token=redirect-private-marker",
-    "/other-webhook?token=redirect-private-marker",
-])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "http://other.invalid/webhook?token=redirect-private-marker",
+        "https://other.invalid/webhook?token=redirect-private-marker",
+        "/other-webhook?token=redirect-private-marker",
+    ],
+)
 def test_redirect_is_rejected_even_with_job_ids_and_never_followed(code, target):
     utils = t.make_utils()
     with t.req_mock.Mocker() as mock:
         # A real requests Session executes its normal redirect machinery;
         # the adapter intercepts both original and possible follow-up requests.
-        mock.register_uri(t.req_mock.ANY, t.req_mock.ANY,
-                          json={"JobIds": [t.JOB_ID]})
-        mock.post(t.WEBHOOK_URL, status_code=code,
-                  headers={"Location": target}, json={"JobIds": [t.JOB_ID]})
+        mock.register_uri(t.req_mock.ANY, t.req_mock.ANY, json={"JobIds": [t.JOB_ID]})
+        mock.post(t.WEBHOOK_URL, status_code=code, headers={"Location": target}, json={"JobIds": [t.JOB_ID]})
         with pytest.raises(t.WebhookError, match=f"HTTP {code}") as exc:
             utils.fire_webhook("release", identity=t.IDENTITY)
         assert mock.call_count == 1
@@ -79,23 +98,22 @@ def test_redirect_is_rejected_even_with_job_ids_and_never_followed(code, target)
     assert "abc123" not in str(exc.value)
 
 
-@pytest.mark.parametrize("handler", [
-    "_handle_release_quarantine_message",
-    "_handle_deny_quarantine_release",
-])
-def test_redirect_preserves_unknown_outcome_and_blocks_replay_after_restart(
-    handler, tmp_path
-):
+@pytest.mark.parametrize(
+    "handler",
+    [
+        "_handle_release_quarantine_message",
+        "_handle_deny_quarantine_release",
+    ],
+)
+def test_redirect_preserves_unknown_outcome_and_blocks_replay_after_restart(handler, tmp_path):
     state = tmp_path / "state.json"
     params = {"identity": t.IDENTITY, "operation_id": "redirect-once"}
     connector = t.make_connector(state_path=state)
     connector._utils._connection_contract_verified = True
     result = t.patch_ar(connector)
     with t.req_mock.Mocker() as mock:
-        mock.register_uri(t.req_mock.ANY, t.req_mock.ANY,
-                          json={"JobIds": [t.JOB_ID]})
-        mock.post(t.WEBHOOK_URL, status_code=307,
-                  headers={"Location": "https://other.invalid/webhook"})
+        mock.register_uri(t.req_mock.ANY, t.req_mock.ANY, json={"JobIds": [t.JOB_ID]})
+        mock.post(t.WEBHOOK_URL, status_code=307, headers={"Location": "https://other.invalid/webhook"})
         assert getattr(connector, handler)(params) == t.APP_ERROR
         assert mock.call_count == 1
     assert result.get_data()[0]["state"] == "outcome_unknown"

@@ -1,6 +1,19 @@
+# Copyright (c) 2026 Kai Seidenschnur
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Native intake regressions; only synthetic mail and backend observations."""
+
 import base64
-import hashlib
 import json
 from email.message import EmailMessage
 from pathlib import Path
@@ -8,23 +21,28 @@ from unittest.mock import Mock
 
 import pytest
 
+
 if __package__:
     from . import test_connector as t
 else:
     import test_connector as t
 
-from ms_quarantine_for_splunk_soar_ingestion import INGEST_STATE_KEY, mail_files
+from ms_quarantine_for_splunk_soar_ingestion import mail_files
 from ms_quarantine_for_splunk_soar_utils import AutomationError
 
-ES = {"use_es_ingest": True, "es_security_domain": "threat",
-      "es_urgency": "high", "es_investigation_type": "phishing",
-      "es_run_threat_analysis": False, "es_launch_automation": True}
+
+ES = {
+    "use_es_ingest": True,
+    "es_security_domain": "threat",
+    "es_urgency": "high",
+    "es_investigation_type": "phishing",
+    "es_run_threat_analysis": False,
+    "es_launch_automation": True,
+}
 
 
 def candidate(number, status="Requested"):
-    return {**t.MOCK_MESSAGES[0],
-            "Identity": f"{number:08x}" + t.IDENTITY[8:],
-            "ReleaseStatus": status, "Subject": f"Synthetic {number}"}
+    return {**t.MOCK_MESSAGES[0], "Identity": f"{number:08x}" + t.IDENTITY[8:], "ReleaseStatus": status, "Subject": f"Synthetic {number}"}
 
 
 def sample_mail():
@@ -34,10 +52,8 @@ def sample_mail():
     msg["Subject"] = "Synthetic quarantine"
     msg["Message-ID"] = "<native@example.test>"
     msg.set_content("Synthetic body")
-    msg.add_attachment(b"ATTACHMENT ONE", maintype="application",
-                       subtype="octet-stream", filename="../../same.bin")
-    msg.add_attachment(b"ATTACHMENT TWO", maintype="application",
-                       subtype="octet-stream", filename="same.bin")
+    msg.add_attachment(b"ATTACHMENT ONE", maintype="application", subtype="octet-stream", filename="../../same.bin")
+    msg.add_attachment(b"ATTACHMENT TWO", maintype="application", subtype="octet-stream", filename="same.bin")
     return msg.as_bytes()
 
 
@@ -46,8 +62,7 @@ def target(request):
     return request.param
 
 
-def setup(tmp_path, target="soar", mode="release_requested", limit=10,
-          config_overrides=None):
+def setup(tmp_path, target="soar", mode="release_requested", limit=10, config_overrides=None):
     config = {"on_poll_max_containers": limit, "quarantine_selection_mode": mode}
     config.update(config_overrides or {})
     if target == "es":
@@ -69,6 +84,7 @@ def setup(tmp_path, target="soar", mode="release_requested", limit=10,
         assert all(a["run_automation"] is False for a in container["artifacts"])
         c.events.append(("container", container["source_data_identifier"]))
         return old_save_container(container)
+
     c.save_container = save_container
 
     def save_artifact(artifact):
@@ -84,26 +100,25 @@ def setup(tmp_path, target="soar", mode="release_requested", limit=10,
             c.events.append(("artifact", artifact["container_id"]))
         c.artifacts.setdefault(key, dict(artifact))
         return t.APP_SUCCESS, "saved", len(c.artifacts)
+
     c.save_artifact = save_artifact
 
     def run(action, identity=None, **kwargs):
         c.calls.append((action, identity, kwargs))
         if action == "list":
             assert kwargs == {"page_size": 50}
-            rows = [m for m in c.candidates if c.observed.get(m["Identity"].lower(), m["ReleaseStatus"])
-                    == c._utils.selection_release_status][:50]
+            rows = [m for m in c.candidates if c.observed.get(m["Identity"].lower(), m["ReleaseStatus"]) == c._utils.selection_release_status][
+                :50
+            ]
             out = dict(t.build_metadata(), action="list", count=len(rows), messages=rows)
         elif action == "export":
-            out = dict(t.build_metadata(), action="export", identity=identity,
-                       eml=base64.b64encode(c.eml).decode())
+            out = dict(t.build_metadata(), action="export", identity=identity, eml=base64.b64encode(c.eml).decode())
         elif action == "reconcile":
             assert kwargs == {"operation_action": "release"}
             status = c.observed.get(identity, c._utils.selection_release_status)
             if isinstance(status, Exception):
                 raise status
-            out = t.TestIrreversibleOperationReconciliation.read_only_refresh_result(
-                observed_status=status
-            )
+            out = t.TestIrreversibleOperationReconciliation.read_only_refresh_result(observed_status=status)
             out["identity"] = out["observed_identity"] = identity
             trace = json.loads(out["postcondition_trace"])
             trace[0]["observed_identity"] = identity
@@ -114,11 +129,10 @@ def setup(tmp_path, target="soar", mode="release_requested", limit=10,
             out["quarantine_selection_contract"] = "quarantine_selection_v1"
             out["quarantine_selection_mode"] = mode
             out["selection_release_status"] = "NotReleased"
-        c._utils._validate_runbook_result(out, requested_action=action,
-                                        requested_identity=identity)
-        c._utils._raise_for_runbook_error(out, requested_action=action,
-                                        requested_identity=identity)
+        c._utils._validate_runbook_result(out, requested_action=action, requested_identity=identity)
+        c._utils._raise_for_runbook_error(out, requested_action=action, requested_identity=identity)
         return out
+
     c._utils.run_action = run
     client = Mock(base_url="https://soar.example.test")
     client.prepare_bulk_payload.side_effect = lambda payload: payload
@@ -129,11 +143,10 @@ def setup(tmp_path, target="soar", mode="release_requested", limit=10,
         assert len(payload["findings"][0]["email"]["attachments"]) == 3
         assert payload["findings"][0]["launch_automation"] is True
         cid = payload["container_ids"][0]
-        assert next(r for r in c._ingest_records().values()
-                    if r["container_id"] == cid)["phase"] == "publishing"
+        assert next(r for r in c._ingest_records().values() if r["container_id"] == cid)["phase"] == "publishing"
         c.events.append(("es_publish", cid))
-        return {"status": "success", "created": 1, "failed": 0, "errors": [],
-                "container_ids": [cid], "findings": [f"finding-{cid}"]}
+        return {"status": "success", "created": 1, "failed": 0, "errors": [], "container_ids": [cid], "findings": [f"finding-{cid}"]}
+
     client.request.side_effect = es_request
     c._ingest_es_client_instance = client
     return c
@@ -174,8 +187,9 @@ def test_full_window_has_no_extra_list_or_export(tmp_path, target):
     assert len(c._saved_containers) == 10
 
 
-@pytest.mark.parametrize("status", ["Requested", "NotReleased", "ReleasedToSome",
-                                     AutomationError("missing identity"), AutomationError("network")])
+@pytest.mark.parametrize(
+    "status", ["Requested", "NotReleased", "ReleasedToSome", AutomationError("missing identity"), AutomationError("network")]
+)
 def test_nonterminal_and_errors_keep_slot(tmp_path, target, status):
     c = setup(tmp_path, target, limit=1)
     assert poll(c)[0] == t.APP_SUCCESS
@@ -212,7 +226,7 @@ def test_restart_respects_persisted_active_limit(tmp_path, target):
 
 def test_case_duplicates_are_one_identity(tmp_path, target):
     c = setup(tmp_path, target)
-    m = candidate(0xabcdef)
+    m = candidate(0xABCDEF)
     c.candidates = [m, {**m, "Identity": m["Identity"].upper()}]
     status, ar = poll(c)
     assert status == t.APP_SUCCESS, ar.get_message()
@@ -239,10 +253,12 @@ def test_uncertain_publication_is_not_repeated(tmp_path, target):
         c._ingest_es_client_instance.request.side_effect = TimeoutError("lost receipt")
     else:
         original = c.save_artifact
+
         def fail(artifact):
             if artifact["run_automation"]:
                 raise TimeoutError("lost receipt")
             return original(artifact)
+
         c.save_artifact = fail
     assert poll(c)[0] == t.APP_ERROR
     assert next(iter(c._ingest_records().values()))["phase"] == "publishing"
@@ -297,9 +313,9 @@ def test_list_get_removed_from_public_manifest_and_dispatch(tmp_path):
 def test_paired_runbook_version_and_fingerprint_are_current():
     import subprocess
     import sys
+
     root = Path(__file__).resolve().parent
-    checked = subprocess.run([sys.executable, str(root / "tools/stamp_runbook.py"), "--check"],
-                             cwd=root, capture_output=True, text=True)
+    checked = subprocess.run([sys.executable, str(root / "tools/stamp_runbook.py"), "--check"], cwd=root, capture_output=True, text=True)
     assert checked.returncode == 0, checked.stdout + checked.stderr
     assert "runbook_version=3.4.5" in checked.stdout
 
@@ -331,14 +347,17 @@ def test_malformed_mail_and_attachment_limits_fail_closed():
         mail_files(message.as_bytes())
 
 
-@pytest.mark.parametrize("legacy", [
-    {},
-    {"export_mode": "inline", "create_email_artifacts": False},
-    {"export_mode": "vault", "create_email_artifacts": True},
-    {"export_mode": "", "create_email_artifacts": "maybe"},
-    {"export_mode": None, "create_email_artifacts": None},
-    {"export_mode": 123, "create_email_artifacts": []},
-])
+@pytest.mark.parametrize(
+    "legacy",
+    [
+        {},
+        {"export_mode": "inline", "create_email_artifacts": False},
+        {"export_mode": "vault", "create_email_artifacts": True},
+        {"export_mode": "", "create_email_artifacts": "maybe"},
+        {"export_mode": None, "create_email_artifacts": None},
+        {"export_mode": 123, "create_email_artifacts": []},
+    ],
+)
 @pytest.mark.parametrize("select_subject", [True, False])
 def test_ui_upgrade_preserves_config_and_imports_files_and_selected_headers(tmp_path, target, legacy, select_subject):
     t.VAULT_ADDS.clear()
@@ -360,10 +379,11 @@ def test_ui_upgrade_preserves_config_and_imports_files_and_selected_headers(tmp_
     assert status == t.APP_SUCCESS, ar.get_message()
     assert c._config == before
     assert [row["content"] for row in t.VAULT_ADDS] == [
-        c.eml, b"ATTACHMENT ONE", b"ATTACHMENT TWO",
+        c.eml,
+        b"ATTACHMENT ONE",
+        b"ATTACHMENT TWO",
     ]
-    assert any(a["cef"].get("emailSubject") == "Synthetic quarantine"
-               for a in c.artifacts.values()) is select_subject
+    assert any(a["cef"].get("emailSubject") == "Synthetic quarantine" for a in c.artifacts.values()) is select_subject
     assert not any("fromEmail" in a["cef"] for a in c.artifacts.values())
     assert len([e for e in c.events if e[0] in {"publish", "es_publish"}]) == 1
     assert not any(call[0] in {"release", "deny"} for call in c.calls)
@@ -374,38 +394,42 @@ def test_hidden_asset_imports_large_chunked_mail(tmp_path, target, legacy_mode):
     t.VAULT_ADDS.clear()
     c = setup(tmp_path, target, limit=1)
     backend = c._utils.run_action
-    c._config['export_mode'] = legacy_mode
+    c._config["export_mode"] = legacy_mode
     before = json.loads(json.dumps(c._config))
     assert c.initialize() == t.APP_SUCCESS
     # Real chunked decoder, not the synthetic small-mail export adapter.
-    c.eml = sample_mail() + b'\r\n' + b' ' * (11 * 1024 * 1024)
+    c.eml = sample_mail() + b"\r\n" + b" " * (11 * 1024 * 1024)
+
     def run(action, identity=None, **kwargs):
-        if action != 'export':
+        if action != "export":
             return backend(action, identity=identity, **kwargs)
         c.calls.append((action, identity, kwargs))
         output = t.chunked_export_output(c.eml, identity=identity, chunk_size=262144)
         with t.req_mock.Mocker() as mock:
-            mock.post(t.TOKEN_URL, json={'access_token': t.MOCK_TOKEN})
+            mock.post(t.TOKEN_URL, json={"access_token": t.MOCK_TOKEN})
             mock.get(t.job_output_url(), text=output)
             result = c._utils.get_job_output(t.JOB_ID)
-        assert 'eml' not in result
-        assert result['_eml_bytes'] == c.eml
+        assert "eml" not in result
+        assert result["_eml_bytes"] == c.eml
         return result
+
     c._utils.run_action = run
     status, ar = poll(c)
     assert status == t.APP_SUCCESS, ar.get_message()
     assert c._config == before
-    assert [row['content'] for row in t.VAULT_ADDS] == [
-        c.eml, b'ATTACHMENT ONE', b'ATTACHMENT TWO',
+    assert [row["content"] for row in t.VAULT_ADDS] == [
+        c.eml,
+        b"ATTACHMENT ONE",
+        b"ATTACHMENT TWO",
     ]
-    assert len([e for e in c.events if e[0] in {'publish', 'es_publish'}]) == 1
-    assert not any(call[0] in {'release', 'deny'} for call in c.calls)
+    assert len([e for e in c.events if e[0] in {"publish", "es_publish"}]) == 1
+    assert not any(call[0] in {"release", "deny"} for call in c.calls)
 
 
 @pytest.mark.parametrize("poll_now", [False, True])
-@pytest.mark.parametrize("legacy", [{}, {"enable_on_poll_ingestion": False},
-                                   {"enable_on_poll_ingestion": True},
-                                   {"enable_on_poll_ingestion": "obsolete-value"}])
+@pytest.mark.parametrize(
+    "legacy", [{}, {"enable_on_poll_ingestion": False}, {"enable_on_poll_ingestion": True}, {"enable_on_poll_ingestion": "obsolete-value"}]
+)
 def test_platform_poll_runs_without_app_opt_in(tmp_path, target, poll_now, legacy):
     c = setup(tmp_path, target, limit=2, config_overrides=legacy)
     c._is_poll_now = poll_now

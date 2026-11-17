@@ -1,15 +1,31 @@
+# Copyright (c) 2026 Kai Seidenschnur
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Missing MIME containers are appended without renumbering old Vault files."""
+
+import hashlib
 from email import policy
 from email.message import EmailMessage
 from email.parser import BytesParser
-import hashlib
 from unittest.mock import Mock
 
 import pytest
+
+
 if __package__:
-    from .test_native_ingestion import setup, candidate, sample_mail
+    from .test_native_ingestion import candidate, sample_mail, setup
 else:
-    from test_native_ingestion import setup, candidate, sample_mail
+    from test_native_ingestion import candidate, sample_mail, setup
 from ms_quarantine_for_splunk_soar_ingestion import mail_files
 from ms_quarantine_for_splunk_soar_utils import AutomationError
 
@@ -77,7 +93,8 @@ def test_new_container_obeys_existing_total_attachment_limit(count):
 
 def test_normal_multipart_body_does_not_become_an_attachment():
     assert mail_files(sample_mail()) == [
-        ("001_same.bin", b"ATTACHMENT ONE"), ("002_same.bin", b"ATTACHMENT TWO"),
+        ("001_same.bin", b"ATTACHMENT ONE"),
+        ("002_same.bin", b"ATTACHMENT TWO"),
     ]
 
 
@@ -102,12 +119,12 @@ def test_partial_legacy_vault_map_survives_restart(tmp_path, target, kind):
     c._ingest_reserve([candidate(1)], 10, 1)
     key, row = next(iter(c._ingest_records().items()))
     original = c._safe_filename(row["identity"])
-    old_files = [(original, eml)] + OLD_FILES
-    vaults = {str(i): {"vault_id": "legacy-" + str(i), "file_name": name,
-                       "sha256": hashlib.sha256(content).hexdigest(), "size": len(content)}
-              for i, (name, content) in enumerate(old_files)}
-    c._ingest_update(key, phase="preparing", container_id=77, files=vaults,
-                     eml_sha256=hashlib.sha256(eml).hexdigest())
+    old_files = [(original, eml), *OLD_FILES]
+    vaults = {
+        str(i): {"vault_id": "legacy-" + str(i), "file_name": name, "sha256": hashlib.sha256(content).hexdigest(), "size": len(content)}
+        for i, (name, content) in enumerate(old_files)
+    }
+    c._ingest_update(key, phase="preparing", container_id=77, files=vaults, eml_sha256=hashlib.sha256(eml).hexdigest())
     resumed = setup(tmp_path, target)
     resumed.eml = eml
     resumed._ingest_settings()

@@ -1,10 +1,27 @@
+# Copyright (c) 2026 Kai Seidenschnur
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Synthetic slow-call regressions: pending work and status reads must both progress."""
+
 import pytest
+
+
 if __package__:
-    from .test_native_ingestion import setup, poll
+    from .test_native_ingestion import poll, setup
 else:
-    from test_native_ingestion import setup, poll
+    from test_native_ingestion import poll, setup
 import ms_quarantine_for_splunk_soar_ingestion as ingestion
+
 
 @pytest.mark.parametrize("target", ["soar", "es"])
 def test_slow_calls_do_not_starve_pending_imports(tmp_path, monkeypatch, target):
@@ -12,11 +29,13 @@ def test_slow_calls_do_not_starve_pending_imports(tmp_path, monkeypatch, target)
     now = [0.0]
     monkeypatch.setattr(ingestion.time, "monotonic", lambda: now[0])
     run = c._utils.run_action
+
     def slow(action, **kwargs):
         result = run(action, **kwargs)
         if action in {"export", "reconcile"}:
             now[0] += 100
         return result
+
     c._utils.run_action = slow
     poll(c)
     assert any(r["phase"] in {"reserved", "preparing", "ready"} for r in c._ingest_records().values())
@@ -40,11 +59,13 @@ def test_slow_calls_do_not_starve_pending_imports(tmp_path, monkeypatch, target)
         reconciled.update(x[1] for x in c.calls if x[0] == "reconcile")
     assert reconciled == {r["identity"] for r in rows.values()}
 
+
 def test_reconcile_cursor_rotates_past_repeated_remote_failure(tmp_path):
     c = setup(tmp_path, limit=3)
     poll(c)
     identities = [r["identity"] for r in c._ingest_records().values()]
     from ms_quarantine_for_splunk_soar_utils import AutomationError
+
     c.observed[identities[0]] = AutomationError("synthetic failure")
     c.calls.clear()
     poll(c)
@@ -53,16 +74,19 @@ def test_reconcile_cursor_rotates_past_repeated_remote_failure(tmp_path):
     poll(c)
     assert {x[1] for x in c.calls if x[0] == "reconcile"} >= set(identities[1:])
 
+
 @pytest.mark.parametrize("target", ["soar", "es"])
 def test_unequal_slow_calls_finish_pending_imports(tmp_path, monkeypatch, target):
     c = setup(tmp_path, target)
     now = [0.0]
     monkeypatch.setattr(ingestion.time, "monotonic", lambda: now[0])
     run = c._utils.run_action
+
     def slow(action, **kwargs):
         result = run(action, **kwargs)
         now[0] += {"reconcile": 100, "export": 400}.get(action, 0)
         return result
+
     c._utils.run_action = slow
     poll(c)
     # Pending classes alternate: allow one preparation-first poll per identity.

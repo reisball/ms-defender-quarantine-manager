@@ -14,22 +14,28 @@ Private deployment evidence belongs in the private project record, not in a publ
 
 | Artifact | Contents |
 |---|---|
-| App TGZ | One `ms-quarantine-for-splunk-soar/` directory and ten runtime files |
+| App TGZ | One `ms-quarantine-for-splunk-soar/` directory and eleven runtime files |
 | Separate runbook | Versioned `runbook.ps1` companion, deployed to Azure separately |
 | Source tree | Code, tests, development tools and public documentation |
 
-The app's ten files are the manifest, connector, utilities, SOAR ingestion, ES ingestion, `__init__.py`, two logos, generated `readme.html`, and `LICENSE`. Tests, Markdown, playbooks and the runbook are excluded from the app TGZ.
+The app's eleven files are the manifest, connector, utilities, SOAR ingestion, ES ingestion, `__init__.py`, two logos, generated `readme.html`, `LICENSE`, and `NOTICE`. Tests, Markdown, playbooks and the runbook are excluded from the app TGZ.
 
 Playbooks, historical playbook fixtures and proprietary platform sources are not part of this repository. Analysis workflows are configured and validated separately.
 
 ## Before creating a public release
 
 1. Review the current tracked tree for secrets, real deployment addresses, private links, personal test data, stale generated receipts and unintended files.
-2. Check versions, generated help, runbook fingerprint, relative documentation links and the intended package allowlist.
-3. Run the applicable app/runbook Python and PowerShell checks. Record exact candidate results and unavailable gates separately.
-4. Build twice from the same committed runtime bytes and compare outputs. Verify archive members and checksums.
-5. Select the public repository destination, default branch and license settings explicitly. Configure private vulnerability reporting if offered; do not claim it is enabled before checking.
-6. Run the prepared GitHub Actions workflow on that repository and inspect actual results. Configure repository protections appropriate to the maintenance model.
-7. Publish source and release artifacts only after reviewing the final destination and content.
+1. Check versions, generated help, runbook fingerprint, relative documentation links and the intended package allowlist.
+1. Run the applicable app/runbook Python and PowerShell checks. Record exact candidate results and unavailable gates separately.
+1. Build twice from the same committed runtime bytes and compare outputs. Verify archive members and checksums.
+1. Select the public repository destination, default branch and license settings explicitly. Configure private vulnerability reporting if offered; do not claim it is enabled before checking.
+1. Run the prepared GitHub Actions workflow on that repository and inspect actual results. Configure repository protections appropriate to the maintenance model.
+1. Publish source and release artifacts only after reviewing the final destination and content.
 
 Local preparation does not create a GitHub repository, transfer history, publish a release or deploy either component. Passing offline tests is not tenant or end-to-end acceptance.
+
+## Community submission handoff
+
+The repository prepares a community-supported submission; it does not submit or publish on behalf of the owner. Record the reviewed commit, hosted CI result, independent review and release checksums. Include the separate Azure runbook and setup guide with the handoff, not inside the app TGZ.
+
+The native SOAR Cloud pilot is confirmed. Automation Broker remains unsupported; a successful pilot is not a certification for every version or tenant. The two upstream GUID/name/package registry entries remain onboarding work. All other technical findings must be resolved before handoff. See [CI boundaries](ci.md#technical-readiness-versus-upstream-registration).

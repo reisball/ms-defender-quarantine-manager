@@ -1,28 +1,77 @@
+# Copyright (c) 2026 Kai Seidenschnur
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Offline paired selection contract tests. No tenant or SOAR requests."""
+
 import json
-from pathlib import Path
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 import requests_mock
+
 
 # A git-archive snapshot may have a valid package directory name ("source").
 # Import its fixture module in the same namespace as pytest's collection so
 # it is not executed twice and does not replace the shared phantom SDK stubs.
 if __package__:
     from .test_connector import (
-        APP_ERROR, APP_SUCCESS, IDENTITY, ORG, MSQuarantineForSplunkSOARConnector,
-        AutomationError, RunbookActionError, base_asset_config, build_metadata,
-        config_check_output, dispatch_flow, make_connector, make_utils, patch_ar,
-        released_output, JOB_ID, TOKEN_URL, MOCK_TOKEN, WEBHOOK_URL, job_url, job_output_url,
+        APP_ERROR,
+        APP_SUCCESS,
+        IDENTITY,
+        JOB_ID,
+        MOCK_TOKEN,
+        ORG,
+        TOKEN_URL,
+        WEBHOOK_URL,
+        AutomationError,
+        MSQuarantineForSplunkSOARConnector,
+        RunbookActionError,
+        base_asset_config,
+        build_metadata,
+        config_check_output,
+        dispatch_flow,
+        job_output_url,
+        job_url,
+        make_connector,
+        make_utils,
+        patch_ar,
+        released_output,
     )
 else:
     from test_connector import (
-        APP_ERROR, APP_SUCCESS, IDENTITY, ORG, MSQuarantineForSplunkSOARConnector,
-        AutomationError, RunbookActionError, base_asset_config, build_metadata,
-        config_check_output, dispatch_flow, make_connector, make_utils, patch_ar,
-        released_output, JOB_ID, TOKEN_URL, MOCK_TOKEN, WEBHOOK_URL, job_url, job_output_url,
+        APP_ERROR,
+        APP_SUCCESS,
+        IDENTITY,
+        JOB_ID,
+        MOCK_TOKEN,
+        ORG,
+        TOKEN_URL,
+        WEBHOOK_URL,
+        AutomationError,
+        MSQuarantineForSplunkSOARConnector,
+        RunbookActionError,
+        base_asset_config,
+        build_metadata,
+        config_check_output,
+        dispatch_flow,
+        job_output_url,
+        job_url,
+        make_connector,
+        make_utils,
+        patch_ar,
+        released_output,
     )
 
 ROOT = Path(__file__).parent
@@ -38,9 +87,13 @@ def selected(output):
 
 
 def connector(**config):
-    return make_connector(config_overrides={
-        "quarantine_selection_mode": "needs_review", "exchange_organization": ORG, **config,
-    })
+    return make_connector(
+        config_overrides={
+            "quarantine_selection_mode": "needs_review",
+            "exchange_organization": ORG,
+            **config,
+        }
+    )
 
 
 @pytest.mark.parametrize("value", [None, "", "release_requested"])
@@ -63,26 +116,38 @@ def test_old_runbook_cannot_silently_ignore_needs_review(action):
     utils = make_utils(quarantine_selection_mode="needs_review")
     with requests_mock.Mocker() as m:
         bodies = dispatch_flow(m, {"config_check": config_check_output()})
-        with pytest.raises(AutomationError, match="3.4.3"):
+        with pytest.raises(AutomationError, match=r"3.4.3"):
             utils.run_action(action, identity=IDENTITY if action != "list" else None)
     assert [b["action"] for b in bodies] == ["config_check"]
 
 
-@pytest.mark.parametrize("field,value", [
-    ("quarantine_selection_mode", "release_requested"),
-    ("selection_release_status", "Requested"),
-    ("quarantine_selection_contract", "v0"),
-])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("quarantine_selection_mode", "release_requested"),
+        ("selection_release_status", "Requested"),
+        ("quarantine_selection_contract", "v0"),
+    ],
+)
 def test_mismatched_handshake_sends_no_disposition(field, value):
     c = connector()
     ar = patch_ar(c)
     with requests_mock.Mocker() as m:
-        bodies = dispatch_flow(m, {
-            "config_check": {**selected(config_check_output()), field: value},
-        })
-        assert c._handle_release_quarantine_message({
-            "identity": IDENTITY, "operation_id": "mismatch",
-        }) == APP_ERROR
+        bodies = dispatch_flow(
+            m,
+            {
+                "config_check": {**selected(config_check_output()), field: value},
+            },
+        )
+        assert (
+            c._handle_release_quarantine_message(
+                {
+                    "identity": IDENTITY,
+                    "operation_id": "mismatch",
+                }
+            )
+            == APP_ERROR
+        )
     assert [b["action"] for b in bodies] == ["config_check"]
     assert "No operation was claimed" in ar.get_message()
 
@@ -91,13 +156,15 @@ def test_list_payload_and_result_use_same_mode():
     c = connector()
     ar = patch_ar(c)
     with requests_mock.Mocker() as m:
-        bodies = dispatch_flow(m, {
-            "config_check": selected(config_check_output()),
-            "list": selected({"action": "list", "count": 1,
-                              "messages": [{"Identity": IDENTITY,
-                                            "ReleaseStatus": "NotReleased"}],
-                              **build_metadata()}),
-        })
+        bodies = dispatch_flow(
+            m,
+            {
+                "config_check": selected(config_check_output()),
+                "list": selected(
+                    {"action": "list", "count": 1, "messages": [{"Identity": IDENTITY, "ReleaseStatus": "NotReleased"}], **build_metadata()}
+                ),
+            },
+        )
         assert c._handle_list_quarantine_requests({"max_results": 1}) == APP_SUCCESS
     assert [b["action"] for b in bodies] == ["config_check", "list"]
     assert all(b["quarantine_selection_mode"] == "needs_review" for b in bodies)
@@ -109,23 +176,34 @@ def test_list_payload_and_result_use_same_mode():
 def test_wrong_status_candidate_fails_closed(status):
     c = connector()
     with pytest.raises(AutomationError, match="NotReleased"):
-        c._normalise_list_result({"count": 1, "messages": [
-            {"Identity": IDENTITY, "ReleaseStatus": status},
-        ]})
+        c._normalise_list_result(
+            {
+                "count": 1,
+                "messages": [
+                    {"Identity": IDENTITY, "ReleaseStatus": status},
+                ],
+            }
+        )
 
 
-@pytest.mark.parametrize("action,handler", [
-    ("release", "_handle_release_quarantine_message"),
-    ("deny", "_handle_deny_quarantine_release"),
-])
+@pytest.mark.parametrize(
+    "action,handler",
+    [
+        ("release", "_handle_release_quarantine_message"),
+        ("deny", "_handle_deny_quarantine_release"),
+    ],
+)
 def test_paired_disposition_and_replay_send_one_write(action, handler):
     c = connector()
     ar = patch_ar(c)
     with requests_mock.Mocker() as m:
-        bodies = dispatch_flow(m, {
-            "config_check": selected(config_check_output()),
-            action: selected(released_output(action)),
-        })
+        bodies = dispatch_flow(
+            m,
+            {
+                "config_check": selected(config_check_output()),
+                action: selected(released_output(action)),
+            },
+        )
         params = {"identity": IDENTITY, "operation_id": "mode-replay-" + action}
         assert getattr(c, handler)(params) == APP_SUCCESS, ar.get_message()
         count = len(m.request_history)
@@ -151,22 +229,21 @@ def run_ps(filename, *args):
     executable = shutil.which("pwsh")
     if not executable:
         pytest.skip("PowerShell is not available")
-    result = subprocess.run([executable, "-NoLogo", "-NoProfile", "-File",
-                             str(ROOT / filename), *args],
-                            text=True, capture_output=True, timeout=60)
+    result = subprocess.run(
+        [executable, "-NoLogo", "-NoProfile", "-File", str(ROOT / filename), *args], text=True, capture_output=True, timeout=60
+    )
     assert result.returncode == 0, result.stdout + result.stderr
-    rows = [json.loads(line) for line in result.stdout.splitlines()
-            if line.startswith("{")]
+    rows = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
     assert rows, result.stdout
     return rows[-1]
 
 
 @pytest.mark.parametrize("action,terminal", [("release", "Released"), ("deny", "Denied")])
-@pytest.mark.parametrize("mode,initial", [("release_requested", "Requested"),
-                                          ("needs_review", "NotReleased")])
+@pytest.mark.parametrize("mode,initial", [("release_requested", "Requested"), ("needs_review", "NotReleased")])
 def test_actual_runbook_success_envelope_validates_in_paired_app(action, terminal, mode, initial):
-    output = run_ps("test_runbook_irreversible_action.ps1", "-Action", action,
-                    "-SelectionMode", mode, "-StatusSequence", f"{initial},{terminal}")
+    output = run_ps(
+        "test_runbook_irreversible_action.ps1", "-Action", action, "-SelectionMode", mode, "-StatusSequence", f"{initial},{terminal}"
+    )
     utils = make_utils(quarantine_selection_mode=mode)
     utils._validate_runbook_result(output, action, IDENTITY)
     utils._raise_for_runbook_error(output, action, IDENTITY)
@@ -176,11 +253,9 @@ def test_actual_runbook_success_envelope_validates_in_paired_app(action, termina
 
 
 @pytest.mark.parametrize("action", ["release", "deny"])
-@pytest.mark.parametrize("mode,wrong", [("release_requested", "NotReleased"),
-                                        ("needs_review", "Requested")])
+@pytest.mark.parametrize("mode,wrong", [("release_requested", "NotReleased"), ("needs_review", "Requested")])
 def test_actual_runbook_wrong_precondition_never_invokes_cmdlet(action, mode, wrong):
-    output = run_ps("test_runbook_irreversible_action.ps1", "-Action", action,
-                    "-SelectionMode", mode, "-StatusSequence", wrong, "-ForbidCmdlet")
+    output = run_ps("test_runbook_irreversible_action.ps1", "-Action", action, "-SelectionMode", mode, "-StatusSequence", wrong, "-ForbidCmdlet")
     assert output["error_code"] == "precondition_unconfirmed"
     utils = make_utils(quarantine_selection_mode=mode)
     utils._validate_runbook_result(output, action, IDENTITY)
@@ -191,14 +266,22 @@ def test_actual_runbook_wrong_precondition_never_invokes_cmdlet(action, mode, wr
 
 @pytest.mark.parametrize("action", ["release", "deny"])
 def test_actual_runbook_unchanged_needs_review_rejection_is_not_success(action):
-    output = run_ps("test_runbook_irreversible_action.ps1", "-Action", action,
-                    "-SelectionMode", "needs_review", "-StatusSequence", "NotReleased",
-                    "-AuthorizationFailure")
+    output = run_ps(
+        "test_runbook_irreversible_action.ps1",
+        "-Action",
+        action,
+        "-SelectionMode",
+        "needs_review",
+        "-StatusSequence",
+        "NotReleased",
+        "-AuthorizationFailure",
+    )
     assert output["error_code"] == "disposition_rejected"
     utils = make_utils(quarantine_selection_mode="needs_review")
     utils._validate_runbook_result(output, action, IDENTITY)
     with pytest.raises(RunbookActionError):
         utils._raise_for_runbook_error(output, action, IDENTITY)
+
 
 @pytest.mark.parametrize("mode", ["release_requested", "needs_review"])
 @pytest.mark.parametrize("count", [0, 1, 2, 1000])
@@ -206,11 +289,25 @@ def test_actual_list_transport_preserves_selection_and_empty_array(mode, count):
     executable = shutil.which("pwsh")
     if not executable:
         pytest.skip("PowerShell is not available")
-    result = subprocess.run([
-        executable, "-NoLogo", "-NoProfile", "-File",
-        str(ROOT / "test_runbook_list_contract.ps1"), "-SelectionMode", mode,
-        "-MessageCount", str(count), "-SubjectLength", "1200", "-RawOutput",
-    ], text=True, capture_output=True, timeout=60)
+    result = subprocess.run(
+        [
+            executable,
+            "-NoLogo",
+            "-NoProfile",
+            "-File",
+            str(ROOT / "test_runbook_list_contract.ps1"),
+            "-SelectionMode",
+            mode,
+            "-MessageCount",
+            str(count),
+            "-SubjectLength",
+            "1200",
+            "-RawOutput",
+        ],
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
     assert result.returncode == 0, result.stdout + result.stderr
     utils = make_utils(quarantine_selection_mode=mode)
     output = utils._parse_multiline_job_output(result.stdout)
@@ -226,10 +323,17 @@ def test_actual_list_transport_preserves_selection_and_empty_array(mode, count):
 
 @pytest.mark.parametrize("value", [False, 1, [], {}, "all", "NEEDS_REVIEW", ""])
 def test_actual_runbook_invalid_mode_connects_to_nothing(value):
-    output = run_ps("test_runbook_connection_contract.ps1", "-RequestJson", json.dumps({
-        "action": "release", "identity": "__IDENTITY__",
-        "quarantine_selection_mode": value,
-    }))
+    output = run_ps(
+        "test_runbook_connection_contract.ps1",
+        "-RequestJson",
+        json.dumps(
+            {
+                "action": "release",
+                "identity": "__IDENTITY__",
+                "quarantine_selection_mode": value,
+            }
+        ),
+    )
     assert output["result"]["error_code"] == "invalid_quarantine_selection_mode"
     assert output["connect_calls"] == []
     assert output["release_calls"] == 0
@@ -238,10 +342,18 @@ def test_actual_runbook_invalid_mode_connects_to_nothing(value):
 
 
 def test_actual_needs_review_handshake_has_no_exchange_side_effects():
-    output = run_ps("test_runbook_connection_contract.ps1", "-RequestJson", json.dumps({
-        "action": "config_check", "organization": ORG,
-        "auth_method": "ManagedIdentity", "quarantine_selection_mode": "needs_review",
-    }))
+    output = run_ps(
+        "test_runbook_connection_contract.ps1",
+        "-RequestJson",
+        json.dumps(
+            {
+                "action": "config_check",
+                "organization": ORG,
+                "auth_method": "ManagedIdentity",
+                "quarantine_selection_mode": "needs_review",
+            }
+        ),
+    )
     utils = make_utils(quarantine_selection_mode="needs_review", exchange_organization=ORG)
     utils._validate_runbook_result(output["result"], "config_check")
     assert output["connect_calls"] == []
@@ -262,20 +374,25 @@ def test_connectivity_rejects_old_runbook_without_unhandled_exception():
 @pytest.mark.parametrize("mutation", ["trailer", "chunk"])
 def test_chunked_selection_mismatch_is_rejected(mutation):
     utils = make_utils(quarantine_selection_mode="needs_review")
-    chunk = selected({"action": "list", "mode": "list_chunk", "chunk_index": 0,
-                      "messages": [{"Identity": IDENTITY, "ReleaseStatus": "NotReleased"}],
-                      **build_metadata()})
-    trailer = selected({"action": "list", "mode": "list_complete", "chunk_count": 1,
-                        "count": 1, **build_metadata()})
+    chunk = selected(
+        {
+            "action": "list",
+            "mode": "list_chunk",
+            "chunk_index": 0,
+            "messages": [{"Identity": IDENTITY, "ReleaseStatus": "NotReleased"}],
+            **build_metadata(),
+        }
+    )
+    trailer = selected({"action": "list", "mode": "list_complete", "chunk_count": 1, "count": 1, **build_metadata()})
     (trailer if mutation == "trailer" else chunk)["selection_release_status"] = "Requested"
     with pytest.raises(AutomationError, match="selection contract mismatch"):
         utils._parse_chunked_list_records([chunk, trailer])
 
+
 @pytest.mark.parametrize("action", ["release", "deny"])
 @pytest.mark.parametrize("cmdlet_error", [False, True])
 def test_needs_review_unchanged_after_command_stays_unknown_not_success(action, cmdlet_error):
-    args = ["-Action", action, "-SelectionMode", "needs_review",
-            "-StatusSequence", "NotReleased"]
+    args = ["-Action", action, "-SelectionMode", "needs_review", "-StatusSequence", "NotReleased"]
     if cmdlet_error:
         args.append("-CmdletFailure")
     output = run_ps("test_runbook_irreversible_action.ps1", *args)
@@ -295,8 +412,7 @@ def test_disposition_result_must_match_selected_mode(action, mode):
     utils = make_utils(quarantine_selection_mode=mode)
     output = selected(released_output(action))
     if mode == "needs_review":
-        output.update(quarantine_selection_mode="release_requested",
-                      selection_release_status="Requested")
+        output.update(quarantine_selection_mode="release_requested", selection_release_status="Requested")
     with pytest.raises(AutomationError, match="selection contract mismatch"):
         utils._validate_runbook_result(output, action, IDENTITY)
 
@@ -310,9 +426,16 @@ def test_needs_review_disposition_requires_selection_echo(action):
 
 @pytest.mark.parametrize("action", ["list", "config_check"])
 def test_default_mode_rejects_nondefault_echo(action):
-    output = config_check_output() if action == "config_check" else {
-        "action": "list", "count": 0, "messages": [], **build_metadata(),
-    }
+    output = (
+        config_check_output()
+        if action == "config_check"
+        else {
+            "action": "list",
+            "count": 0,
+            "messages": [],
+            **build_metadata(),
+        }
+    )
     with pytest.raises(AutomationError, match="selection contract mismatch"):
         make_utils()._validate_runbook_result(selected(output), action)
 
@@ -321,12 +444,18 @@ def test_default_mode_rejects_nondefault_echo(action):
 def test_connectivity_validates_paired_list_contract(mutation):
     c = connector()
     ar = patch_ar(c)
-    output = selected({"action": "list", "count": 1, "messages": [
-        {"Identity": IDENTITY, "ReleaseStatus": "NotReleased"},
-    ], **build_metadata()})
+    output = selected(
+        {
+            "action": "list",
+            "count": 1,
+            "messages": [
+                {"Identity": IDENTITY, "ReleaseStatus": "NotReleased"},
+            ],
+            **build_metadata(),
+        }
+    )
     if mutation == "mode":
-        output.update(quarantine_selection_mode="release_requested",
-                      selection_release_status="Requested")
+        output.update(quarantine_selection_mode="release_requested", selection_release_status="Requested")
     elif mutation == "status":
         output["messages"][0]["ReleaseStatus"] = "Requested"
     elif mutation == "count":
@@ -334,9 +463,13 @@ def test_connectivity_validates_paired_list_contract(mutation):
     elif mutation == "action":
         output["action"] = "export"
     with requests_mock.Mocker() as m:
-        bodies = dispatch_flow(m, {
-            "config_check": selected(config_check_output()), "list": output,
-        })
+        bodies = dispatch_flow(
+            m,
+            {
+                "config_check": selected(config_check_output()),
+                "list": output,
+            },
+        )
         rc = c._handle_test_connectivity({})
     assert rc == (APP_SUCCESS if mutation == "none" else APP_ERROR), ar.get_message()
     assert [b["action"] for b in bodies] == ["config_check", "list"]
@@ -344,12 +477,15 @@ def test_connectivity_validates_paired_list_contract(mutation):
 
 @pytest.mark.parametrize("original_mode", ["release_requested", "needs_review"])
 @pytest.mark.parametrize("action", ["release", "deny"])
-def test_pending_operation_requires_original_mode_and_recovers_without_write(
-        tmp_path, original_mode, action):
+def test_pending_operation_requires_original_mode_and_recovers_without_write(tmp_path, original_mode, action):
     state_path = tmp_path / "asset_state.json"
-    params = {"azure_job_id": JOB_ID, "expected_action": action,
-              "expected_identity": IDENTITY, "operation_id": "mode-switch",
-              "refresh_exchange_status": True}
+    params = {
+        "azure_job_id": JOB_ID,
+        "expected_action": action,
+        "expected_identity": IDENTITY,
+        "operation_id": "mode-switch",
+        "refresh_exchange_status": True,
+    }
     other_mode = "needs_review" if original_mode == "release_requested" else "release_requested"
     output = released_output(action)
     if original_mode == "needs_review":
@@ -359,9 +495,12 @@ def test_pending_operation_requires_original_mode_and_recovers_without_write(
         (other_mode, "Completed", APP_ERROR),
         (original_mode, "Completed", APP_SUCCESS),
     ):
-        c = make_connector(state_path=state_path, config_overrides={
-            "quarantine_selection_mode": mode,
-        })
+        c = make_connector(
+            state_path=state_path,
+            config_overrides={
+                "quarantine_selection_mode": mode,
+            },
+        )
         ar = patch_ar(c)
         with requests_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})

@@ -1,6 +1,22 @@
+# Copyright (c) 2026 Kai Seidenschnur
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Outer-message MIME body regressions, synthetic input only."""
+
 from email.message import EmailMessage
+
 import pytest
+
 
 if __package__:
     from . import test_connector as t
@@ -11,12 +27,14 @@ from ms_quarantine_for_splunk_soar_es_ingestion import build_finding
 
 def finding(mail):
     uploads = []
+
     def upload(name, content):
         uploads.append((name, content))
         return "synthetic-vault"
-    result = build_finding({}, mail.as_bytes(), t.IDENTITY, "work", "source",
-                           {"es_security_domain": "threat"}, upload,
-                           "https://soar.example.test")
+
+    result = build_finding(
+        {}, mail.as_bytes(), t.IDENTITY, "work", "source", {"es_security_domain": "threat"}, upload, "https://soar.example.test"
+    )
     assert uploads[0][1] == mail.as_bytes()
     return result["email"]["body"]
 

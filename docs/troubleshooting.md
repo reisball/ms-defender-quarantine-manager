@@ -37,17 +37,15 @@ Both actions enter `Invoke-RequestedDisposition` and follow these steps:
    for explicit `needs_review` with paired Runbook 3.4.5.
    An already matching terminal state is idempotent (zero writes); any other
    state stops. No metadata or RBAC query precedes the write.
-2. `Invoke-QuarantineDisposition` performs the only write, exactly once, with
-   no retry. Release uses `Release-QuarantineMessage -Identity <id>
-   -ReleaseToAll -Confirm:$false -ErrorAction Stop`; Deny uses
-   `Release-QuarantineMessage -Identities @(<id>) -ActionType Deny
-   -Confirm:$false -ErrorAction Stop` (never `-ReleaseToAll`). Warning,
+1. `Invoke-QuarantineDisposition` performs the only write, exactly once, with
+   no retry. Release uses `Release-QuarantineMessage -Identity <id> -ReleaseToAll -Confirm:$false -ErrorAction Stop`; Deny uses
+   `Release-QuarantineMessage -Identities @(<id>) -ActionType Deny -Confirm:$false -ErrorAction Stop` (never `-ReleaseToAll`). Warning,
    information, verbose and error streams are captured.
-3. `Wait-QuarantinePostcondition` reads Exchange again, also after a cmdlet
+1. `Wait-QuarantinePostcondition` reads Exchange again, also after a cmdlet
    failure. Only the matching terminal state (`Released` or `Denied`) proves
    success. A cmdlet error can coexist with confirmed success. An unconfirmed
    outcome requires `reconcile` before considering any retry.
-4. The Exchange session is disconnected exactly once; the outcome is recorded
+1. The Exchange session is disconnected exactly once; the outcome is recorded
    in `exchange_disconnect_status`/`exchange_disconnect_error` and never alters
    the disposition result.
 
