@@ -20,13 +20,14 @@ import pytest
 import requests_mock
 
 
+# The imported fixture is discovered by pytest, not referenced by ordinary code.
 if __package__:
     from . import test_connector as t
-    from .test_es_transport_review import BASE, login
+    from .test_es_transport_review import BASE, login, platform as platform
     from .test_native_ingestion import ES, poll, sample_mail, setup
 else:
     import test_connector as t
-    from test_es_transport_review import BASE, login
+    from test_es_transport_review import BASE, login, platform as platform
     from test_native_ingestion import ES, poll, sample_mail, setup
 
 import ms_quarantine_for_splunk_soar_es_ingestion as es
