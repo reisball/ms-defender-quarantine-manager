@@ -37,10 +37,10 @@ Neither path changes the outer-body selection or duplicate-header projection.
 
 ## Reproducible offline evidence
 
-- `test_audit_mime_attachments.py`: appended containers, unchanged old files,
+- `tests/python/test_audit_mime_attachments.py`: appended containers, unchanged old files,
   nested RFC822, ordinary bodies, UTF-8 names, shared attachment limit, and
   old SOAR/ES Vault maps resumed after restart without reuploading old files.
-- `test_audit_mime_budget.py`: actual node-construction instrumentation,
+- `tests/python/test_audit_mime_budget.py`: actual node-construction instrumentation,
   chunk-boundary parity, exact limit cases, single ES tree, blocked input
   retaining its slot without publication or automatic reexport.
 - `python tools/check_mime_parser_compat.py`: stdlib-only comparison against

@@ -1,5 +1,5 @@
 $ErrorActionPreference = "Stop"
-$runbookPath = Join-Path $PSScriptRoot "runbook.ps1"
+$runbookPath = Join-Path $PSScriptRoot "../../runbook/runbook.ps1"
 $env:IDENTITY_ENDPOINT = $null
 $env:IDENTITY_HEADER = $null
 $global:MissingCmdletTestIdentity = (

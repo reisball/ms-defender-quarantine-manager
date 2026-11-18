@@ -25,7 +25,7 @@ else:
         released_output, JOB_ID, TOKEN_URL, MOCK_TOKEN, WEBHOOK_URL, job_url, job_output_url,
     )
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[1] / "powershell"
 MODE_EVIDENCE = {
     "quarantine_selection_mode": "needs_review",
     "quarantine_selection_contract": "quarantine_selection_v1",

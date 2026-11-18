@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$runbookPath = Join-Path $PSScriptRoot "runbook.ps1"
+$runbookPath = Join-Path $PSScriptRoot "../../runbook/runbook.ps1"
 $source = [System.IO.File]::ReadAllText($runbookPath)
 $helperStart = $source.IndexOf("function Write-ErrorResult")
 $stepOne = $source.IndexOf("# Step 1: Validate webhook input")

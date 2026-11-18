@@ -178,8 +178,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    expected = render(json.loads((ROOT / "ms_quarantine_for_splunk_soar.json").read_text()))
-    path = ROOT / "readme.html"
+    expected = render(json.loads((ROOT / "app" / "ms_quarantine_for_splunk_soar.json").read_text()))
+    path = ROOT / "app" / "readme.html"
     if args.check:
         if not path.exists() or path.read_text() != expected:
             parser.error("readme.html is missing or differs from the manifest-backed generator")

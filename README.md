@@ -49,7 +49,7 @@ This repository contains the SOAR app and its Azure Automation runbook, **not pl
 | Develop and package changes | [CI and build checks](docs/ci.md) |
 | Review security and data handling | [Security guide](docs/security.md) |
 
-The installed app includes a self-contained [HTML help page](readme.html).
+The installed app includes a self-contained [HTML help page](app/readme.html).
 
 ## Contributing and support
 

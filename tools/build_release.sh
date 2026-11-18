@@ -30,9 +30,13 @@ for source_file in \
     ms_quarantine_for_splunk_soar_es_ingestion.py \
     ms_quarantine_for_splunk_soar.svg \
     ms_quarantine_for_splunk_soar_dark.svg; do
-    cp "${source_file}" "${build_tmp}/${app_dir_name}/${source_file}"
+    source_path="app/${source_file}"
+    if [[ "${source_file}" == "LICENSE" ]]; then
+        source_path="LICENSE"
+    fi
+    cp "${source_path}" "${build_tmp}/${app_dir_name}/${source_file}"
 done
-cp runbook.ps1 "${build_tmp}/runbook.ps1"
+cp runbook/runbook.ps1 "${build_tmp}/runbook.ps1"
 
 # Verify the exact staged bytes, including the separately shipped runbook,
 # before touching any previous successful output. Index/status cleanliness is
@@ -46,12 +50,18 @@ commit, staging, app_name = sys.argv[1:]
 staging = Path(staging)
 inputs = sorted((staging / app_name).iterdir()) + [staging / "runbook.ps1"]
 for path in inputs:
+    if path.parent == staging:
+        source_path = "runbook/runbook.ps1"
+    elif path.name == "LICENSE":
+        source_path = "LICENSE"
+    else:
+        source_path = f"app/{path.name}"
     result = subprocess.run(
-        ["git", "--no-replace-objects", "cat-file", "blob", f"{commit}:{path.name}"],
+        ["git", "--no-replace-objects", "cat-file", "blob", f"{commit}:{source_path}"],
         capture_output=True,
     )
     if result.returncode or result.stdout != path.read_bytes():
-        sys.exit(f"Source provenance mismatch: {path.name} does not match {commit}")
+        sys.exit(f"Source provenance mismatch: {source_path} does not match {commit}")
 VERIFY
 
 manifest="${build_tmp}/${app_dir_name}/ms_quarantine_for_splunk_soar.json"
