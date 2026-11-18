@@ -9,7 +9,7 @@ import tarfile
 
 import pytest
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 APP = "ms-quarantine-for-splunk-soar"
 APP_INPUTS = (
     "__init__.py", "LICENSE", "readme.html", "ms_quarantine_for_splunk_soar.json",
@@ -17,6 +17,9 @@ APP_INPUTS = (
     "ms_quarantine_for_splunk_soar_ingestion.py", "ms_quarantine_for_splunk_soar_es_ingestion.py",
     "ms_quarantine_for_splunk_soar.svg", "ms_quarantine_for_splunk_soar_dark.svg",
 )
+# Source layout differs from the intentionally flat installable package.
+APP_SOURCES = {name: name if name == "LICENSE" else f"app/{name}" for name in APP_INPUTS}
+RUNBOOK_SOURCE = "runbook/runbook.ps1"
 EPOCH = "1700000000"
 
 
@@ -49,7 +52,7 @@ def git_bytes(repo, *args):
 def source(tmp_path):
     repo = tmp_path / "source"
     repo.mkdir()
-    for name in (*APP_INPUTS, "runbook.ps1", "tools/build_release.sh",
+    for name in (*APP_SOURCES.values(), RUNBOOK_SOURCE, "tools/build_release.sh",
                  "tools/render_readme.py", "tools/stamp_runbook.py"):
         dest = repo / name
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -105,7 +108,7 @@ def test_every_packaged_input_mismatch_preserves_previous_release(source, tmp_pa
     output = tmp_path / "release"
     previous = successful_release(source, output)
     # Whitespace keeps JSON valid and changes bytes, not runtime semantics.
-    with (source / name).open("ab") as stream:
+    with (source / APP_SOURCES[name]).open("ab") as stream:
         stream.write(b"\n")
     assert_rejected_unchanged(source, output, previous)
 
@@ -114,16 +117,16 @@ def test_staged_app_change_preserves_previous_release(source, tmp_path):
     output = tmp_path / "release"
     previous = successful_release(source, output)
     name = "ms_quarantine_for_splunk_soar_utils.py"
-    with (source / name).open("ab") as stream:
+    with (source / APP_SOURCES[name]).open("ab") as stream:
         stream.write(b"\n# staged regression\n")
-    git(source, "add", name)
+    git(source, "add", APP_SOURCES[name])
     assert_rejected_unchanged(source, output, previous)
 
 
 def test_restamped_changed_runbook_preserves_previous_release(source, tmp_path):
     output = tmp_path / "release"
     previous = successful_release(source, output)
-    with (source / "runbook.ps1").open("ab") as stream:
+    with (source / RUNBOOK_SOURCE).open("ab") as stream:
         stream.write(b"\n# changed but internally valid companion\n")
     assert_success(run(source, "python3", "tools/stamp_runbook.py", "--write"))
     result = assert_rejected_unchanged(source, output, previous)
@@ -172,9 +175,9 @@ def test_valid_override_resolves_commit_and_keeps_unrelated_changes_allowed(sour
     with tarfile.open(next(output.glob("*.tgz"))) as archive:
         assert set(archive.getnames()) == {APP, *(f"{APP}/{name}" for name in APP_INPUTS)}
         for name in APP_INPUTS:
-            expected = git_bytes(source, "show", f"{original}:{name}")
+            expected = git_bytes(source, "show", f"{original}:{APP_SOURCES[name]}")
             assert archive.extractfile(f"{APP}/{name}").read() == expected
-    expected_runbook = git_bytes(source, "show", f"{original}:runbook.ps1")
+    expected_runbook = git_bytes(source, "show", f"{original}:{RUNBOOK_SOURCE}")
     assert next(output.glob("*.ps1")).read_bytes() == expected_runbook
     assert_success(run(output, "sha256sum", "-c", "SHA256SUMS"))
 
@@ -221,7 +224,7 @@ def test_umask_and_locale_reproducibility_preserves_source_and_output_modes(sour
     utf8 = next((name for name in locales if name.lower() in ("c.utf8", "c.utf-8")), "C")
     source.chmod(0o750)
     (source / "LICENSE").chmod(0o600)
-    source_modes = {p: p.stat().st_mode for p in (source, *(source / n for n in APP_INPUTS), source / "runbook.ps1")}
+    source_modes = {p: p.stat().st_mode for p in (source, *(source / n for n in APP_SOURCES.values()), source / RUNBOOK_SOURCE)}
     outputs = []
     for index, (mask, locale) in enumerate((("022", "C"), ("077", "C"), ("022", utf8), ("077", utf8))):
         output = tmp_path / f"build-{index}"

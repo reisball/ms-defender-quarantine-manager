@@ -19,7 +19,7 @@ import types
 
 def load_parser():
     root = Path(__file__).resolve().parents[1]
-    sys.path.insert(0, str(root))
+    sys.path.insert(0, str(root / "app"))
     phantom = types.ModuleType("phantom")
     phantom.app = types.ModuleType("phantom.app")
     action_result = types.ModuleType("phantom.action_result")

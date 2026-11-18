@@ -23,7 +23,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$runbookPath = Join-Path $PSScriptRoot "runbook.ps1"
+$runbookPath = Join-Path $PSScriptRoot "../../runbook/runbook.ps1"
 $global:RunbookTestSelectionStatus = if ($SelectionMode -eq "needs_review") { "NotReleased" } else { "Requested" }
 $global:RunbookTestMessageCount = $MessageCount
 $global:RunbookTestSubjectLength = $SubjectLength

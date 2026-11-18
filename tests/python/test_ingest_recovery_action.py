@@ -14,8 +14,7 @@ from ms_quarantine_for_splunk_soar_utils import AutomationError, parse_strict_in
 
 
 def test_recovery_action_manifest_contract():
-    manifest = json.loads(Path(__file__).with_name(
-        "ms_quarantine_for_splunk_soar.json").read_text())
+    manifest = json.loads((Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text())
     actions = [a for a in manifest["actions"]
                if a["identifier"] == "recover_quarantine_ingestion"]
     assert len(actions) == 1

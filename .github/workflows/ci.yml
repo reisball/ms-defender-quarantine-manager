@@ -11,6 +11,8 @@ jobs:
   test:
     name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: app:tests/python
     strategy:
       fail-fast: false
       matrix:
@@ -29,9 +31,9 @@ jobs:
 
       - name: Validate manifest and source
         run: |
-          python -m json.tool ms_quarantine_for_splunk_soar.json > /dev/null
+          python -m json.tool app/ms_quarantine_for_splunk_soar.json > /dev/null
           python tools/render_readme.py --check
-          python -m compileall -q ms_quarantine_for_splunk_soar_connector.py ms_quarantine_for_splunk_soar_utils.py ms_quarantine_for_splunk_soar_ingestion.py ms_quarantine_for_splunk_soar_es_ingestion.py
+          python -m compileall -q app/ms_quarantine_for_splunk_soar_connector.py app/ms_quarantine_for_splunk_soar_utils.py app/ms_quarantine_for_splunk_soar_ingestion.py app/ms_quarantine_for_splunk_soar_es_ingestion.py
 
       - name: Verify PowerShell on the GitHub-hosted runner
         if: matrix.python-version == '3.13'
@@ -42,7 +44,7 @@ jobs:
         run: python -m pytest -q
 
       - name: Run paired quarantine selection contracts
-        run: python -m pytest -q test_quarantine_modes.py
+        run: python -m pytest -q tests/python/test_quarantine_modes.py
 
       - name: Run PowerShell export transport boundaries
         if: matrix.python-version == '3.13'
@@ -53,7 +55,7 @@ jobs:
           trap 'find "$export_dir" -type f -delete; rmdir "$export_dir"' EXIT
 
           head -c 25165824 /dev/zero | base64 -w0 > "$export_dir/24mib.b64"
-          pwsh -NoLogo -NoProfile -File ./test_runbook_export_transport.ps1 \
+          pwsh -NoLogo -NoProfile -File ./tests/powershell/test_runbook_export_transport.ps1 \
             -Base64Path "$export_dir/24mib.b64" \
             -ExpectedDecodedSize 25165824 > "$export_dir/24mib.jsonl"
           python - "$export_dir/24mib.jsonl" <<'PY'
@@ -78,7 +80,7 @@ jobs:
           PY
 
           head -c 25165825 /dev/zero | base64 -w0 > "$export_dir/oversized.b64"
-          if pwsh -NoLogo -NoProfile -File ./test_runbook_export_transport.ps1 \
+          if pwsh -NoLogo -NoProfile -File ./tests/powershell/test_runbook_export_transport.ps1 \
             -Base64Path "$export_dir/oversized.b64" \
             -ExpectedDecodedSize 25165825 > /dev/null 2>&1; then
             echo "Expected the 24 MiB + 1 byte fixture to be rejected." >&2
@@ -89,7 +91,7 @@ jobs:
           head -c 262142 /dev/zero | tr '\0' 'A' \
             >> "$export_dir/padding-split.b64"
           printf '==' >> "$export_dir/padding-split.b64"
-          pwsh -NoLogo -NoProfile -File ./test_runbook_export_transport.ps1 \
+          pwsh -NoLogo -NoProfile -File ./tests/powershell/test_runbook_export_transport.ps1 \
             -Base64Path "$export_dir/padding-split.b64" \
             -ExpectedDecodedSize 196606 > /dev/null
 
@@ -99,17 +101,17 @@ jobs:
         run: |
           set -euo pipefail
           for count in 0 1 2; do
-            pwsh -NoLogo -NoProfile -File ./test_runbook_list_contract.ps1 \
+            pwsh -NoLogo -NoProfile -File ./tests/powershell/test_runbook_list_contract.ps1 \
               -MessageCount "$count"
           done
           for page_size in 1 1000; do
-            pwsh -NoLogo -NoProfile -File ./test_runbook_list_contract.ps1 \
+            pwsh -NoLogo -NoProfile -File ./tests/powershell/test_runbook_list_contract.ps1 \
               -MessageCount 2 -RequestedPageSize "$page_size"
           done
-          pwsh -NoLogo -NoProfile -File ./test_runbook_list_contract.ps1 \
+          pwsh -NoLogo -NoProfile -File ./tests/powershell/test_runbook_list_contract.ps1 \
             -MessageCount 1000 -SubjectLength 250 -UseStringDates
           for oversized_index in 0 1 2; do
-            pwsh -NoLogo -NoProfile -File ./test_runbook_list_contract.ps1 \
+            pwsh -NoLogo -NoProfile -File ./tests/powershell/test_runbook_list_contract.ps1 \
               -MessageCount 3 -SubjectLength 400000 -ExpectOversizedItem \
               -OversizedMessageIndex "$oversized_index"
           done
@@ -117,12 +119,12 @@ jobs:
       - name: Run PowerShell base64 validation contract
         if: matrix.python-version == '3.13'
         shell: bash
-        run: pwsh -NoLogo -NoProfile -File ./test_runbook_base64_contract.ps1
+        run: pwsh -NoLogo -NoProfile -File ./tests/powershell/test_runbook_base64_contract.ps1
 
       - name: Run exact Runbook error contract
         if: matrix.python-version == '3.13'
         shell: bash
-        run: pwsh -NoLogo -NoProfile -File ./test_runbook_error_contract.ps1
+        run: pwsh -NoLogo -NoProfile -File ./tests/powershell/test_runbook_error_contract.ps1
 
       - name: Run PowerShell Exchange connection contract
         if: matrix.python-version == '3.13'
@@ -142,7 +144,7 @@ jobs:
                   import_failure=False, verbose=False):
               cmd = [
                   "pwsh", "-NoLogo", "-NoProfile", "-File",
-                  "./test_runbook_connection_contract.ps1",
+                  "./tests/powershell/test_runbook_connection_contract.ps1",
                   "-RequestJson", json.dumps(body),
               ]
               if auth_var is not None:
@@ -334,7 +336,7 @@ jobs:
               assert_no_exchange_activity(outcome, body)
           failed_read = subprocess.run(
               ["pwsh", "-NoLogo", "-NoProfile", "-File",
-               "./test_runbook_connection_contract.ps1",
+               "./tests/powershell/test_runbook_connection_contract.ps1",
                "-RequestJson", json.dumps({"action": "list"}),
                "-OrganizationVariableReadFailure"],
               check=True, capture_output=True, text=True,
@@ -479,128 +481,128 @@ jobs:
         run: |
           set -euo pipefail
           pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_postcondition_contract.ps1
+            -File ./tests/powershell/test_runbook_postcondition_contract.ps1
 
           release_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release \
             -StatusSequence 'Requested,Approved,PreparingToRelease,Released')
           deny_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action deny -StatusSequence 'Requested,Denied')
           unknown_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested')
           release_cmdlet_failure_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested' -CmdletFailure)
           deny_cmdlet_failure_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action deny -StatusSequence 'Requested' -CmdletFailure)
           authorization_failure_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested' \
             -AuthorizationFailure)
           transport_failure_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested' -TransportFailure)
           misleading_server_failure_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested' \
             -MisleadingServerFailure)
           misleading_throttle_failure_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested' \
             -MisleadingThrottleFailure)
           structured_forbidden_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested' \
             -StructuredForbiddenFailure)
           intermediate_read_error_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release \
             -StatusSequence 'Requested,__ERROR__,Requested,Requested' \
             -AuthorizationFailure)
           deny_applied_after_error_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action deny -StatusSequence 'Requested,Denied' -CmdletFailure)
           nonterminating_error_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested' \
             -NonTerminatingError)
           release_precondition_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Approved' -ForbidCmdlet)
           deny_precondition_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action deny -StatusSequence 'Approved' -ForbidCmdlet)
           reconcile_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action reconcile -OperationAction release \
             -StatusSequence 'Released' -ForbidCmdlet)
           incompatible_parameter_set_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested' \
             -IncompatibleParameterSets)
           incompatible_deny_parameter_set_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action deny -StatusSequence 'Requested' \
             -IncompatibleParameterSets)
           observed_exchange_release_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested,Released' \
             -ObservedExchangeParameterSets)
           observed_exchange_deny_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action deny -StatusSequence 'Requested,Denied' \
             -ObservedExchangeParameterSets)
           alias_command_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested,Released' \
             -AliasCommand)
           deny_alias_command_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action deny -StatusSequence 'Requested,Denied' \
             -AliasCommand)
           broken_alias_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested' \
             -BrokenAliasCommand)
           metadata_failure_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested,Released' \
             -MetadataFailure)
           disconnect_failure_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action deny -StatusSequence 'Requested,Denied' \
             -DisconnectFailure)
           disconnect_failure_error_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested' \
             -StructuredForbiddenFailure -DisconnectFailure)
           binding_confirmed_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested,Released' \
             -IncompatibleParameterSets)
           rbac_query_failure_release_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested,Released' \
             -PartialRbacEvidence)
           missing_rbac_cmdlet_deny_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action deny -StatusSequence 'Requested,Denied' \
             -MissingRbacCmdlets)
           already_released_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Released' -ForbidCmdlet)
           already_denied_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action deny -StatusSequence 'Denied' -ForbidCmdlet)
           opposite_terminal_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action deny -StatusSequence 'Released' -ForbidCmdlet)
           case_variant_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_irreversible_action.ps1 \
+            -File ./tests/powershell/test_runbook_irreversible_action.ps1 \
             -Action release -StatusSequence 'Requested,Released' \
             -CaseVariantObservedIdentity)
 
@@ -1038,30 +1040,30 @@ jobs:
         run: |
           set -euo pipefail
           diagnostic_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_diagnostics.ps1)
+            -File ./tests/powershell/test_runbook_diagnostics.ps1)
           direct_assignment_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_diagnostics.ps1 \
+            -File ./tests/powershell/test_runbook_diagnostics.ps1 \
             -AssignmentMode direct)
           claim_only_group_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_diagnostics.ps1 \
+            -File ./tests/powershell/test_runbook_diagnostics.ps1 \
             -AssignmentMode claim_only_group)
           external_object_id_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_diagnostics.ps1 \
+            -File ./tests/powershell/test_runbook_diagnostics.ps1 \
             -AssignmentMode external_object_id)
           name_collision_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_diagnostics.ps1 \
+            -File ./tests/powershell/test_runbook_diagnostics.ps1 \
             -AssignmentMode name_collision)
           unmatched_group_error_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_diagnostics.ps1 \
+            -File ./tests/powershell/test_runbook_diagnostics.ps1 \
             -AssignmentMode unmatched_group_error)
           many_role_groups_late_match_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_diagnostics.ps1 \
+            -File ./tests/powershell/test_runbook_diagnostics.ps1 \
             -AssignmentMode many_role_groups_late_match)
           many_role_groups_no_match_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_diagnostics.ps1 \
+            -File ./tests/powershell/test_runbook_diagnostics.ps1 \
             -AssignmentMode many_role_groups_no_match)
           empty_contracts_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_diagnostics.ps1 \
+            -File ./tests/powershell/test_runbook_diagnostics.ps1 \
             -AssignmentMode empty_contracts)
           python - "$diagnostic_output" "$direct_assignment_output" \
             "$claim_only_group_output" "$external_object_id_output" \
@@ -1227,13 +1229,13 @@ jobs:
         run: |
           set -euo pipefail
           default_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_diagnostics_opt_in.ps1 \
+            -File ./tests/powershell/test_runbook_diagnostics_opt_in.ps1 \
             -Scenario default)
           mismatch_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_diagnostics_opt_in.ps1 \
+            -File ./tests/powershell/test_runbook_diagnostics_opt_in.ps1 \
             -Scenario mismatch_opt_in)
           count_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_permission_error_counts.ps1)
+            -File ./tests/powershell/test_runbook_permission_error_counts.ps1)
           python - "$default_output" "$mismatch_output" "$count_output" <<'PY'
           import json
           import sys
@@ -1270,7 +1272,7 @@ jobs:
         run: |
           set -euo pipefail
           diagnostic_output=$(pwsh -NoLogo -NoProfile \
-            -File ./test_runbook_diagnostics_missing_cmdlet.ps1)
+            -File ./tests/powershell/test_runbook_diagnostics_missing_cmdlet.ps1)
           python - "$diagnostic_output" <<'PY'
           import json
           import sys
@@ -1337,7 +1339,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          output=$(pwsh -NoLogo -NoProfile -File ./runbook.ps1)
+          output=$(pwsh -NoLogo -NoProfile -File ./runbook/runbook.ps1)
           python - "$output" <<'PY'
           import json
           import sys
@@ -1368,7 +1370,7 @@ jobs:
           (umask 022; LC_ALL=en_US.utf8 tools/build_release.sh "$build_one")
           (umask 077; LC_ALL=C.utf8 tools/build_release.sh "$build_two")
           diff -qr "$build_one" "$build_two"
-          app_version=$(python -c 'import json; print(json.load(open("ms_quarantine_for_splunk_soar.json"))["app_version"])')
+          app_version=$(python -c 'import json; print(json.load(open("app/ms_quarantine_for_splunk_soar.json"))["app_version"])')
           tar -xzf "$build_one/ms-quarantine-for-splunk-soar-${app_version}.tgz" \
             -C "$package_check"
           python -m compileall -q \

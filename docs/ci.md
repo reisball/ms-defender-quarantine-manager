@@ -4,25 +4,25 @@
 
 ## Python checks
 
-Use Python 3.9 and 3.13, matching the configured matrix. The legacy app uses platform-provided dependencies at runtime; `requirements-dev.txt` is for development only and contains version ranges, not a lockfile.
+Run commands from the repository root. Use Python 3.9 and 3.13, matching the configured matrix. The legacy app uses platform-provided dependencies at runtime; `requirements-dev.txt` is for development only and contains version ranges, not a lockfile.
 
 ```bash
 python -m pip install -r requirements-dev.txt
-python -m json.tool ms_quarantine_for_splunk_soar.json >/dev/null
-python -m compileall -q ms_quarantine_for_splunk_soar_connector.py ms_quarantine_for_splunk_soar_utils.py ms_quarantine_for_splunk_soar_ingestion.py ms_quarantine_for_splunk_soar_es_ingestion.py
-python -m pytest -q
+python -m json.tool app/ms_quarantine_for_splunk_soar.json >/dev/null
+python -m compileall -q app/ms_quarantine_for_splunk_soar_connector.py app/ms_quarantine_for_splunk_soar_utils.py app/ms_quarantine_for_splunk_soar_ingestion.py app/ms_quarantine_for_splunk_soar_es_ingestion.py
+python -m pytest -q tests/python/
 python tools/render_readme.py --check
 python tools/stamp_runbook.py --check
 python tools/check_mime_parser_compat.py
 ```
 
-The default pytest suite covers the connector, ingestion, selection, recovery and packaging. It uses synthetic API/SDK inputs. This repository does not include playbooks, playbook fixtures or platform-source-dependent playbook tests.
+The pytest suite in `tests/python/` covers the connector, ingestion, selection, recovery and packaging. It uses synthetic API/SDK inputs. This repository does not include playbooks, playbook fixtures or platform-source-dependent playbook tests.
 
 ## GitHub Actions and PowerShell
 
 [GitHub workflow](../.github/workflows/ci.yml) runs the Python matrix and, on Python 3.13, the complete PowerShell contract sequence. PowerShell is provided by the GitHub-hosted Ubuntu runner and checked before use. Actions are pinned to immutable commits and the workflow has read-only repository permission.
 
-The PowerShell sequence includes inline assertions and parameter variants for export/base64/list/error transport, Managed Identity and rejected legacy authentication, Release/Deny preconditions and postconditions, read-only diagnostics/RBAC, and selection modes. Running one script or only pytest does not replace the sequence.
+The PowerShell scripts live in `tests/powershell/` and exercise `runbook/runbook.ps1`. The PowerShell sequence includes inline assertions and parameter variants for export/base64/list/error transport, Managed Identity and rejected legacy authentication, Release/Deny preconditions and postconditions, read-only diagnostics/RBAC, and selection modes. Running one script or only pytest does not replace the sequence.
 
 The [Gitea workflow](../.gitea/workflows/ci.yml) is retained as the original CI definition; GitHub does not execute it. A local check of the GitHub workflow is not evidence of a successful hosted run. Inspect the exact candidate's Actions results before publishing a release.
 

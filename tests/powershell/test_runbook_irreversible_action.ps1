@@ -48,7 +48,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$runbookPath = Join-Path $PSScriptRoot "runbook.ps1"
+$runbookPath = Join-Path $PSScriptRoot "../../runbook/runbook.ps1"
 $global:IrreversibleTestAction = $Action
 $global:IrreversibleTestIdentity = (
     "c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\" +

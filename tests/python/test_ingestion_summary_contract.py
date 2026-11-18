@@ -19,8 +19,7 @@ POLL_KEYS = {
 
 
 def check_summary(identifier, ar, expected_keys):
-    manifest = json.loads(Path(__file__).with_name(
-        "ms_quarantine_for_splunk_soar.json").read_text())
+    manifest = json.loads((Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text())
     action = next(a for a in manifest["actions"] if a["identifier"] == identifier)
     fields = {o["data_path"]: o["data_type"] for o in action["output"]}
     assert len(fields) == len(action["output"]), "Duplicate output declarations"

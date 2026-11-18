@@ -6,7 +6,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
+APP_DIR = ROOT / "app"
 
 
 def generator():
@@ -37,8 +38,8 @@ class HelpParser(HTMLParser):
 
 
 def test_shipped_help_matches_current_manifest_and_required_fields():
-    manifest = json.loads((ROOT / "ms_quarantine_for_splunk_soar.json").read_text())
-    help_text = (ROOT / "readme.html").read_text()
+    manifest = json.loads((APP_DIR / "ms_quarantine_for_splunk_soar.json").read_text())
+    help_text = (APP_DIR / "readme.html").read_text()
     assert help_text == generator().render(manifest)
     parsed = HelpParser()
     parsed.feed(help_text)
@@ -58,7 +59,7 @@ def test_shipped_help_matches_current_manifest_and_required_fields():
 
 def test_installed_help_has_no_unshipped_local_dependencies():
     parser = HelpParser()
-    parser.feed((ROOT / "readme.html").read_text())
+    parser.feed((APP_DIR / "readme.html").read_text())
     for link in parser.links:
         if link.startswith(("https://", "#")):
             continue
@@ -70,15 +71,16 @@ def test_help_check_detects_missing_or_stale_file(tmp_path, monkeypatch):
     mod = generator()
     monkeypatch.setattr(mod, "ROOT", tmp_path)
     monkeypatch.setattr(sys, "argv", ["render_readme.py", "--check"])
-    source = ROOT / "ms_quarantine_for_splunk_soar.json"
-    (tmp_path / source.name).write_bytes(source.read_bytes())
+    source = APP_DIR / "ms_quarantine_for_splunk_soar.json"
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / source.name).write_bytes(source.read_bytes())
     try:
         mod.main()
     except SystemExit as result:
         assert result.code == 2
     else:
         raise AssertionError("Missing installed help was not rejected")
-    (tmp_path / "readme.html").write_text("obsolete help")
+    (tmp_path / "app" / "readme.html").write_text("obsolete help")
     try:
         mod.main()
     except SystemExit as result:
@@ -88,7 +90,7 @@ def test_help_check_detects_missing_or_stale_file(tmp_path, monkeypatch):
 
 
 def test_installed_parameter_help_no_longer_directs_removed_action():
-    manifest = json.loads((ROOT / "ms_quarantine_for_splunk_soar.json").read_text())
+    manifest = json.loads((APP_DIR / "ms_quarantine_for_splunk_soar.json").read_text())
     for identifier in ["release_quarantine_message", "deny_quarantine_release"]:
         action = next(a for a in manifest["actions"] if a["identifier"] == identifier)
         assert "list quarantine requests" not in action["parameters"]["identity"]["description"]
@@ -100,7 +102,7 @@ def test_installed_parameter_help_no_longer_directs_removed_action():
 
 
 def test_regenerated_help_escapes_manifest_prose():
-    manifest = json.loads((ROOT / "ms_quarantine_for_splunk_soar.json").read_text())
+    manifest = json.loads((APP_DIR / "ms_quarantine_for_splunk_soar.json").read_text())
     manifest["publisher"] = '<script>not executable</script> & "quoted"'
     rendered = generator().render(manifest)
     parsed = HelpParser()
@@ -110,7 +112,7 @@ def test_regenerated_help_escapes_manifest_prose():
 
 
 def test_help_explains_automatic_files_and_no_legacy_ui_controls():
-    manifest = json.loads((ROOT / "ms_quarantine_for_splunk_soar.json").read_text())
+    manifest = json.loads((APP_DIR / "ms_quarantine_for_splunk_soar.json").read_text())
     rendered = generator().render(manifest)
     parsed = HelpParser()
     parsed.feed(rendered)
@@ -128,11 +130,11 @@ def test_help_explains_automatic_files_and_no_legacy_ui_controls():
 
 def test_new_product_identity_and_packaged_entrypoints():
     from uuid import UUID
-    manifest = json.loads((ROOT / "ms_quarantine_for_splunk_soar.json").read_text())
+    manifest = json.loads((APP_DIR / "ms_quarantine_for_splunk_soar.json").read_text())
     assert manifest["name"] == "MS Quarantine for Splunk SOAR"
     assert manifest["package_name"] == "phantom_ms_quarantine_for_splunk_soar"
     assert UUID(manifest["appid"]).version == 4
     assert manifest["app_version"] == "3.7.4"
     for field in ("main_module", "logo", "logo_dark"):
         assert manifest[field].startswith("ms_quarantine_for_splunk_soar")
-        assert (ROOT / manifest[field]).is_file()
+        assert (APP_DIR / manifest[field]).is_file()

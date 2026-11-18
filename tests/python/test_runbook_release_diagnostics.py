@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import unittest
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 PWSH = shutil.which("pwsh")
 
 SECRET = "DIAGNOSTIC_SECRET_MUST_NOT_SURVIVE"
@@ -61,8 +61,12 @@ MOCK_LARGE_FAILURE = r"""
 def run_fixture(tmp_path, action, authorization=False, large=True,
                 large_failure=False, terminal_override=None, metadata_error=None,
                 oversized_passive_metadata=False):
-    shutil.copyfile(ROOT / "runbook.ps1", tmp_path / "runbook.ps1")
-    harness = (ROOT / "test_runbook_irreversible_action.ps1").read_text()
+    # Preserve the relative runbook lookup used by the relocated PS harness.
+    (tmp_path / "runbook").mkdir()
+    harness_dir = tmp_path / "tests" / "powershell"
+    harness_dir.mkdir(parents=True)
+    shutil.copyfile(ROOT / "runbook" / "runbook.ps1", tmp_path / "runbook" / "runbook.ps1")
+    harness = (ROOT / "tests" / "powershell" / "test_runbook_irreversible_action.ps1").read_text()
     if oversized_passive_metadata:
         # Change only the passive Get-Command result after the native call.
         harness = harness.replace(
@@ -92,7 +96,7 @@ def run_fixture(tmp_path, action, authorization=False, large=True,
         '& $runbookPath -WebhookData $webhookData -Verbose\n'
         'Write-Output ("DISPOSITION_CALLS=" + $global:IrreversibleTestCmdletCalls)'
     )
-    path = tmp_path / "fixture.ps1"
+    path = harness_dir / "fixture.ps1"
     path.write_text(harness)
     terminal = "Requested" if authorization else ("Released" if action == "release" else "Denied")
     terminal = terminal_override or terminal

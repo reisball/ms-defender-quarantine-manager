@@ -22,7 +22,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$runbookPath = Join-Path $PSScriptRoot "runbook.ps1"
+$runbookPath = Join-Path $PSScriptRoot "../../runbook/runbook.ps1"
 $global:ConnTest = @{
     variable_reads = [System.Collections.Generic.List[string]]::new()
     credential_reads = [System.Collections.Generic.List[string]]::new()

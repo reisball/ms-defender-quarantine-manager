@@ -21,7 +21,7 @@ Start with [installation](installation.md), then validate the configured workflo
 - [CI and build checks](ci.md)
 - [Publication and package contents](publication.md)
 - [Version history](../CHANGELOG.md)
-- [Generated installed help](../readme.html)
+- [Generated installed help](../app/readme.html)
 
 ## Historical design
 

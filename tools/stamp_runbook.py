@@ -54,7 +54,7 @@ def replace_value(pattern: re.Pattern, text: str, value: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--path", default="runbook.ps1")
+    parser.add_argument("--path", default=str(Path(__file__).resolve().parents[1] / "runbook" / "runbook.ps1"))
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()

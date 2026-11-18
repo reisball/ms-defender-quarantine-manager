@@ -62,7 +62,7 @@ $rows = Get-Content -Raw $Data | ConvertFrom-Json
 @($rows | ForEach-Object { ConvertTo-SecretRedactedText $_ }) | ConvertTo-Json -Compress
 """)
     result = subprocess.run(["pwsh", "-NoLogo", "-NoProfile", "-File", str(script),
-                             str(Path(__file__).with_name("runbook.ps1")), str(payload)],
+                             str((Path(__file__).resolve().parents[2] / "runbook" / "runbook.ps1")), str(payload)],
                             check=True, text=True, capture_output=True, timeout=30)
     values = json.loads(result.stdout)
     assert len(values) == len(HEADERS)
@@ -76,7 +76,7 @@ $rows = Get-Content -Raw $Data | ConvertFrom-Json
 @pytest.mark.parametrize('mode', ['unavailable', 'token_failure', 'missing_guids', 'malformed_guids'])
 def test_unresolved_rbac_identity_remains_unknown(mode):
     result = subprocess.run(['pwsh', '-NoLogo', '-NoProfile', '-File',
-                             str(Path(__file__).with_name('test_runbook_diagnostics.ps1')),
+                             str((Path(__file__).resolve().parents[1] / "powershell" / "test_runbook_diagnostics.ps1")),
                              '-IdentityMode', mode], check=True, text=True, capture_output=True, timeout=30)
     envelope = json.loads(result.stdout)
     data = envelope.get('details', envelope)
@@ -147,7 +147,7 @@ foreach ($name in ''' + "@(" + ','.join("'" + name + "'" for name in names) + ")
 }
 ''' + body)
     result = subprocess.run(['pwsh', '-NoLogo', '-NoProfile', '-File', str(script),
-                             str(Path(__file__).with_name('runbook.ps1'))],
+                             str((Path(__file__).resolve().parents[2] / "runbook" / "runbook.ps1"))],
                             check=True, text=True, capture_output=True, timeout=30)
     return result.stdout
 

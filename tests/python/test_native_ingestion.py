@@ -284,7 +284,7 @@ def test_poll_now_cannot_exceed_active_asset_limit(tmp_path, target):
 
 def test_list_get_removed_from_public_manifest_and_dispatch(tmp_path):
     c = setup(tmp_path)
-    manifest = json.loads(Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text())
+    manifest = json.loads((Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text())
     identifiers = {a["identifier"] for a in manifest["actions"]}
     assert not identifiers & {"list_quarantine_requests", "get_quarantine_message"}
     assert {"on_poll", "on_es_poll", "release_quarantine_message", "deny_quarantine_release"} <= identifiers
@@ -297,7 +297,7 @@ def test_list_get_removed_from_public_manifest_and_dispatch(tmp_path):
 def test_paired_runbook_version_and_fingerprint_are_current():
     import subprocess
     import sys
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parents[2]
     checked = subprocess.run([sys.executable, str(root / "tools/stamp_runbook.py"), "--check"],
                              cwd=root, capture_output=True, text=True)
     assert checked.returncode == 0, checked.stdout + checked.stderr

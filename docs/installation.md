@@ -76,7 +76,7 @@ Enter the connection fields in the order shown by the form:
 
 Use the direct **HTTPS** webhook URL, including its token. HTTP URLs and webhook redirects are rejected. Azure TLS certificate verification is enforced; add a private CA to the platform trust store if required.
 
-Choose the email selection mode, active-message limit and mail fields. The complete field and action reference is available in the app's installed **Documentation** page ([HTML help](../readme.html)).
+Choose the email selection mode, active-message limit and mail fields. The complete field and action reference is available in the app's installed **Documentation** page ([HTML help](../app/readme.html)).
 
 Run **test connectivity** to check the Azure connection and selected quarantine read path. It does not release mail or verify every downstream integration.
 

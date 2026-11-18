@@ -662,7 +662,7 @@ def patch_ar(connector):
 
 def manifest_action_paths(identifier):
     manifest = json.loads(
-        Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
+        (Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text()
     )
     action = next(
         item for item in manifest["actions"]
@@ -1214,7 +1214,7 @@ class TestInitialize:
 
     def test_manifest_declares_python_39_and_313_explicitly(self):
         manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
+            (Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text()
         )
         assert manifest["python_version"] == "3.9, 3.13"
         assert manifest["python_version"] != "3"
@@ -1394,7 +1394,7 @@ class TestInitialize:
 
     def test_manifest_exposes_asset_dropdown_and_field_checkboxes(self):
         manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
+            (Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text()
         )
         config = manifest["configuration"]
         assert "export_mode" not in config
@@ -1404,7 +1404,7 @@ class TestInitialize:
 
     def test_manifest_groups_target_then_api_login_then_exchange(self):
         manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
+            (Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text()
         )
         config = manifest["configuration"]
         ordered = [
@@ -1439,9 +1439,7 @@ class TestInitialize:
         assert config["exchange_organization"]["required"] is False
 
     def test_manifest_has_no_exchange_credential_or_method_fields(self):
-        raw = Path(__file__).with_name(
-            "ms_quarantine_for_splunk_soar.json"
-        ).read_text()
+        raw = (Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text()
         manifest = json.loads(raw)
         config = manifest["configuration"]
         assert not [key for key in config if key.startswith("exchange_")
@@ -1454,7 +1452,7 @@ class TestInitialize:
 
     def test_manifest_declares_optional_on_poll_configuration(self):
         manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
+            (Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text()
         )
         config = manifest["configuration"]
         assert "enable_on_poll_ingestion" not in config
@@ -1509,7 +1507,7 @@ class TestInitialize:
 
     def test_manifest_declares_validated_offline_runtime_contract(self):
         manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
+            (Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text()
         )
         assert manifest["min_phantom_version"] == "8.5.0"
         assert manifest["python_version"] == "3.9, 3.13"
@@ -1562,7 +1560,7 @@ class TestInitialize:
 
     def test_removed_legacy_action_cannot_dispatch_or_mutate_state(self, monkeypatch):
         manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
+            (Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text()
         )
         assert {item["identifier"] for item in manifest["actions"]} == {
             "test_connectivity", "on_poll", "on_es_poll",
@@ -3644,8 +3642,7 @@ class TestList:
             assert c._handle_list_quarantine_requests(param) == APP_SUCCESS
         assert bodies[0]["page_size"] == 2
         assert ar.get_summary()["max_results"] == 2
-        manifest = json.loads(Path(__file__).with_name(
-            "ms_quarantine_for_splunk_soar.json").read_text())
+        manifest = json.loads((Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text())
         assert all(item["identifier"] != "list_quarantine_requests" for item in manifest["actions"])
 
 
@@ -4858,7 +4855,7 @@ class TestDeny:
         """Release uses Identity/ReleaseToAll; deny keeps plural ActionType."""
         from pathlib import Path
 
-        runbook = Path(__file__).with_name("runbook.ps1").read_text()
+        runbook = (Path(__file__).resolve().parents[2] / "runbook" / "runbook.ps1").read_text()
         assert (
             "Release-QuarantineMessage `\n"
             "                    -Identity $Identity `\n"
@@ -6902,7 +6899,7 @@ class TestRunbookExportContract:
 
     @staticmethod
     def _runbook():
-        return Path(__file__).with_name("runbook.ps1").read_text()
+        return (Path(__file__).resolve().parents[2] / "runbook" / "runbook.ps1").read_text()
 
     @staticmethod
     def _integer_constant(runbook, name):
@@ -6920,7 +6917,7 @@ class TestRunbookExportContract:
     def test_versions_and_limits_are_in_sync(self):
         runbook = self._runbook()
         manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
+            (Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text()
         )
         assert manifest["app_version"] == "3.7.4"
         assert '$RunbookVersion           = "3.4.5"' in runbook
@@ -6967,7 +6964,7 @@ class TestRunbookExportContract:
     def test_managed_identity_resource_path_is_never_persisted(self):
         runbook = self._runbook()
         manifest = json.loads(
-            Path(__file__).with_name("ms_quarantine_for_splunk_soar.json").read_text()
+            (Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text()
         )
         assert "xms_mirid" not in runbook
         assert "managed_identity_resource_id" not in runbook
