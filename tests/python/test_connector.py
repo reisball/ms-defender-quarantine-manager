@@ -85,7 +85,7 @@ class _BaseConnector:
     def get_asset_id(self):          return self._asset_id
     def is_poll_now(self):           return self._is_poll_now
     def get_state_file_path(self):   return self._state_file_path
-    def get_app_json(self):          return {"app_version": "3.7.4"}
+    def get_app_json(self):          return {"app_version": json.loads((Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text())["app_version"]}
     def save_progress(self, msg):    pass
     def set_status(self, s, m=""):   return s
     def add_action_result(self, ar): self._action_results.append(ar); return ar
@@ -6919,8 +6919,7 @@ class TestRunbookExportContract:
         manifest = json.loads(
             (Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text()
         )
-        assert manifest["app_version"] == "3.7.4"
-        assert '$RunbookVersion           = "3.4.5"' in runbook
+        assert re.search(r'(?m)^\$RunbookVersion\s*=\s*"([^"]+)"$', runbook).group(1) == manifest["app_version"]
         assert "$PostconditionMaxAttempts = 7" in runbook
         assert MAX_DIAGNOSTIC_TRACE_RECORDS == 25
         assert MAX_RBAC_ROLE_GROUP_INSPECTIONS == 20
@@ -7010,7 +7009,8 @@ class TestRunbookExportContract:
             runbook,
         ).group(1)
         assert source_revision == f"sha256:{digest}"
-        assert build_id == f"ms-quarantine-for-splunk-soar-runbook-3.4.5+sha256.{digest}"
+        version = re.search(r'(?m)^\$RunbookVersion\s*=\s*"([^"]+)"$', runbook).group(1)
+        assert build_id == f"ms-quarantine-for-splunk-soar-runbook-{version}+sha256.{digest}"
 
     def test_cmdlet_metadata_is_collected_after_exchange_connection(self):
         runbook = self._runbook()

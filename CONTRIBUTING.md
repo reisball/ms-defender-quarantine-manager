@@ -30,6 +30,19 @@ python tools/stamp_runbook.py --check
 
 See [CI and build checks](docs/ci.md) for the Python matrix, complete PowerShell contracts and deterministic app/runbook packaging. Offline checks and successful package creation do not replace [deployment validation](docs/validation.md).
 
+## Shared release version
+
+App and runbook use one release version, even when only one component changes. The manifest's `app_version` in `app/ms_quarantine_for_splunk_soar.json` is authoritative. After changing it, synchronize the runbook version and fingerprint, regenerate installed help, then check both:
+
+```bash
+python3 tools/stamp_runbook.py --write
+python3 tools/render_readme.py
+python3 tools/stamp_runbook.py --check
+python3 tools/render_readme.py --check
+```
+
+For each new `CHANGELOG.md` entry, use one shared version heading with separate `### App` and `### Runbook` sections. Write `No changes` in an unchanged component's section. Preserve historical version facts.
+
 ## Change expectations
 
 - Cover changed behavior and relevant failure paths. Keep runtime code, tests and operating documentation consistent.

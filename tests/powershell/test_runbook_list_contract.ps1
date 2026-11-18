@@ -232,8 +232,9 @@ if ($complete.Count -eq 0) {
     $result = $trailer
 }
 
-if ($result.runbook_version -ne "3.4.5") {
-    throw "Expected runbook_version=3.4.5, got '$($result.runbook_version)'."
+$expectedVersion = (Get-Content (Join-Path $PSScriptRoot "../../app/ms_quarantine_for_splunk_soar.json") -Raw | ConvertFrom-Json).app_version
+if ($result.runbook_version -ne $expectedVersion) {
+    throw "Expected runbook_version=$expectedVersion, got '$($result.runbook_version)'."
 }
 if ($result.count -ne $MessageCount) {
     throw "Expected count=$MessageCount, got '$($result.count)'."

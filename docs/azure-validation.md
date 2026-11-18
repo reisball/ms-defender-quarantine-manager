@@ -11,7 +11,7 @@ following validation is completed in a non-production Automation Account.
 
 ## Required environment
 
-- The exact candidate app/runbook hashes; paired Runbook 3.4.5,
+- The exact candidate app/runbook hashes; paired Runbook 3.7.4,
   imported and published only in the approved test account; use release-kit
   checksums and executable version/fingerprints.
 - The exact production-intended PowerShell runtime and ExchangeOnlineManagement

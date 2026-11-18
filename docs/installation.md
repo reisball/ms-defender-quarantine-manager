@@ -1,6 +1,6 @@
 # Installation and configuration
 
-App **3.7.4** / companion Runbook **3.4.5**. [Documentation index](README.md).
+App **3.7.4** / companion Runbook **3.7.4**. [Documentation index](README.md).
 
 ## Requirements
 
@@ -18,7 +18,7 @@ The app manifest declares SOAR 8.5.0 as its minimum and Python 3.9/3.13 runtimes
 
 1. Create an Automation Account and enable its system-assigned Managed Identity.
 2. Add ExchangeOnlineManagement to the account's PowerShell runtime. Verify the runtime can connect to Exchange Online with Managed Identity.
-3. Import and publish `ms-quarantine-for-splunk-soar-runbook-3.4.5.ps1`.
+3. Import and publish `ms-quarantine-for-splunk-soar-runbook-3.7.4.ps1`.
 4. Create a webhook for the runbook and copy its URL when Azure displays it.
 5. Set the `ExchangeOrganization` Automation Variable to your tenant domain, such as `contoso.onmicrosoft.com`, or provide that value in the SOAR asset. The asset value takes precedence.
 

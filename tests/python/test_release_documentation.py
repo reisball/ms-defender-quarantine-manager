@@ -134,7 +134,8 @@ def test_new_product_identity_and_packaged_entrypoints():
     assert manifest["name"] == "MS Quarantine for Splunk SOAR"
     assert manifest["package_name"] == "phantom_ms_quarantine_for_splunk_soar"
     assert UUID(manifest["appid"]).version == 4
-    assert manifest["app_version"] == "3.7.4"
+    assert len(manifest["app_version"].split(".")) == 3
+    assert all(part.isdigit() for part in manifest["app_version"].split("."))
     for field in ("main_module", "logo", "logo_dark"):
         assert manifest[field].startswith("ms_quarantine_for_splunk_soar")
         assert (APP_DIR / manifest[field]).is_file()

@@ -10,7 +10,7 @@ Include affected versions, expected and observed behavior, impact, and a minimal
 
 ## Maintenance scope
 
-The current source line is App 3.7.4 with Runbook 3.4.5. Older versions do not have a guaranteed backport policy. There is no guaranteed response time or commercial support SLA.
+The current source line is App 3.7.4 with Runbook 3.7.4. Older versions do not have a guaranteed backport policy. There is no guaranteed response time or commercial support SLA.
 
 A source release, an offline test result and acceptance on a particular SOAR/Azure/Exchange deployment are different evidence. Follow the [deployment checklist](docs/validation.md) for your environment.
 

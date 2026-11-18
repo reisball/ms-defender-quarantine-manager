@@ -301,7 +301,8 @@ def test_paired_runbook_version_and_fingerprint_are_current():
     checked = subprocess.run([sys.executable, str(root / "tools/stamp_runbook.py"), "--check"],
                              cwd=root, capture_output=True, text=True)
     assert checked.returncode == 0, checked.stdout + checked.stderr
-    assert "runbook_version=3.4.5" in checked.stdout
+    version = json.loads((root / "app/ms_quarantine_for_splunk_soar.json").read_text())["app_version"]
+    assert f"runbook_version={version}" in checked.stdout
 
 
 def test_nested_attached_email_not_extracted_twice():

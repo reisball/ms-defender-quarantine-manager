@@ -24,7 +24,7 @@ Intake examines the first 50 matching source candidates; it is not a complete pa
 
 ## Get started
 
-The current source version is **App 3.7.4**, paired with **Runbook 3.4.5**. The runbook is deployed separately; installing the SOAR app does not update Azure.
+App and runbook share the current source version **3.7.4**. The runbook is deployed separately; installing the SOAR app does not update Azure.
 
 1. Follow [installation](docs/installation.md) to configure Azure identity, the runbook and the SOAR asset.
 2. Select `release_requested` or `needs_review`, configure one ingesting asset per tenant, and start with a small active-message limit.

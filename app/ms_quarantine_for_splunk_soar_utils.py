@@ -1055,7 +1055,7 @@ class MSQuarantineForSplunkSOARUtils:
             raise AutomationError(
                 "Azure Automation job output exceeded the 1 MiB stream limit. "
                 "Use the protocol minimum 3.3.4 runbook or newer for bounded list/chunked export "
-                "protocol (recommended pair: App 3.7.4 / Runbook 3.4.5) and "
+                "protocol (recommended pair: matching app/runbook release) and "
                 "retry the action."
             )
 
@@ -1879,7 +1879,7 @@ class MSQuarantineForSplunkSOARUtils:
                 "Identity-only Exchange connection and selected mode, so "
                 "no irreversible action was sent and no subsequent list "
                 f"was sent. Publish Runbook {required_version} or newer (protocol "
-                "minimum; recommended App 3.7.4 / Runbook 3.4.5) to the same "
+                "minimum; recommended matching app/runbook release) to the same "
                 "Automation Account first; older runbooks answer 'Unknown "
                 "action' or may still support other sign-in modes. Cause: "
                 f"{self.redact_sensitive_text(exc)}"
@@ -1954,7 +1954,7 @@ class MSQuarantineForSplunkSOARUtils:
                 "asset selection mode first; a newer runbook does not change "
                 "stored job output. For new operations, verify protocol minimum "
                 "Runbook 3.4.3 or newer and matching mode; recommended pair: "
-                "App 3.7.4 / Runbook 3.4.5. No selection is inferred."
+                "matching app/runbook release. No selection is inferred."
             )
 
     def _validate_config_check_result(self, result: dict) -> None:
@@ -1968,7 +1968,7 @@ class MSQuarantineForSplunkSOARUtils:
                 "Runbook protocol error: config_check result comes from "
                 f"runbook {version}; the Managed Identity-only Exchange "
                 "connection requires Runbook 3.4.2 or newer (protocol minimum; "
-                "recommended pair: App 3.7.4 / Runbook 3.4.5)."
+                "recommended pair: matching app/runbook release)."
             )
         if (
             result.get("status") != "verified"
@@ -2851,7 +2851,7 @@ class MSQuarantineForSplunkSOARUtils:
                 "Runbook protocol error: release/deny requires Runbook "
                 "3.4.2 or newer (Managed Identity-only Exchange "
                 f"connection); received {result.get('runbook_version')}. "
-                "This is the protocol minimum; recommended pair: App 3.7.4 / Runbook 3.4.5."
+                "This is the protocol minimum; recommended pair: matching app/runbook release."
             )
 
         response_action = result.get("action")

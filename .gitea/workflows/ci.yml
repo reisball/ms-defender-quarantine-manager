@@ -377,7 +377,7 @@ jobs:
           result = check["result"]
           assert result["status"] == "verified"
           assert result["config_contract"] == "exchange_connection_v1"
-          assert result["runbook_version"] == "3.4.5"
+          assert result["runbook_version"] == json.load(open("app/ms_quarantine_for_splunk_soar.json"))["app_version"]
           assert result["exchange_auth_method"] == "ManagedIdentity"
           assert result["exchange_auth_method_source"] == "webhook"
           assert result["exchange_organization"] == "hook.onmicrosoft.com"
@@ -852,7 +852,7 @@ jobs:
               nonterminating_error["runbook_version"],
               release_precondition["runbook_version"],
               deny_precondition["runbook_version"],
-          } == {"3.4.5"}
+          } == {json.load(open("app/ms_quarantine_for_splunk_soar.json"))["app_version"]}
           for result in (
               release,
               deny,
@@ -1107,7 +1107,7 @@ jobs:
           assert result["identity"] == result["observed_identity"]
           assert result["observed_release_status"] == "Requested"
           assert result["inspection_error"] == ""
-          assert result["runbook_version"] == "3.4.5"
+          assert result["runbook_version"] == json.load(open("app/ms_quarantine_for_splunk_soar.json"))["app_version"]
           assert result["runbook_source_revision"]
           assert result["runbook_build_id"]
           assert result["powershell_version"]
@@ -1353,7 +1353,7 @@ jobs:
           result = json.loads(sys.argv[1])
           assert result["error"] is True
           assert result["action"] == "unknown"
-          assert result["runbook_version"] == "3.4.5"
+          assert result["runbook_version"] == json.load(open("app/ms_quarantine_for_splunk_soar.json"))["app_version"]
           assert result["runbook_source_revision"]
           assert result["runbook_build_id"]
           assert "No WebhookData" in result["message"]
