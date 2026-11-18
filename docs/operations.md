@@ -70,4 +70,4 @@ Use the [deployment checklist](validation.md) to verify your own connection, ing
 
 For support, provide app/runbook and SOAR/ES versions, the selection mode, sanitized action errors and Azure job IDs. Do not include client secrets, webhook tokens or raw message contents.
 
-Developer instructions are in [CONTRIBUTING.md](../CONTRIBUTING.md); release changes are in [CHANGELOG.md](../CHANGELOG.md).
+Developer instructions are in [CONTRIBUTING.md](../CONTRIBUTING.md); release changes are in [GitHub Releases](https://github.com/reisball/ms-quarantine-for-splunk-soar/releases).

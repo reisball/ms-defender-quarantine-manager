@@ -4,7 +4,7 @@
 
 MS Quarantine for Splunk SOAR imports quarantined email through an Azure Automation runbook, preserves the original EML and attachments in the SOAR Vault, and prepares one container per message.
 
-[Documentation](docs/README.md) · [Installation](docs/installation.md) · [Operation](docs/operations.md) · [Changelog](CHANGELOG.md)
+[Documentation](docs/README.md) · [Installation](docs/installation.md) · [Operation](docs/operations.md) · [Releases](https://github.com/reisball/ms-quarantine-for-splunk-soar/releases)
 
 ## Why MS Quarantine for Splunk SOAR?
 
