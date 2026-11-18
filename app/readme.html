@@ -48,6 +48,8 @@ prove an empty backlog; no pagination or stable ordering is promised.</p>
 <code>needs_review</code> means <code>NotReleased</code>. Needs review is explicit
 opt-in and may process mail without a recipient request. Check your tenant's Deny eligibility before using it with NotReleased messages. A mail intentionally left unchanged can occupy
 a slot indefinitely.</p>
+<p>New SOAR events are named after the email subject, without a prefix;
+mail without a subject uses <code>[No subject]</code>.</p>
 <p>Original email and attachments are saved automatically to the container's
 Vault. Selected mail fields are always added as artifacts, using the chosen
 combined/separate layout. The combined overview is named after the email subject

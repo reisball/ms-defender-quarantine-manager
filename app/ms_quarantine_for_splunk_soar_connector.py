@@ -3510,9 +3510,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             "releaseStatus": raw_data["release_status"],
             "workItemId": work_item_id,
         }
-        name = "Quarantine release request"
-        if subject:
-            name = f"{name}: {subject}"
+        name = subject or "[No subject]"
         return {
             "name": name,
             "description": (

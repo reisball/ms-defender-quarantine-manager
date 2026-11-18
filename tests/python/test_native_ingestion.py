@@ -169,6 +169,36 @@ def test_ten_then_three_terminal_refill_without_callbacks(tmp_path, target, mode
     assert not any(x[0] in {"release", "deny"} for x in c.calls)
 
 
+@pytest.mark.parametrize("subject,expected", [
+    ("Meeting notes", "Meeting notes"),
+    ("RE: [EXTERNAL] Prüfung – FW: Plan?", "RE: [EXTERNAL] Prüfung – FW: Plan?"),
+    ("x" * 260, "x" * 240),
+    ("", "[No subject]"),
+    ("   ", "[No subject]"),
+    (None, "[No subject]"),
+])
+def test_container_subject_name_preserves_request_artifact_and_dedup(tmp_path, target, subject, expected):
+    c = setup(tmp_path, target, limit=1)
+    if subject is None:
+        c.candidates[0].pop("Subject", None)
+    else:
+        c.candidates[0]["Subject"] = subject
+    status, ar = poll(c)
+    assert status == t.APP_SUCCESS, ar.get_message()
+    assert len(c._saved_containers) == 1
+    container = c._saved_containers[0]["container"]
+    assert container["name"] == expected
+    request = container["artifacts"][0]
+    assert request["name"] == "Quarantine release request"
+    assert request["cef"]["emailSubject"] == (subject or "").strip()[:240]
+    assert request["cef"]["quarantineIdentity"] == c.candidates[0]["Identity"]
+    assert request["source_data_identifier"] == container["source_data_identifier"] + "-message"
+    assert request["run_automation"] is False
+    assert container["run_automation"] is False
+    assert poll(c)[0] == t.APP_SUCCESS
+    assert len(c._saved_containers) == 1
+
+
 def test_full_window_has_no_extra_list_or_export(tmp_path, target):
     c = setup(tmp_path, target)
     assert poll(c)[0] == t.APP_SUCCESS

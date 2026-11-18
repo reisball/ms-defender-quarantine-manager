@@ -38,6 +38,8 @@ For SOAR, the final ready artifact enables automation. Configure the intended ac
 
 ### Data available to SOAR playbooks
 
+New SOAR containers/events are named after the email subject, without a prefix. Emails without a subject use `[No subject]`. Artifact names and ES finding titles are unchanged.
+
 The ready artifact contains:
 
 - `cef.ingestionReady=true`
