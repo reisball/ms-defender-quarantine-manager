@@ -170,12 +170,12 @@ def test_ten_then_three_terminal_refill_without_callbacks(tmp_path, target, mode
 
 
 @pytest.mark.parametrize("subject,expected", [
-    ("Meeting notes", "Subject: Meeting notes"),
-    ("RE: [EXTERNAL] Prüfung – FW: Plan?", "Subject: RE: [EXTERNAL] Prüfung – FW: Plan?"),
-    ("x" * 260, "Subject: " + "x" * 240),
-    ("", "Quarantine release request"),
-    ("   ", "Quarantine release request"),
-    (None, "Quarantine release request"),
+    ("Meeting notes", "Meeting notes"),
+    ("RE: [EXTERNAL] Prüfung – FW: Plan?", "RE: [EXTERNAL] Prüfung – FW: Plan?"),
+    ("x" * 260, "x" * 240),
+    ("", "[No subject]"),
+    ("   ", "[No subject]"),
+    (None, "[No subject]"),
 ])
 def test_container_subject_name_preserves_request_artifact_and_dedup(tmp_path, target, subject, expected):
     c = setup(tmp_path, target, limit=1)
