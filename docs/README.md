@@ -20,7 +20,7 @@ Start with [installation](installation.md), then validate the configured workflo
 - [Contributing](../CONTRIBUTING.md)
 - [CI and build checks](ci.md)
 - [Publication and package contents](publication.md)
-- [Version history](../CHANGELOG.md)
+- [GitHub Releases](https://github.com/reisball/ms-quarantine-for-splunk-soar/releases)
 - [Generated installed help](../app/readme.html)
 
 ## Historical design

@@ -41,7 +41,11 @@ python3 tools/stamp_runbook.py --check
 python3 tools/render_readme.py --check
 ```
 
-For each new `CHANGELOG.md` entry, use one shared version heading with separate `### App` and `### Runbook` sections. Write `No changes` in an unchanged component's section. Preserve historical version facts.
+Starting with 3.7.5, publish release notes in [GitHub Releases](https://github.com/reisball/ms-quarantine-for-splunk-soar/releases); do not maintain a separate changelog file. Earlier changelog history is not migrated.
+
+Build each release's notes from the merged pull requests included since the preceding release. For 3.7.5, use the changes collected after the existing 3.7.4 baseline. GitHub-generated notes may serve as a draft; edit them into a concise, user-facing summary. Use separate `App` and `Runbook` sections and write `No changes` for an unchanged component. Verify the notes against the actual release diff.
+
+Collect changes through issues and pull requests while preparing a release. Update both component versions together when preparing the agreed release; merging a pull request does not itself publish a release.
 
 ## Change expectations
 
