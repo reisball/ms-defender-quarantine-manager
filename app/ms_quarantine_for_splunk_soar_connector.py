@@ -1140,9 +1140,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             if cef_data:
                 subject = (values.get("subject") or [""])[0]
                 preview = self._bounded_artifact_text(subject, 120)
-                name = "Quarantined email metadata"
-                if preview:
-                    name = f"{name}: {preview}"
+                name = preview or "No subject"
                 specs.append({
                     "name": name,
                     "identifier": self._artifact_identifier(
