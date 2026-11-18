@@ -10,6 +10,8 @@ MS Quarantine for Splunk SOAR imports quarantined email through an Azure Automat
 
 Automate your Microsoft Defender quarantine workflow in Splunk SOAR—from collecting quarantined messages to investigation, approval and release or denial. Bring email evidence and response actions together so your team can focus on decisions instead of manual handoffs.
 
+Use Splunk SOAR for additional analysis—for example, with Splunk Attack Analyzer or Automated Threat Analysis (a feature of Splunk Enterprise Security). A workflow could analyze suspicious URLs and attachments, enrich sender domains with threat intelligence, and present the results to an analyst before a release or denial decision.
+
 ## Is it for you?
 
 This project is for teams operating Microsoft Defender quarantine, Azure Automation and native Splunk SOAR, with optional native ES ingestion.
