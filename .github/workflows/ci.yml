@@ -10,7 +10,8 @@ permissions:
 jobs:
   test:
     name: Python ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    # Python 3.9 has no setup-python build for newer ubuntu-latest images.
+    runs-on: ${{ matrix.python-version == '3.9' && 'ubuntu-22.04' || 'ubuntu-latest' }}
     env:
       PYTHONPATH: app:tests/python
     strategy:

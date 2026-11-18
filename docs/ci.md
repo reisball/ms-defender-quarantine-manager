@@ -20,7 +20,7 @@ The pytest suite in `tests/python/` covers the connector, ingestion, selection, 
 
 ## GitHub Actions and PowerShell
 
-[GitHub workflow](../.github/workflows/ci.yml) runs the Python matrix and, on Python 3.13, the complete PowerShell contract sequence. PowerShell is provided by the GitHub-hosted Ubuntu runner and checked before use. Actions are pinned to immutable commits and the workflow has read-only repository permission.
+[GitHub workflow](../.github/workflows/ci.yml) runs the Python matrix and, on Python 3.13, the complete PowerShell contract sequence. The Python 3.9 job uses `ubuntu-22.04`, where `setup-python` provides a compatible build; Python 3.13 uses `ubuntu-latest`. PowerShell is provided by the GitHub-hosted Ubuntu runner and checked before use. Actions are pinned to immutable commits and the workflow has read-only repository permission.
 
 The PowerShell scripts live in `tests/powershell/` and exercise `runbook/runbook.ps1`. The PowerShell sequence includes inline assertions and parameter variants for export/base64/list/error transport, Managed Identity and rejected legacy authentication, Release/Deny preconditions and postconditions, read-only diagnostics/RBAC, and selection modes. Running one script or only pytest does not replace the sequence.
 
