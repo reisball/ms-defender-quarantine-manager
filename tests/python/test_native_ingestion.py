@@ -152,6 +152,10 @@ def test_ten_then_three_terminal_refill_without_callbacks(tmp_path, target, mode
     assert status == t.APP_SUCCESS, ar.get_message()
     assert ar.get_summary()["active_messages"] == 10
     assert len(c._saved_containers) == 10
+    overviews = [a for a in c.artifacts.values() if "emailSubject" in a["cef"]]
+    assert len(overviews) == 10
+    assert all(a["name"] == "Synthetic quarantine" for a in overviews)
+    assert all(a["name"] == "Original quarantined email" for a in c.artifacts.values() if a["cef"].get("isOriginalEmail"))
     assert len([e for e in c.events if e[0] in {"publish", "es_publish"}]) == 10
     assert all(a["run_automation"] is False for a in c.artifacts.values()) if target == "es" else True
     for index, row in enumerate(list(c._ingest_records().values())[:3]):

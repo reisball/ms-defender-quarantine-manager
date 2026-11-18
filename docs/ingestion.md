@@ -49,7 +49,7 @@ Original-email and attachment file artifacts include `quarantineIdentity`, `work
 
 The initial `Quarantine release request` artifact supplies original message context. Correlate it with the ready artifact's work-item and quarantine identity when needed. Selected metadata artifacts contain only the selected fields; do not assume every artifact carries all correlation fields.
 
-Mail-field settings select decoded headers and a combined or separate artifact layout. Files are saved automatically. Inline attachments and attached EML messages are included. Duplicate filenames receive stable prefixes; path components and control characters are removed. The original Vault EML is authoritative.
+Mail-field settings select decoded headers and a combined or separate artifact layout. The combined overview is named after the email subject, without a prefix (`No subject` if absent). Field selections control its content, not its name; other artifact names are unchanged. Files are saved automatically. Inline attachments and attached EML messages are included. Duplicate filenames receive stable prefixes; path components and control characters are removed. The original Vault EML is authoritative.
 
 ## Enterprise Security setup
 

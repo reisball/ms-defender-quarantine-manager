@@ -4021,6 +4021,7 @@ class TestEmailArtifactCreation:
         assert status == APP_SUCCESS
         assert len(ARTIFACT_ADDS) == 1
         artifact = ARTIFACT_ADDS[0]
+        assert artifact["name"] == "Prüfung"
         assert artifact["container"] == 1
         assert artifact["label"] == "email"
         assert artifact["artifact_type"] == "email"
@@ -4078,6 +4079,7 @@ class TestEmailArtifactCreation:
         assert {"toEmail": "bob@example.com"} in cef_rows
         assert {"toEmail": "carol@example.com"} in cef_rows
         assert {"emailSubject": "Prüfung"} in cef_rows
+        assert next(a["name"] for a in ARTIFACT_ADDS if "emailSubject" in a["cef_data"]) == "Quarantined email subject: Prüfung"
         assert {
             "emailDateRaw": "Tue, 28 Jul 2026 14:34:56 +0200",
             "emailDate": "2026-07-28T14:34:56+02:00",
@@ -4118,6 +4120,7 @@ class TestEmailArtifactCreation:
         }, eml_b64=minimal)
         assert status == APP_SUCCESS
         assert len(ARTIFACT_ADDS) == 1
+        assert ARTIFACT_ADDS[0]["name"] == "No subject"
         assert ar.get_data()[0]["missing_artifact_fields"] == (
             "to,cc,email_date"
         )
@@ -4133,6 +4136,8 @@ class TestEmailArtifactCreation:
         }, eml_b64=no_timezone)
         assert status == APP_SUCCESS
         cef = ARTIFACT_ADDS[0]["cef_data"]
+        assert ARTIFACT_ADDS[0]["name"] == "Test"
+        assert "emailSubject" not in cef
         assert cef["emailDateRaw"] == "Tue, 28 Jul 2026 14:34:56"
         assert "emailDate" not in cef
         assert "no timezone" in ar.get_data()[0]["artifact_warnings"]

@@ -92,7 +92,8 @@ opt-in and may process mail without a recipient request. Check your tenant's Den
 a slot indefinitely.</p>
 <p>Original email and attachments are saved automatically to the container's
 Vault. Selected mail fields are always added as artifacts, using the chosen
-combined/separate layout.
+combined/separate layout. The combined overview is named after the email subject
+(<code>No subject</code> if absent); field selections control its content, not its name.
 All preparation suppresses automation. SOAR publishes a final
 ready artifact only after preparation; use its <code>ingestionReady=true</code>,
 <code>quarantineIdentity</code> and original-mail <code>vaultId</code>.
