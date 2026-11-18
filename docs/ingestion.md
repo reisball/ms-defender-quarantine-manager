@@ -38,6 +38,8 @@ For SOAR, the final ready artifact enables automation. Configure the intended ac
 
 ### Data available to SOAR playbooks
 
+New SOAR containers/events are named `Subject: <email subject>`. Emails without a subject keep the existing `Quarantine release request` fallback. Artifact names and ES finding titles are unchanged.
+
 The ready artifact contains:
 
 - `cef.ingestionReady=true`

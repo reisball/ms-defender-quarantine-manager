@@ -3512,7 +3512,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
         }
         name = "Quarantine release request"
         if subject:
-            name = f"{name}: {subject}"
+            name = f"Subject: {subject}"
         return {
             "name": name,
             "description": (

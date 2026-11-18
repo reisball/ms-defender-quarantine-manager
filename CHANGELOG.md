@@ -6,6 +6,7 @@ Versions below describe source changes, not a guarantee of deployment or tenant 
 
 ### App
 
+- Name new SOAR containers/events `Subject: <email subject>`; keep artifact names, ES finding titles and the existing subjectless fallback unchanged.
 - Name the configurable combined email overview artifact after the email subject, without a prefix; keep field selections and other artifact names unchanged.
 - Remove the redundant Email import checkbox and app-level polling gate. Native Ingest Settings and Poll Now control invocation.
 - Ignore stored `enable_on_poll_ingestion` values without rewriting asset state.
