@@ -33,7 +33,7 @@ Building from source? See [development and CI](docs/ci.md). Release archives and
 
 ## Analysis workflows
 
-The [ingestion guide](docs/ingestion.md) describes how a fully prepared message is handed to automation; importing a message does not itself establish successful analysis or disposition.
+Import quarantined emails with status `Requested` (the app's `release_requested` mode) or `NotReleased` (`needs_review` mode), then hand them over to Splunk SOAR automation.
 
 ## Documentation
 
