@@ -240,3 +240,45 @@ def test_umask_and_locale_reproducibility_preserves_source_and_output_modes(sour
                 assert member.mtime == int(EPOCH)
     hashes = [{name: hashlib.sha256(data).hexdigest() for name, data in files.items()} for files in outputs]
     assert all(hashes[0] == other for other in hashes[1:])
+
+
+def test_version_bump_syncs_both_artifacts_and_rejects_split_versions(source, tmp_path):
+    output = tmp_path / "release"
+    previous = successful_release(source, output)
+    original_runbook = (source / RUNBOOK_SOURCE).read_bytes()
+    manifest_path = source / APP_SOURCES["ms_quarantine_for_splunk_soar.json"]
+    manifest = json.loads(manifest_path.read_text())
+    major, minor, patch = map(int, manifest["app_version"].split("."))
+    version = f"{major}.{minor}.{patch + 1}"
+    manifest["app_version"] = version
+    manifest_path.write_text(json.dumps(manifest, indent=4) + "\n")
+    assert_success(run(source, "python3", "tools/render_readme.py"))
+    git(source, "add", "app")
+    git(source, "commit", "-qm", "App-only bump must not ship")
+
+    checked = run(source, "python3", "tools/stamp_runbook.py", "--check")
+    assert checked.returncode != 0
+    assert "app/runbook version mismatch" in checked.stderr
+    assert (source / RUNBOOK_SOURCE).read_bytes() == original_runbook
+    result = assert_rejected_unchanged(source, output, previous)
+    assert "app/runbook version mismatch" in result.stderr
+
+    assert_success(run(source, "python3", "tools/stamp_runbook.py", "--write", "--check"))
+    synced_runbook = (source / RUNBOOK_SOURCE).read_bytes()
+    assert f'Version: {version}'.encode() in synced_runbook
+    assert f'$RunbookVersion           = "{version}"'.encode() in synced_runbook
+    assert_success(run(source, "python3", "tools/stamp_runbook.py", "--write", "--check"))
+    assert (source / RUNBOOK_SOURCE).read_bytes() == synced_runbook
+    git(source, "add", RUNBOOK_SOURCE)
+    git(source, "commit", "-qm", "Align runbook with app")
+    assert_success(build(source, output))
+    metadata = json.loads((output / "BUILD_METADATA.json").read_text())
+    assert metadata["app_version"] == metadata["runbook_version"] == version
+    runbook_file = output / f"{APP}-runbook-{version}.ps1"
+    assert runbook_file.read_bytes() == synced_runbook
+    with tarfile.open(output / f"{APP}-{version}.tgz") as archive:
+        shipped = json.load(archive.extractfile(f"{APP}/ms_quarantine_for_splunk_soar.json"))
+        assert shipped["app_version"] == version
+        help_text = archive.extractfile(f"{APP}/readme.html").read().decode()
+        assert f"Runbook {version} separately" in help_text
+    assert_success(run(output, "sha256sum", "-c", "SHA256SUMS"))

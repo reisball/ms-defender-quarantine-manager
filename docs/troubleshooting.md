@@ -1,13 +1,13 @@
 # Runbook troubleshooting
 
-Use companion Runbook 3.4.5 with App 3.7.4. Deploy it separately to Azure
+Use companion Runbook 3.7.4 with App 3.7.4. Deploy it separately to Azure
 Automation. Compare the runbook version and source fingerprint in the job
 result with the file you deployed when investigating an unexpected response.
 Exchange authentication uses the Automation Account's Managed Identity.
 
 ## Bounded disposition diagnostics
 
-Runbook 3.4.5 redacts optional warning/information/verbose streams before bounding each to 2,048 characters. Each `cmdlet_<stream>` has `<field>_original_chars` (redacted source length) and `<field>_truncated` evidence. Structured freeform error targets are also redacted before truncation. Full errors retain their existing chunked error transport; a truncated optional diagnostic is not a failed disposition. Compare actual terminal status and postcondition evidence.
+Since Runbook 3.4.5, the runbook redacts optional warning/information/verbose streams before bounding each to 2,048 characters. Each `cmdlet_<stream>` has `<field>_original_chars` (redacted source length) and `<field>_truncated` evidence. Structured freeform error targets are also redacted before truncation. Full errors retain their existing chunked error transport; a truncated optional diagnostic is not a failed disposition. Compare actual terminal status and postcondition evidence.
 
 ## Exchange sign-in evidence
 
@@ -34,7 +34,7 @@ Both actions enter `Invoke-RequestedDisposition` and follow these steps:
 
 1. `Get-QuarantineMessage` must confirm the exact identity and asset-selected
    source status: `Requested` for default `release_requested`, or `NotReleased`
-   for explicit `needs_review` with paired Runbook 3.4.5.
+   for explicit `needs_review` with paired Runbook 3.7.4.
    An already matching terminal state is idempotent (zero writes); any other
    state stops. No metadata or RBAC query precedes the write.
 2. `Invoke-QuarantineDisposition` performs the only write, exactly once, with

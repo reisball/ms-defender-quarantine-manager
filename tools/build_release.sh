@@ -67,7 +67,7 @@ VERIFY
 manifest="${build_tmp}/${app_dir_name}/ms_quarantine_for_splunk_soar.json"
 app_version=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["app_version"])' "${manifest}")
 appid=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["appid"])' "${manifest}")
-runbook_version=$(python3 tools/stamp_runbook.py --check --path "${build_tmp}/runbook.ps1" | sed -n 's/^runbook_version=//p')
+runbook_version=$(python3 tools/stamp_runbook.py --check --manifest "${manifest}" --path "${build_tmp}/runbook.ps1" | sed -n 's/^runbook_version=//p')
 # Normalize only staging, never the checkout or caller-owned output directory.
 find "${build_tmp}/${app_dir_name}" -type d -exec chmod 0755 {} +
 find "${build_tmp}/${app_dir_name}" -type f -exec chmod 0644 {} +

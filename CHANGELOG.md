@@ -1,14 +1,20 @@
 # Changelog
 
-Versions below describe source changes, not a guarantee of deployment or tenant acceptance. App and Azure runbook are separate artifacts.
+Versions below describe source changes, not a guarantee of deployment or tenant acceptance. App and Azure runbook are separate artifacts. Starting with 3.7.4, both use the same version and are versioned together. Changes are listed separately; an unchanged component is marked **No changes**. The initial runbook alignment from 3.4.5 to 3.7.4 changes version metadata only.
 
-## App 3.7.4 / Runbook 3.4.5 — current source, unreleased
+## 3.7.4 — current source, unreleased
+
+### App
 
 - Remove the redundant Email import checkbox and app-level polling gate. Native Ingest Settings and Poll Now control invocation.
 - Ignore stored `enable_on_poll_ingestion` values without rewriting asset state.
 - Preserve ES target validation, selection modes, active-message limits and the paired runbook.
 - Update installed help and user guides for external users.
-- Prepare public documentation and GitHub CI with the explicitly renamed MS Quarantine for Splunk SOAR identity, a new UUID, package/module names and matching runbook build provenance. Product versions remain unchanged. The repository distributes only the app and companion runbook, with their documentation and tests; playbooks are not included.
+- Prepare public documentation and GitHub CI with the explicitly renamed MS Quarantine for Splunk SOAR identity, a new UUID, package/module names and matching runbook build provenance. The repository distributes only the app and companion runbook, with their documentation and tests; playbooks are not included.
+
+### Runbook
+
+- No changes.
 
 ## App 3.7.3 / Runbook 3.4.5 — webhook transport
 

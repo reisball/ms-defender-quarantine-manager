@@ -55,7 +55,7 @@ convert assets belonging to another app. Configure one ingesting asset per tenan
 pause previous intake before a controlled replacement.</p>
 <h2>Requirements and setup</h2>
 <ol>
-<li>Deploy the companion Azure Automation Runbook 3.4.5 separately. Enable the
+<li>Deploy the companion Azure Automation Runbook """ + escape(manifest["app_version"]) + """ separately. Enable the
 Automation Account's system-assigned Managed Identity and install the
 ExchangeOnlineManagement module in its PowerShell runtime.</li>
 <li>Grant the Managed Identity <code>Exchange.ManageAsApp</code> and the

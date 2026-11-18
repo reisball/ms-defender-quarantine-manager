@@ -4,7 +4,7 @@ Use controlled test messages to verify the configuration before enabling regular
 
 ## Before the first import
 
-- Install App 3.7.4 and deploy companion Runbook 3.4.5 separately. Record the versions and use the release checksums to verify the files.
+- Install App 3.7.4 and deploy companion Runbook 3.7.4 separately. Record the versions and use the release checksums to verify the files.
 - Use native SOAR execution. Automation Broker is unsupported; SOAR Cloud compatibility has not been verified.
 - Verify Azure job access for the App Registration and Exchange permissions for the Automation Account Managed Identity separately.
 - Configure one ingesting asset per tenant, select the source mode and set a small active-message limit.
