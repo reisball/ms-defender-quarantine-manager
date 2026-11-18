@@ -18,8 +18,6 @@ This project is for teams operating Microsoft Defender quarantine, Azure Automat
 
 Azure job access and Exchange permissions are separate prerequisites. See [installation and configuration](docs/installation.md).
 
-A tracked message is complete when Microsoft Defender reports `Released` or `Denied`. See [operations](docs/operations.md).
-
 ## Get started
 
 The runbook is deployed separately; installing the SOAR app does not update Azure.
