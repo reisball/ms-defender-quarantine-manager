@@ -312,7 +312,7 @@ def test_status_sweep_rotates_after_slow_or_failed_reads(tmp_path, target, monke
     assert c._ingest_records()[next_row["key"]]["terminal"] is True
 
 
-def test_poll_now_retry_gets_budget_before_slow_status_sweep(tmp_path, target, monkeypatch):
+def test_poll_now_retry_has_import_budget_after_slow_status_sweep(tmp_path, target, monkeypatch):
     import ms_quarantine_for_splunk_soar_ingestion as ingestion
     c = setup(tmp_path, target, limit=1)
     key = seed(c)
@@ -327,10 +327,85 @@ def test_poll_now_retry_gets_budget_before_slow_status_sweep(tmp_path, target, m
     c._is_poll_now = True
     status, ar = poll(c)
     assert status == t.APP_SUCCESS, ar.get_message()
-    assert [action for action, *_ in c.calls] == ["list", "export"]
+    assert [action for action, *_ in c.calls] == ["reconcile", "list", "export"]
     assert c._ingest_records()[key]["status"] == "completed"
     assert ar.get_summary()["active_messages"] == 1
     c._is_poll_now = False
     c.calls.clear()
     poll(c)
     assert c.calls[0][0] == "reconcile"
+
+
+@pytest.mark.parametrize('terminal_status', ['Released', 'Denied'])
+def test_manual_only_poll_retires_failed_mail_outside_list_and_refills(tmp_path, target, terminal_status):
+    c = setup(tmp_path, target, limit=1)
+    key = seed(c)
+    old_identity = c._ingest_records()[key]['identity']
+    c.observed[old_identity] = terminal_status
+    c.candidates = c.candidates[1:]
+    c._is_poll_now = True
+    status, ar = poll(c)
+    assert status == t.APP_SUCCESS, ar.get_message()
+    assert c._ingest_records()[key]['terminal'] is True
+    assert ar.get_summary()['terminal_observed'] == 1
+    assert ar.get_summary()['active_messages'] == 1
+    assert ar.get_summary()['messages_published'] == 1
+    assert not any(action == 'export' and identity == old_identity for action, identity, _ in c.calls)
+    exports = sum(action == 'export' for action, *_ in c.calls)
+    status, ar = poll(c)  # Still manual; no scheduled poll intervenes.
+    assert status == t.APP_SUCCESS, ar.get_message()
+    assert sum(action == 'export' for action, *_ in c.calls) == exports
+
+
+def test_manual_only_mixed_failed_successful_and_new_mail(tmp_path, target):
+    c = setup(tmp_path, target, limit=2)
+    failed_identity = c.candidates[0]['Identity'].lower()
+    store = c._store_in_vault
+    c._store_in_vault = lambda content, identity, **kwargs: (
+        (False, 'temporary storage error') if identity == failed_identity
+        else store(content, identity, **kwargs))
+    c._is_poll_now = True
+    assert poll(c)[0] == t.APP_ERROR
+    rows = list(c._ingest_records().values())
+    completed = next(r for r in rows if r['status'] == 'completed')
+    c.observed[completed['identity']] = 'Released'
+    c._store_in_vault = store
+    c.calls.clear()
+    status, ar = poll(c)
+    assert status == t.APP_SUCCESS, ar.get_message()
+    assert ar.get_summary()['terminal_observed'] == 1
+    assert ar.get_summary()['messages_published'] == 2
+    exported = [identity for action, identity, _ in c.calls if action == 'export']
+    assert exported[0] == failed_identity
+    assert completed['identity'] not in exported
+    assert ar.get_summary()['active_messages'] == 2
+    c.calls.clear()
+    assert poll(c)[0] == t.APP_SUCCESS
+    assert not any(action == 'export' for action, *_ in c.calls)
+
+
+def test_manual_retry_survives_slow_failed_status_without_assuming_free_slot(tmp_path, target, monkeypatch):
+    import ms_quarantine_for_splunk_soar_ingestion as ingestion
+    c = setup(tmp_path, target, limit=1)
+    key = seed(c)
+    identity = c._ingest_records()[key]['identity']
+    now = [0]
+    monkeypatch.setattr(ingestion.time, 'monotonic', lambda: now[0])
+    run = c._utils.run_action
+    def slow(action, **kwargs):
+        if action == 'reconcile':
+            now[0] += 601
+            c.calls.append((action, kwargs['identity'], {}))
+            raise AutomationError('temporary status read failure')
+        return run(action, **kwargs)
+    c._utils.run_action = slow
+    c._is_poll_now = True
+    status, ar = poll(c)
+    assert status == t.APP_ERROR  # Retain real status-read failure despite import success.
+    assert 'temporary status read failure' in ar.get_message()
+    assert ar.get_summary()['terminal_observed'] == 0
+    assert ar.get_summary()['active_messages'] == 1
+    assert ar.get_summary()['messages_published'] == 1
+    assert [(action, ident) for action, ident, _ in c.calls if action == 'export'] == [('export', identity)]
+    assert c._ingest_records()[key]['status'] == 'completed'
+    assert c._ingest_records()[key]['terminal'] is False

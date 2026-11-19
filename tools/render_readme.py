@@ -206,8 +206,11 @@ inspection only when needed, not as a normal business prerequisite.</p>
 48 MiB combined decoded attachments. Import record cap: 1000 records; active
 items are not evicted. Terminal retention is configurable 1–365 days, default
 30. Retention expiry can allow reappearing source records to be admitted again;
-there is no global exactly-once guarantee. A 600-second between-call poll budget
-defers unattempted candidates; one in-flight operation may run longer. Failed
+there is no global exactly-once guarantee. Scheduled polls use a 600-second
+between-call work budget. Poll Now always checks tracked statuses before intake,
+even with a paused schedule: status checks and imports each receive a separate
+600-second work budget. This is not a ten-minute total action timeout; one
+in-flight operation may run longer than its phase budget. Failed
 attempts still require deliberate Poll Now, not a later scheduled retry.</p>
 <p>Mail and attachments may contain sensitive content or malware. Original mail
 travels from Exchange through Azure Automation to SOAR/Vault; ES receives finding

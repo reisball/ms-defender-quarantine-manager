@@ -595,18 +595,21 @@ class NativeIngestionMixin:
             with self._ingest_poll_lock():
                 records = self._ingest_begin_poll()
                 # Snapshot once: a failure during this poll is never retried in it.
+                manual_poll = self.is_poll_now()
                 retry_ids = {key for key, row in records.items()
-                             if self.is_poll_now() and row["status"] == "failed" and not row["terminal"]}
-                # Explicit retries already hold their slots. Give their Requested
-                # listing/import the poll budget instead of spending it on status
-                # reads first; the next scheduled poll resumes those observations.
-                terminal, errors = (0, []) if retry_ids else self._ingest_reconcile(records)
+                             if manual_poll and row["status"] == "failed" and not row["terminal"]}
+                terminal, errors = self._ingest_reconcile(records)
+                if manual_poll:
+                    # Manual intake must work without a later scheduled poll.
+                    # Give imports their own bounded phase after status checks;
+                    # no Azure job deadline is shortened or restarted.
+                    self._ingest_deadline = time.monotonic() + 600
                 limit = self._on_poll_container_limit(param)
                 records = self._ingest_records()
                 active = sum(not r["terminal"] for r in records.values())
                 messages = []
                 created = attempts = 0
-                if not errors and (retry_ids or active < self._on_poll_max_containers):
+                if (not errors or manual_poll) and (retry_ids or active < self._on_poll_max_containers):
                     self._ingest_budget_check()
                     self.save_progress("Listing first 50 Requested quarantine candidates.")
                     result = self._utils.run_action("list", page_size=50)

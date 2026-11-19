@@ -20,7 +20,7 @@ The app reads tracked Microsoft statuses and frees slots only after observing ex
 
 Status sweeps check the least-recently observed identities first, including after failed reads, so slow Azure jobs do not permanently starve later records. A budget-exhausted, unattempted record keeps its place for the next poll.
 
-Free slots are filled from the first 50 candidates with status `Requested`. There is no pagination or stable ordering guarantee. An empty import is not proof of an empty backlog. A scheduled poll skips failed identities. Native Poll Now considers eligible failed identities before new candidates, within the same window and poll count. When any failed, unresolved identity is retained, that manual poll spends its budget on listing/import instead of a preliminary status sweep, even if that identity is no longer in the Requested candidates. Existing slots stay counted; subsequent scheduled polls resume status checks. If the schedule is paused, Poll Now alone will not refresh these statuses or free slots after an external Release/Deny. Re-enable scheduled polling to reconcile the active window; do not clear stored state to free slots.
+Free slots are filled from the first 50 candidates with status `Requested`. There is no pagination or stable ordering guarantee. An empty import is not proof of an empty backlog. A scheduled poll skips failed identities. Native Poll Now considers eligible failed identities before new candidates, within the same window and poll count. Poll Now always checks tracked statuses first, including when the schedule is paused. Confirmed Released/Denied results free slots before intake. Status checks and listing/import each have a separate 600-second between-call work budget, so slow status reads do not consume the import phase. Individual Azure job deadlines are unchanged. A status-read error stays visible and does not free that slot; manual intake may still retry an eligible failed identity in its existing slot or use confirmed free capacity. No scheduled follow-up is required for this flow.
 
 ## Preparation and automation
 
@@ -128,6 +128,6 @@ For uncertain Release/Deny outcomes, inspect the known Azure job and use optiona
 - EML: 24 MiB; MIME: 200 parts, depth 30, 100 attachments and 48 MiB combined decoded attachment data.
 - Ingestion state: 1,000 records. Active records are never evicted; capacity errors prevent new admissions.
 - Terminal retention: 1–365 days, default 30. After expiry, a reappearing source identity may be admitted again.
-- Poll work budget: 600 seconds between calls. An in-flight operation may exceed that budget; unattempted candidates can be considered on later polls, but failed attempts need Poll Now. Individual Azure job timeout settings are separate.
+- Scheduled-poll work budget: 600 seconds between calls. Poll Now has a 600-second status phase followed by a separate 600-second import phase; these are not a ten-minute total action timeout. An in-flight operation may exceed its phase budget; unattempted candidates can be considered on later polls, but failed attempts need Poll Now. Individual Azure job timeout settings are separate.
 
 These limits apply independently of the analyzer's queue capacity. Intake does not serialize analysis across separate containers.

@@ -67,7 +67,7 @@ See [Email import](ingestion.md) and [Runbook troubleshooting](troubleshooting.m
 - MIME: up to 200 parts, 30 nesting levels, 100 attachments and 48 MiB combined decoded attachments.
 - Tracked ingestion records: up to 1,000. Active records are not evicted.
 - Terminal-entry retention: 1–365 days, default 30. A reappearing source record can be admitted again after retention expires.
-- Each poll has a 600-second between-call work budget; an in-flight operation can run longer. Unattempted candidates can be considered on later polls; failed attempts need Poll Now.
+- Scheduled polls have a 600-second between-call work budget. Poll Now always refreshes tracked statuses, then gives listing/import its own 600-second budget, even with a paused schedule. This is not a ten-minute total Poll Now timeout; an in-flight operation can run longer than its phase budget. Unattempted candidates can be considered on later polls; failed attempts need Poll Now.
 - ES headers/body are a bounded projection; the original Vault EML remains the complete source.
 
 Quarantined mail and attachments may contain sensitive data or malware. Apply platform access controls and retention policies to Azure jobs, containers, Vault files and app state. Back up configuration and state before maintenance; do not clear state to force processing to restart.
