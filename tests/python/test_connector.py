@@ -4861,8 +4861,8 @@ class TestDeny:
         declared_paths = manifest_action_paths(identifier)
         assert actual_paths <= declared_paths
 
-    def test_runbook_uses_documented_release_and_request_deny_contracts(self):
-        """Release uses Identity/ReleaseToAll; deny keeps plural ActionType."""
+    def test_runbook_uses_release_and_single_identity_deny_contracts(self):
+        """Deny uses ReleaseToAll like Release, with explicit ActionType Deny."""
         from pathlib import Path
 
         runbook = (Path(__file__).resolve().parents[2] / "runbook" / "runbook.ps1").read_text()
@@ -4873,10 +4873,12 @@ class TestDeny:
         ) in runbook
         assert (
             "Release-QuarantineMessage `\n"
-            "                    -Identities @($Identity) `\n"
+            "                    -Identity $Identity `\n"
+            "                    -ReleaseToAll `\n"
             "                    -ActionType Deny `"
         ) in runbook
         assert '-Identity "000"' not in runbook
+        assert "-Identities @($Identity)" not in runbook
         # The release/deny state machine is shared; each action must still
         # bind its own Exchange ActionType and expected terminal status.
         flow = re.search(
@@ -4918,7 +4920,7 @@ class TestDeny:
         assert "$ReleaseContractId        = \"identity_releasetoall\"" in runbook
         assert (
             "$DenyContractId           = "
-            "\"identities_actiontype_no_dummy\""
+            "\"identity_releasetoall_actiontype_deny\""
         ) in runbook
 
 

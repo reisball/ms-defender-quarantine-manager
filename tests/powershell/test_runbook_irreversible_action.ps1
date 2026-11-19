@@ -189,12 +189,14 @@ function Release-QuarantineMessage {
     )]
     param(
         [Parameter(Mandatory = $true, ParameterSetName = "Release")]
+        [Parameter(ParameterSetName = "Deny")]
         [string] $Identity,
 
-        [Parameter(Mandatory = $true, ParameterSetName = "Deny")]
+        [Parameter(ParameterSetName = "Deny")]
         [string[]] $Identities,
 
         [Parameter(ParameterSetName = "Release")]
+        [Parameter(ParameterSetName = "Deny")]
         [switch] $ReleaseToAll,
 
         [Parameter(Mandatory = $true, ParameterSetName = "Deny")]
@@ -214,7 +216,7 @@ function Release-QuarantineMessage {
     $expectedNames = if ($global:IrreversibleTestAction -eq "release") {
         @("Confirm", "ErrorAction", "Identity", "ReleaseToAll")
     } else {
-        @("ActionType", "Confirm", "ErrorAction", "Identities")
+        @("ActionType", "Confirm", "ErrorAction", "Identity", "ReleaseToAll")
     }
     if (
         ($boundNames -join ",") -ne ($expectedNames -join ",") -or
@@ -236,11 +238,10 @@ function Release-QuarantineMessage {
         }
     } else {
         if (
-            @($Identities).Count -ne 1 -or
-            $Identities[0] -ne $global:IrreversibleTestIdentity -or
+            $PSBoundParameters.ContainsKey("Identities") -or
             $ActionType -ne "Deny" -or
-            $PSBoundParameters.ContainsKey("Identity") -or
-            $ReleaseToAll.IsPresent
+            $Identity -cne $global:IrreversibleTestIdentity -or
+            -not $ReleaseToAll.IsPresent
         ) {
             throw "deny parameter contract mismatch."
         }
@@ -337,7 +338,7 @@ if ($ObservedExchangeParameterSets.IsPresent) {
         # ExchangeOnlineManagement 3.5.0 REST proxy. The overlapping optional
         # parameters are intentional and are the regression fixture.
         [CmdletBinding(
-            DefaultParameterSetName = "Identitities",
+            DefaultParameterSetName = "IdentityOnly",
             SupportsShouldProcess
         )]
         param(
@@ -393,10 +394,11 @@ if ($ObservedExchangeParameterSets.IsPresent) {
             }
         } else {
             if (
-                @($Identities).Count -ne 1 -or
-                $Identities[0] -ne $global:IrreversibleTestIdentity -or
+                $PSBoundParameters.ContainsKey("Identities") -or
                 $ActionType -ne "Deny" -or
-                $PSCmdlet.ParameterSetName -ne "Identitities"
+                $Identity -cne $global:IrreversibleTestIdentity -or
+                -not $ReleaseToAll.IsPresent -or
+                $PSCmdlet.ParameterSetName -ne "OrgReleaseToAll"
             ) {
                 throw "observed deny parameter contract mismatch."
             }
@@ -412,12 +414,14 @@ if ($AliasCommand.IsPresent) {
         )]
         param(
             [Parameter(Mandatory = $true, ParameterSetName = "Release")]
+            [Parameter(ParameterSetName = "Deny")]
             [string] $Identity,
 
-            [Parameter(Mandatory = $true, ParameterSetName = "Deny")]
+            [Parameter(ParameterSetName = "Deny")]
             [string[]] $Identities,
 
             [Parameter(ParameterSetName = "Release")]
+            [Parameter(ParameterSetName = "Deny")]
             [switch] $ReleaseToAll,
 
             [Parameter(Mandatory = $true, ParameterSetName = "Deny")]
@@ -443,11 +447,10 @@ if ($AliasCommand.IsPresent) {
         } else {
             if (
                 $PSCmdlet.ParameterSetName -ne "Deny" -or
-                @($Identities).Count -ne 1 -or
-                $Identities[0] -ne $global:IrreversibleTestIdentity -or
+                $PSBoundParameters.ContainsKey("Identities") -or
                 $ActionType -ne "Deny" -or
-                $PSBoundParameters.ContainsKey("Identity") -or
-                $ReleaseToAll.IsPresent
+                $Identity -cne $global:IrreversibleTestIdentity -or
+                -not $ReleaseToAll.IsPresent
             ) {
                 throw "aliased deny parameter contract mismatch."
             }

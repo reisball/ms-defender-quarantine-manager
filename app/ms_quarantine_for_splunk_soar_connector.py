@@ -3900,6 +3900,9 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                     "",
                 ),
             }
+            summary["cmdlet_proxy_diagnostics_status"] = details.get(
+                "cmdlet_proxy_diagnostics_status", "not_available"
+            )
             summary.update(self._rbac_summary(details))
             action_result.update_summary(summary)
             return action_result.set_status(
@@ -3929,6 +3932,9 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 "",
             ),
         }
+        summary["cmdlet_proxy_diagnostics_status"] = result.get(
+            "cmdlet_proxy_diagnostics_status", "not_available"
+        )
         summary.update(self._rbac_summary(result))
         action_result.update_summary(summary)
         return action_result.set_status(

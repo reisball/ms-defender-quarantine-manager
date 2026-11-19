@@ -133,6 +133,9 @@ DIAGNOSTIC_RBAC_PARTIAL_ERROR_CODE = "diagnostic_rbac_partial"
 POSTCONDITION_VERIFICATION_METHOD = "Get-QuarantineMessage"
 RELEASE_CONTRACT_ID = "identity_releasetoall"
 DENY_CONTRACT_ID = "identities_actiontype_no_dummy"
+DENY_PLACEHOLDER_CONTRACT_ID = "identities_actiontype_identity_placeholder"
+DENY_SINGLE_IDENTITY_CONTRACT_ID = "identity_actiontype_deny"
+DENY_RELEASE_TO_ALL_CONTRACT_ID = "identity_releasetoall_actiontype_deny"
 MAX_DIAGNOSTIC_TEXT_CHARS = 2048
 MAX_DIAGNOSTIC_TRACE_CHARS = 8192
 MAX_DIAGNOSTIC_TRACE_RECORDS = 25
@@ -2122,6 +2125,23 @@ class MSQuarantineForSplunkSOARUtils:
                 "ActionType",
                 "ErrorAction",
             }
+            # Keep the previous runbook readable during a paired upgrade.
+            # Each known contract has its own exact argument requirements;
+            # unknown IDs and mixed old/new evidence are still rejected.
+            if source.get("cmdlet_contract_id") == DENY_PLACEHOLDER_CONTRACT_ID:
+                expected_contract_id = DENY_PLACEHOLDER_CONTRACT_ID
+                expected_argument_names.add("Identity")
+                required_parameter_names.add("Identity")
+            elif source.get("cmdlet_contract_id") == DENY_SINGLE_IDENTITY_CONTRACT_ID:
+                expected_contract_id = DENY_SINGLE_IDENTITY_CONTRACT_ID
+                expected_argument_names = {"Identity", "ActionType"}
+                required_parameter_names = {"Identity", "ActionType", "ErrorAction"}
+            elif source.get("cmdlet_contract_id") == DENY_RELEASE_TO_ALL_CONTRACT_ID:
+                expected_contract_id = DENY_RELEASE_TO_ALL_CONTRACT_ID
+                expected_argument_names = {"Identity", "ReleaseToAll", "ActionType"}
+                required_parameter_names = {
+                    "Identity", "ReleaseToAll", "ActionType", "ErrorAction",
+                }
         else:
             expected_contract_id = RELEASE_CONTRACT_ID
             expected_argument_names = {"Identity", "ReleaseToAll"}

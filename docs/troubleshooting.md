@@ -39,9 +39,19 @@ Both actions enter `Invoke-RequestedDisposition` and follow these steps:
 2. `Invoke-QuarantineDisposition` performs the only write, exactly once, with
    no retry. Release uses `Release-QuarantineMessage -Identity <id>
    -ReleaseToAll -Confirm:$false -ErrorAction Stop`; Deny uses
-   `Release-QuarantineMessage -Identities @(<id>) -ActionType Deny
-   -Confirm:$false -ErrorAction Stop` (never `-ReleaseToAll`). Warning,
-   information, verbose and error streams are captured.
+   `Release-QuarantineMessage -Identity <id> -ReleaseToAll -ActionType Deny
+   -Confirm:$false -ErrorAction Stop`. Warning, information, verbose and error
+   streams are captured. The real ID is passed through singular `Identity`;
+   no dummy or plural `Identities` is sent. Both operations select all recipients;
+   Deny explicitly adds `ActionType Deny`. The observed ExchangeOnlineManagement
+   3.5.0 parameter metadata permits this combination in `OrgReleaseToAll`.
+   Offline tests verify invocation and protocol, not Exchange acceptance.
+   Expanded read-only proxy diagnostics
+   remain available through `diagnose`.
+   Install the paired app update before deploying this runbook. It accepts
+   `identity_releasetoall_actiontype_deny` with exact Identity/ReleaseToAll/ActionType
+   argument evidence and retains all three earlier Deny contracts for readback.
+   Earlier apps reject the new contract. Release is unchanged.
 3. `Wait-QuarantinePostcondition` reads Exchange again, also after a cmdlet
    failure. Only the matching terminal state (`Released` or `Denied`) proves
    success. A cmdlet error can coexist with confirmed success. An unconfirmed
@@ -91,3 +101,24 @@ with **reconcile quarantine operation** before considering another write.
 
 For intake status, recovery and artifact fields, see
 [Email import and recovery](ingestion.md).
+
+## Collect loaded Exchange proxy evidence without tenant shell access
+
+Use the paired diagnostic hotfix app and runbook, then run **inspect release
+environment** in SOAR with the exact quarantine identity. Leave `include_rbac`
+false unless tenant-wide RBAC inspection is separately requested. The customer
+only needs to replace/publish the runbook; no interactive tenant session is
+required by the operator. No Release/Deny cmdlet or captured source is executed.
+
+The action returns `cmdlet_proxy_diagnostics` (JSON string) and
+`cmdlet_proxy_diagnostics_status` in data/summary. The JSON contains ActionType's
+actual type, enum names/numeric values and ValidateSet; loaded proxy source and
+same-module Execute-Command / CheckRetryAndHandleWaitTime source, hashes and
+line-numbered forwarding excerpts. Source is redacted before output. Per command,
+source is capped at 32768 characters, excerpts at 16384 and excerpt lines at 512.
+Missing helpers, compiled commands and truncation are explicit; `partial` is not
+proof of a complete transport trace. `request_capture=false` means these are
+static definitions, not the actual outgoing HTTP request. No live variables,
+access tokens or headers are collected. Release, Deny and reconciliation paths
+are unchanged by this diagnostic addition. Older runbooks remain compatible
+and show `not_available` in the new app summary.

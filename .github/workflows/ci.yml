@@ -713,11 +713,11 @@ jobs:
           )
           assert deny["verification_attempts"] == 1
           assert deny["cmdlet_invocation_form"] == (
-              "Release-QuarantineMessage -Identities <identity> "
+              "Release-QuarantineMessage -Identity <identity> -ReleaseToAll "
               "-ActionType Deny -Confirm:$false -ErrorAction Stop"
           )
           assert deny["cmdlet_expected_argument_names"] == (
-              "Identities,ActionType"
+              "Identity,ReleaseToAll,ActionType"
           )
           assert unknown["error"] is True
           assert unknown["error_code"] == "postcondition_unconfirmed"
@@ -871,7 +871,7 @@ jobs:
               expected_contract = (
                   "identity_releasetoall"
                   if result["action"] == "release"
-                  else "identities_actiontype_no_dummy"
+                  else "identity_releasetoall_actiontype_deny"
               )
               assert source["cmdlet_contract_id"] == expected_contract
               assert source["cmdlet_parameter_sets"]
@@ -936,14 +936,14 @@ jobs:
               (
                   observed_exchange_deny,
                   "denied",
-                  "Identitities",
+                  "OrgReleaseToAll",
               ),
           ):
               observed_context = json.dumps(observed, ensure_ascii=False)
               assert observed["status"] == expected_status, observed_context
               assert observed["cmdlet_executed"] is True
               assert observed["cmdlet_default_parameter_set"] == (
-                  "Identitities"
+                  "IdentityOnly"
               )
               assert observed["cmdlet_parameter_sets"] == (
                   "Identitities[Identity=optional,Identities=required,"
