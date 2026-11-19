@@ -70,6 +70,6 @@ def test_status_read_failure_blocks_new_intake_until_observation_recovers(tmp_pa
     c.observed[identities[0]] = "Requested"
     c.calls.clear()
     assert poll(c)[0] == t.APP_SUCCESS
-    assert [identity for action, identity, _ in c.calls if action == "reconcile"] == identities
+    assert [identity for action, identity, _ in c.calls if action == "reconcile"] == identities[1:] + identities[:1]
     assert len(c._ingest_records()) == 3
     assert len([e for e in c.events if e[0] in {"publish", "es_publish"}]) == 1

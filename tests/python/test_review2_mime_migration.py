@@ -105,13 +105,13 @@ def test_canonical_migration_preserves_newest_completed_import(tmp_path, target,
     assert row["created_at"] == fresh
     assert row["container_id"] == 77
     assert row["status"] == "completed"
-    assert row["terminal"] is False
+    assert row["terminal"] is True
     c.save_state(state)
     status, ar = poll(c)
     assert status == t.APP_SUCCESS, ar.get_message()
     assert not c.events
     assert all(action != "export" for action, _, _ in c.calls)
-    # Fresh reconciliation may update the timestamp, but never reimports.
+    # Retired legacy rows neither need reconciliation nor reimport.
     persisted = next(iter(c._ingest_records().values()))
     for field in ("identity", "created_at", "container_id", "status", "terminal"):
         assert persisted[field] == row[field]

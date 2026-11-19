@@ -25,7 +25,7 @@ def test_legacy_completed_is_migrated_with_casefold_dedup(tmp_path):
     rows = c._ingest_records()
     assert len(rows) == 1
     row = next(iter(rows.values()))
-    assert row["status"] == "completed" and row["terminal"] is False
+    assert row["status"] == "completed" and row["terminal"] is True
     assert row["identity"] == identity.lower()
     assert not c._saved_containers
     assert not any(x[0] == "export" for x in c.calls)
