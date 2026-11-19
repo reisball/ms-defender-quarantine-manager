@@ -242,7 +242,7 @@ class NativeIngestionMixin:
                 row = {
                     "key": key, "identity": identity,
                     "status": "completed" if old.get("state") == "completed" else "failed",
-                    "terminal": str(old.get("observed_release_status", "")).lower() in {"released", "denied"},
+                    "terminal": old.get("state") in {"completed", "failed", "oversized"},
                     "container_id": old.get("container_id"),
                     "created_at": old.get("created_at"), "updated_at": old.get("updated_at"),
                     "last_error": "" if old.get("state") == "completed" else
@@ -274,10 +274,9 @@ class NativeIngestionMixin:
                     phase == "terminal" and row.get("delivery_phase_at_terminal", "published") == "published") else "failed"
                 row["terminal"] = phase == "terminal"
                 if row.get("migration_origin") in {"legacy_failed", "legacy_oversized"}:
-                    # Older migrators called failed workers terminal without a
-                    # Microsoft observation. Failure is not a successful import.
+                    # Preserve the previous migrator's retired slot without
+                    # misrepresenting a failed import as successful publication.
                     row["status"] = "failed"
-                    row["terminal"] = str(row.get("observed_release_status", "")).lower() in {"released", "denied"}
                 if row["status"] == "failed":
                     row["last_error"] = "Previous-version attempt was not confirmed; scheduled replay disabled."
                 row["publication_started"] = phase == "publishing"
@@ -371,12 +370,20 @@ class NativeIngestionMixin:
     def _ingest_reconcile(self, records):
         errors = []
         terminal = 0
-        for key, row in records.items():
+        # Least-recently checked first: slow jobs must not starve later rows.
+        oldest = datetime.min.replace(tzinfo=timezone.utc)
+        ordered = sorted(records.items(), key=lambda item:
+                         self._parse_state_timestamp(item[1].get("updated_at")) or oldest)
+        for key, row in ordered:
             if row["terminal"]:
                 continue
-            self.save_progress("Checking tracked quarantine message status.")
             try:
                 self._ingest_budget_check()
+            except AutomationError as exc:
+                errors.append(str(exc))
+                break  # This row was not attempted; keep its place next poll.
+            self.save_progress("Checking tracked quarantine message status.")
+            try:
                 result = self._utils.run_action("reconcile", identity=row["identity"])
                 observed = str(result.get("observed_release_status") or "").lower()
                 if not observed:
@@ -385,6 +392,7 @@ class NativeIngestionMixin:
                 self._ingest_update(key, terminal=is_terminal, observed_release_status=observed)
                 terminal += int(is_terminal)
             except Exception as exc:
+                self._ingest_update(key)  # Rotate failed reads as well as successful ones.
                 errors.append(row["identity"] + ": status observation unavailable (" + self._ingest_error(exc) + ")")
                 break  # Do not multiply remote calls after a read/transport failure.
         return terminal, errors
@@ -589,7 +597,10 @@ class NativeIngestionMixin:
                 # Snapshot once: a failure during this poll is never retried in it.
                 retry_ids = {key for key, row in records.items()
                              if self.is_poll_now() and row["status"] == "failed" and not row["terminal"]}
-                terminal, errors = self._ingest_reconcile(records)
+                # Explicit retries already hold their slots. Give their Requested
+                # listing/import the poll budget instead of spending it on status
+                # reads first; the next scheduled poll resumes those observations.
+                terminal, errors = (0, []) if retry_ids else self._ingest_reconcile(records)
                 limit = self._on_poll_container_limit(param)
                 records = self._ingest_records()
                 active = sum(not r["terminal"] for r in records.values())

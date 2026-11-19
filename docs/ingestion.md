@@ -10,7 +10,7 @@ Native email import requires authenticated local SOAR REST access. Automation Br
 
 Intake imports only Microsoft `Requested` messages: mail with a recipient release request. There is no source-mode selector; obsolete asset settings are ignored.
 
-Existing intake scopes containing `needs_review` are normalized to Requested-only intake without deleting records or changing the tenant/organization/target pairing. Published references are retained and successful imports are not republished. Older pending or unconfirmed attempts are retained as failed, without automatic replay after upgrade. A failed identity is eligible for a deliberate Poll Now retry only if it appears as `Requested` in the candidate window. `NotReleased` mail is not newly published. Microsoft-status checks continue for tracked identities.
+Existing intake scopes containing `needs_review` are normalized to Requested-only intake without deleting records or changing the tenant/organization/target pairing. Published references are retained and successful imports are not republished. Older pending or unconfirmed attempts are retained as failed, without automatic replay after upgrade. A failed identity is eligible for a deliberate Poll Now retry only if it appears as `Requested` in the candidate window. `NotReleased` mail is not newly published. Microsoft-status checks continue for tracked identities. Already retired legacy worker records (completed, failed or oversized) remain outside the active window after upgrade; a failed import is not relabelled as a successful publication.
 
 ## Active-message window
 
@@ -18,7 +18,9 @@ Existing intake scopes containing `needs_review` are normalized to Requested-onl
 
 The app reads tracked Microsoft statuses and frees slots only after observing exact `Released` or `Denied` results. Analysis completion, an import error, a missing identity or an intermediate status does not free a slot. Missing or expired mail therefore needs investigation rather than automatic replay.
 
-Free slots are filled from the first 50 candidates with status `Requested`. There is no pagination or stable ordering guarantee. An empty import is not proof of an empty backlog. A scheduled poll skips failed identities. Native Poll Now considers eligible failed identities before new candidates, within the same window and poll count.
+Status sweeps check the least-recently observed identities first, including after failed reads, so slow Azure jobs do not permanently starve later records. A budget-exhausted, unattempted record keeps its place for the next poll.
+
+Free slots are filled from the first 50 candidates with status `Requested`. There is no pagination or stable ordering guarantee. An empty import is not proof of an empty backlog. A scheduled poll skips failed identities. Native Poll Now considers eligible failed identities before new candidates, within the same window and poll count. When failed identities are eligible for retry, that manual poll spends its budget on listing/import instead of a preliminary status sweep. Existing slots stay counted; subsequent scheduled polls resume status checks.
 
 ## Preparation and automation
 

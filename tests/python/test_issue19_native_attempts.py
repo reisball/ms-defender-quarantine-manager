@@ -52,6 +52,7 @@ def test_old_pending_work_becomes_failed_without_automatic_replay(tmp_path, targ
 @pytest.mark.parametrize("old_state", ["creating_container", "exported", "failed", "oversized", "completed"])
 def test_legacy_workers_migrate_without_replaying_pending_work(tmp_path, target, old_state):
     c = setup(tmp_path, target, limit=1)
+    c.candidates = c.candidates[:1]
     c.save_state({"quarantine_worker_ledger": {"old": {
         "identity": c.candidates[0]["Identity"], "state": old_state,
         "created_at": c._utc_now(), "updated_at": c._utc_now(), "container_id": 77}}})
@@ -60,8 +61,10 @@ def test_legacy_workers_migrate_without_replaying_pending_work(tmp_path, target,
     assert not any(action == "export" for action, *_ in c.calls)
     row = next(iter(c._ingest_records().values()))
     assert row["status"] == ("completed" if old_state == "completed" else "failed")
-    assert row["terminal"] is False
+    assert row["terminal"] is (old_state in {"completed", "failed", "oversized"})
     assert row["container_id"] == 77
+    if row["terminal"]:
+        assert not any(action == "reconcile" for action, *_ in c.calls)
 
 
 def test_crashed_attempt_is_failed_without_replay_then_manual_retry_works(tmp_path, target):
@@ -241,9 +244,10 @@ def test_import_error_keeps_known_azure_job_without_labeling_native_errors(tmp_p
 
 
 @pytest.mark.parametrize("origin", ["legacy_failed", "legacy_oversized"])
-def test_previous_migrator_failed_terminal_is_not_successful_or_retired(tmp_path, origin):
+def test_previous_migrator_failed_terminal_stays_retired_without_claiming_success(tmp_path, origin):
     c = setup(tmp_path, limit=1)
     key = seed(c)
+    c.candidates = c.candidates[:1]
     state = c.load_state()
     data = state[INGEST_STATE_KEY]
     data.pop("version")
@@ -252,8 +256,9 @@ def test_previous_migrator_failed_terminal_is_not_successful_or_retired(tmp_path
     assert poll(c)[0] == t.APP_SUCCESS
     row = c._ingest_records()[key]
     assert row["status"] == "failed"
-    assert row["terminal"] is False
+    assert row["terminal"] is True
     assert not c.events
+    assert not any(action == "reconcile" for action, *_ in c.calls)
 
 
 @pytest.mark.parametrize('boundary', ['container', 'artifact', 'vault', 'disk'])
@@ -277,3 +282,55 @@ def test_native_failure_preserves_actual_cause_without_azure_attribution(tmp_pat
     before = len([x for x in c.calls if x[0] == 'export'])
     poll(c)
     assert len([x for x in c.calls if x[0] == 'export']) == before
+
+
+@pytest.mark.parametrize("read_fails", [False, True])
+def test_status_sweep_rotates_after_slow_or_failed_reads(tmp_path, target, monkeypatch, read_fails):
+    import ms_quarantine_for_splunk_soar_ingestion as ingestion
+    c = setup(tmp_path, target, limit=20)
+    assert poll(c, container_count=20)[0] == t.APP_SUCCESS
+    rows = list(c._ingest_records().values())
+    now = [0]
+    monkeypatch.setattr(ingestion.time, "monotonic", lambda: now[0])
+    original = c._utils.run_action
+    def run(action, **kwargs):
+        if action == "reconcile":
+            now[0] += 50
+        return original(action, **kwargs)
+    c._utils.run_action = run
+    if read_fails:
+        c.observed[rows[0]["identity"]] = AutomationError("unreadable old identity")
+    c.calls.clear()
+    assert poll(c)[0] == t.APP_ERROR
+    checked = [identity for action, identity, _ in c.calls if action == "reconcile"]
+    assert checked == [r["identity"] for r in rows[:1 if read_fails else 12]]
+    next_row = rows[len(checked)]
+    c.observed[next_row["identity"]] = "Released"
+    c.calls.clear()
+    poll(c)
+    assert c.calls[0] == ("reconcile", next_row["identity"], {})
+    assert c._ingest_records()[next_row["key"]]["terminal"] is True
+
+
+def test_poll_now_retry_gets_budget_before_slow_status_sweep(tmp_path, target, monkeypatch):
+    import ms_quarantine_for_splunk_soar_ingestion as ingestion
+    c = setup(tmp_path, target, limit=1)
+    key = seed(c)
+    now = [0]
+    monkeypatch.setattr(ingestion.time, "monotonic", lambda: now[0])
+    original = c._utils.run_action
+    def run(action, **kwargs):
+        if action == "reconcile":
+            now[0] += 601
+        return original(action, **kwargs)
+    c._utils.run_action = run
+    c._is_poll_now = True
+    status, ar = poll(c)
+    assert status == t.APP_SUCCESS, ar.get_message()
+    assert [action for action, *_ in c.calls] == ["list", "export"]
+    assert c._ingest_records()[key]["status"] == "completed"
+    assert ar.get_summary()["active_messages"] == 1
+    c._is_poll_now = False
+    c.calls.clear()
+    poll(c)
+    assert c.calls[0][0] == "reconcile"
