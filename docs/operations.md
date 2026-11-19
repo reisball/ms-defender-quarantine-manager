@@ -44,7 +44,7 @@ If a disposition has an unknown outcome, use **reconcile quarantine operation** 
 | Azure job cannot be read | Check the asset's App Registration credentials, account coordinates and Automation Job Operator assignment |
 | Exchange connection or authorization failure | Check the Automation Account Managed Identity, organization and Exchange permissions |
 | Import is `blocked` | Correct the reported EML/MIME/size problem; use `retry_preparation` only for an eligible item |
-| Import remains `publishing` | Establish whether the exact ready artifact or ES finding exists; do not blindly resubmit |
+| Import remains `publishing` | Establish whether the exact final email artifact (Ready artifact in separate layout) or ES finding exists; do not blindly resubmit |
 | Import window is full | Inspect tracked Microsoft statuses; completing analysis alone does not free a slot |
 | ES mail/file links fail | Verify the external HTTPS SOAR URL and analyst access from the analyst interface |
 | Release/Deny outcome is uncertain | Reconcile the original operation and read the current Microsoft status |

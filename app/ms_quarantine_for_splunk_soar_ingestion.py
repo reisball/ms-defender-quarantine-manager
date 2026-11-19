@@ -456,9 +456,14 @@ class NativeIngestionMixin:
             raise AutomationError("SOAR did not confirm the ingestion artifact.")
         return artifact_id
 
+    def _ingest_single_email_artifact(self):
+        return (getattr(self, "_ingest_target", "soar") == "soar"
+                and self._asset_artifact_options["layout"] == "combined")
+
     def _ingest_prepare(self, key, row):
         """All preparation writes suppress automation and are safe to retry."""
         self.save_progress("Importing quarantined EML and attachments.")
+        single_artifact = self._ingest_single_email_artifact()
         self._ingest_budget_check()
         result = self._utils.run_action("export", identity=row["identity"])
         eml = result.get("_eml_bytes")
@@ -483,6 +488,8 @@ class NativeIngestionMixin:
                      "source_data_identifier": self._worker_source_identifier(
                          row["identity"], self.get_asset_id())}
             container = self._build_poll_container(claim)
+            if single_artifact:
+                container["artifacts"] = []
             container["run_automation"] = False
             for artifact in container.get("artifacts", []):
                 artifact["run_automation"] = False
@@ -514,33 +521,50 @@ class NativeIngestionMixin:
             entry = vaults[file_key]
             if entry["sha256"] != file_hash:
                 raise AutomationError("Stored attachment does not match recovery export.")
-            hashes = self._calculate_hashes(content)
-            self._ingest_budget_check()
-            self._ingest_save_artifact(
-                row, "file-" + file_key,
-                {"quarantineIdentity": row["identity"], "workItemId": key,
-                 "vaultId": entry["vault_id"], "fileName": name,
-                 "fileHash": hashes["sha256"], "fileHashMd5": hashes["md5"],
-                 "fileHashSha1": hashes["sha1"], "fileHashSha256": hashes["sha256"],
-                 "isOriginalEmail": index == 0},
-                "Original quarantined email" if index == 0 else "Email attachment",
-            )
+            if not single_artifact:
+                hashes = self._calculate_hashes(content)
+                self._ingest_budget_check()
+                self._ingest_save_artifact(
+                    row, "file-" + file_key,
+                    {"quarantineIdentity": row["identity"], "workItemId": key,
+                     "vaultId": entry["vault_id"], "fileName": name,
+                     "fileHash": hashes["sha256"], "fileHashMd5": hashes["md5"],
+                     "fileHashSha1": hashes["sha1"], "fileHashSha256": hashes["sha256"],
+                     "isOriginalEmail": index == 0},
+                    "Original quarantined email" if index == 0 else "Email attachment",
+                )
         metadata = self._extract_email_artifact_metadata(eml)
         options = dict(self._asset_artifact_options)
         options["enabled"] = True
+        required_cef = None
+        if single_artifact:
+            options["fields"] = tuple(
+                field for field in options["fields"]
+                if field not in {"vault_id", "sender_address", "recipient_address"}
+            )
+            required_cef = {
+                "vaultId": vaults["0"]["vault_id"],
+                "senderAddress": self._bounded_artifact_text(row["message"].get("SenderAddress", "")),
+                "recipientAddress": self._bounded_artifact_text(row["message"].get("RecipientAddress", "")),
+            }
         specs, missing = self._build_email_artifact_specs(
             row["identity"], self._calculate_hashes(eml), metadata, options,
-            vault_id=vaults["0"]["vault_id"],
+            vault_id=vaults["0"]["vault_id"], required_cef=required_cef,
         )
-        for index, spec in enumerate(specs):
-            self._ingest_budget_check()
-            self._ingest_save_artifact(
-                row, "metadata-" + str(index), spec["cef_data"], spec["name"]
-            )
+        if not single_artifact:
+            for index, spec in enumerate(specs):
+                self._ingest_budget_check()
+                self._ingest_save_artifact(
+                    row, "metadata-" + str(index), spec["cef_data"], spec["name"]
+                )
+        # Persist the final artifact with the existing ready record. Rejected
+        # publication can then retry without another export or Vault upload.
+        prepared = ({"email_artifact": {"name": specs[0]["name"], "cef": specs[0]["cef_data"]}}
+                    if single_artifact else {})
         row = self._ingest_update(
             key, phase="ready", vault_id=vaults["0"]["vault_id"],
             attachment_count=len(attachments), missing_artifact_fields=missing,
-            last_error="",
+            last_error="", **prepared,
         )
         if getattr(self, "_ingest_target", "soar") == "es":
             from ms_quarantine_for_splunk_soar_es_ingestion import _build_finding_from_parsed
@@ -594,6 +618,14 @@ class NativeIngestionMixin:
                 raise AutomationError("Native ES did not confirm one linked finding.")
             return self._ingest_update(
                 key, phase="published", finding_id=response["findings"][0], last_error=""
+            )
+        email_artifact = row.get("email_artifact")
+        if email_artifact:
+            artifact_id = self._ingest_save_artifact(
+                row, "email", email_artifact["cef"], email_artifact["name"], publish=True,
+            )
+            return self._ingest_update(
+                key, phase="published", email_artifact_id=artifact_id, last_error=""
             )
         artifact_id = self._ingest_save_artifact(
             row, "ready",
@@ -680,7 +712,8 @@ class NativeIngestionMixin:
                             if time.monotonic() >= self._ingest_deadline:
                                 break  # No preparation attempt: keep this identity next.
                         self._ingest_schedule_attempt("prepare", key)
-                        if row["phase"] != "ready" or self._ingest_target == "es":
+                        if (row["phase"] != "ready" or self._ingest_target == "es"
+                                or (self._ingest_single_email_artifact() and not row.get("email_artifact"))):
                             row = self._ingest_prepare(key, row)
                         self._ingest_publish(key, row)
                         created += 1

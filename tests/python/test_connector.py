@@ -1400,7 +1400,9 @@ class TestInitialize:
         assert "export_mode" not in config
         assert "create_email_artifacts" not in config
         assert config["artifact_layout"]["value_list"] == ["combined", "separate"]
-        assert all(key in config for key in ARTIFACT_FIELD_CONFIG_KEYS.values())
+        mandatory = {"sender_address", "recipient_address", "vault_id"}
+        for field, key in ARTIFACT_FIELD_CONFIG_KEYS.items():
+            assert (key in config) is (field not in mandatory)
 
     def test_manifest_groups_target_then_api_login_then_exchange(self):
         manifest = json.loads(
@@ -1473,7 +1475,7 @@ class TestInitialize:
             "data_type": "boolean",
             "required": False,
             "default": False,
-            "order": 27,
+            "order": 24,
         }
         assert config["webhook_url"]["description"] == (
             "Connection: HTTPS webhook URL with token; no redirects"
@@ -1498,6 +1500,9 @@ class TestInitialize:
         ]
 
         for field, config_key in ARTIFACT_FIELD_CONFIG_KEYS.items():
+            if field in {"sender_address", "recipient_address", "vault_id"}:
+                assert config_key not in config
+                continue
             assert config[config_key]["data_type"] == "boolean"
             assert config[config_key]["default"] is (
                 field in DEFAULT_ARTIFACT_FIELDS

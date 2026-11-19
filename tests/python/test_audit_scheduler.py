@@ -170,7 +170,9 @@ def test_budget_stops_next_effect_but_keeps_completed_receipts(
         tmp_path, monkeypatch, target, elapsed, boundary):
     if target == "soar" and boundary == "es_prepare":
         pytest.skip("Only ES has bulk-payload preparation")
-    c = setup(tmp_path, target, limit=1)
+    c = setup(tmp_path, target, limit=1, config_overrides=(
+        {"artifact_layout": "separate"} if boundary in {"file", "last_file", "metadata"} else {}
+    ))
     now = [0.0]
     monkeypatch.setattr(ingestion.time, "monotonic", lambda: now[0])
     effects = []
@@ -213,7 +215,7 @@ def test_budget_stops_next_effect_but_keeps_completed_receipts(
     if boundary == "publication":
         assert status == t.APP_SUCCESS, ar.get_message()
         assert row["phase"] == "published"
-        assert row["finding_id"] if target == "es" else row["ready_artifact_id"]
+        assert row["finding_id"] if target == "es" else row["email_artifact_id"]
     else:
         assert status == t.APP_ERROR, ar.get_message()
         assert "budget" in ar.get_message()

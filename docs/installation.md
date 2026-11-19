@@ -86,6 +86,6 @@ Use **one ingesting asset per tenant**. Keep its tenant, organization, selection
 
 In **Ingest Settings**, configure the container label and polling schedule. Disable the schedule there to pause automatic imports. Use **Poll Now** for a manual import. There is no additional app-level enable checkbox.
 
-For SOAR analysis, configure a playbook to consume the ready artifact after the mail is fully prepared. Set the required analyzer assets, analyst/approver, notification recipient, portal URLs and routing label before activating it. Use the ready artifact's original-email Vault ID, not an arbitrary attachment Vault ID. The app does not configure or activate playbooks for you.
+For combined-layout SOAR analysis, configure a playbook to consume the single email artifact after the mail is fully prepared. Set the required analyzer assets, analyst/approver, notification recipient, portal URLs and routing label before activating it. Use that artifact's original-email `vaultId`, the event's `data.quarantine_identity` and the [documented input mappings](ingestion.md#data-available-to-soar-playbooks-combined-layout). Update consumers of the old Ready/Request artifacts before activating the changed producer. The app does not configure or activate playbooks for you.
 
 For ES ingestion, configure the native ES target, security domain, threat analysis and automation options. See [Email import](ingestion.md) for the ES field contract and artifact details.
