@@ -37,7 +37,6 @@ from ms_quarantine_for_splunk_soar_utils import (
     AutomationError,
     ConnectionContractError,
     normalize_exchange_connection_settings,
-    normalize_quarantine_selection_mode,
     validate_webhook_url,
     TokenError,
     WebhookError,
@@ -701,9 +700,6 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             )
 
         try:
-            selection_mode = normalize_quarantine_selection_mode(
-                config.get("quarantine_selection_mode")
-            )
             webhook_url = validate_webhook_url(config["webhook_url"])
         except ValueError as exc:
             return self.set_status(phantom.APP_ERROR, str(exc))
@@ -722,7 +718,6 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             # Vault, independently of hidden legacy asset values.
             retain_chunked_base64 = False,
             exchange_organization = exchange_settings.get("organization"),
-            quarantine_selection_mode = selection_mode,
         )
 
         return phantom.APP_SUCCESS
@@ -3333,15 +3328,6 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                     raise AutomationError(
                         "Runbook protocol error: list Identity is invalid. "
                         f"{format_error}"
-                    )
-                if (
-                    self._utils.quarantine_selection_mode == "needs_review"
-                    and str(message.get("ReleaseStatus", "")).casefold()
-                    != self._utils.selection_release_status.casefold()
-                ):
-                    raise AutomationError(
-                        "Runbook protocol error: list candidate does not match "
-                        f"ReleaseStatus={self._utils.selection_release_status}."
                     )
                 normalised_messages.append({
                     "Identity": identity,

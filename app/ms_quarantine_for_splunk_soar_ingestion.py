@@ -220,7 +220,6 @@ class NativeIngestionMixin:
             "asset_id": str(self.get_asset_id()),
             "tenant": config["azure_tenant_id"].strip().lower(),
             "organization": str(config.get("exchange_organization") or "").strip().lower(),
-            "selection_mode": self._utils.quarantine_selection_mode,
             "target": getattr(self, "_ingest_target", "soar"),
         }
 
@@ -272,10 +271,15 @@ class NativeIngestionMixin:
                     records[key] = row
                     migration_ranks[key] = rank
             data = {"scope": self._ingest_scope(), "records": records}
+        # Selection is no longer configurable. Drop only that obsolete scope
+        # key; retain records and the tenant/organization/target boundaries.
+        if isinstance(data, dict) and isinstance(data.get("scope"), dict):
+            data["scope"] = dict(data["scope"])
+            data["scope"].pop("selection_mode", None)
         if (not isinstance(data, dict) or not isinstance(data.get("records"), dict)
                 or data.get("scope") != self._ingest_scope()):
             raise AutomationError(
-                "Native intake state/scope mismatch. Restore the original asset pairing and mode."
+                "Native intake state/scope mismatch. Restore the original asset pairing."
             )
         phases = {"reserved", "preparing", "ready", "publishing", "published", "terminal", "blocked"}
         for key, row in data["records"].items():
@@ -670,13 +674,13 @@ class NativeIngestionMixin:
                 if not errors and not has_pending and active < self._on_poll_max_containers:
                     try:
                         self._ingest_budget_check()
-                        self.save_progress("Listing first 50 source-status quarantine candidates.")
+                        self.save_progress("Listing first 50 Requested quarantine candidates.")
                         result = self._utils.run_action("list", page_size=50)
                         messages = self._normalise_list_result(result)[:50]
                         valid = []
                         for message in messages:
                             if str(message.get("ReleaseStatus", "")).lower() != self._utils.selection_release_status.lower():
-                                errors.append("Candidate source status mismatched the asset selection.")
+                                errors.append("Candidate ReleaseStatus is not Requested.")
                             else:
                                 valid.append(message)
                         self._ingest_reserve(valid, self._on_poll_max_containers, limit)
@@ -706,7 +710,8 @@ class NativeIngestionMixin:
                             terminal += retired
                             errors.extend(read_errors)
                             row = self._ingest_records()[key]
-                            if row["phase"] == "terminal" or read_errors:
+                            if (row["phase"] == "terminal" or read_errors
+                                    or row.get("observed_release_status") != "requested"):
                                 self._ingest_schedule_attempt("prepare", key)
                                 continue
                             if time.monotonic() >= self._ingest_deadline:

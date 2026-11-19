@@ -7,7 +7,7 @@ Use controlled test messages to verify the configuration before enabling regular
 - Install App 3.7.4 and deploy companion Runbook 3.7.4 separately. Record the versions and use the release checksums to verify the files.
 - Use native SOAR execution. Automation Broker is unsupported; SOAR Cloud compatibility has not been verified.
 - Verify Azure job access for the App Registration and Exchange permissions for the Automation Account Managed Identity separately.
-- Configure one ingesting asset per tenant, select the source mode and set a small active-message limit.
+- Configure one ingesting asset per tenant and set a small active-message limit. Intake is Requested-only; no source-mode setting is needed.
 - For ES, register the five [additional fields](ingestion.md#enterprise-security-setup), set a security domain and verify the external HTTPS SOAR URL.
 - Configure the intended analysis playbook's analyzer assets, approver, notification recipient, portal links and routing label. Enable only the intended automation.
 
@@ -15,8 +15,10 @@ Use controlled test messages to verify the configuration before enabling regular
 
 | Check | Expected result |
 |---|---|
-| Test connectivity | Azure job/output access and the selected source read succeed |
-| Poll Now with one message | One container contains the original EML, attachments and selected metadata before automation starts |
+| Test connectivity | Azure job/output access and the Microsoft `Requested` read succeed |
+| Poll Now with one `Requested` message | One container contains the original EML, attachments and selected metadata before automation starts |
+| `NotReleased` source message | No new import or publication |
+| Legacy intake state | Obsolete settings are ignored and records survive scope normalization; pending `NotReleased` mail is published only after Microsoft reports `Requested` |
 | Original and attachment downloads | Downloaded content matches the test message and is accessible to the analyst |
 | Scheduled ingestion | The native schedule invokes intake without an additional app checkbox |
 | Repeated poll | The retained identity is not imported or analyzed a second time |
@@ -26,7 +28,7 @@ Use controlled test messages to verify the configuration before enabling regular
 | Restart | Tracked identities and partial preparation remain available without duplicate publication |
 | ES target, if used | One finding is linked to the correct container; original/attachment links and configured native analysis/automation work |
 
-Test each source mode you intend to use. Do not assume Deny is eligible for a `NotReleased` message in your tenant. A successful import or finding receipt alone does not prove that the analysis workflow completed.
+A successful import or finding receipt alone does not prove that the analysis workflow completed.
 
 ## Recovery checks
 

@@ -20,7 +20,7 @@ Parsing is bounded but not an antivirus boundary. Review [MIME limits](mime-limi
 
 ## Irreversible actions and recovery
 
-Import is separate from Release/Deny. Disposition requires the selected source status and a confirming Microsoft postcondition. If a write's outcome is uncertain, reconcile the original operation before another write. Do not clear app state to force a retry.
+Import is separate from Release/Deny. A new disposition write requires Microsoft `Requested`; success requires the matching `Released` or `Denied` postcondition. If a write's outcome is uncertain, reconcile the original operation before another write. Do not clear app state to force a retry.
 
 Use one ingesting asset per tenant. Its ledger is scoped to that asset and retained history, not a global or permanent exactly-once guarantee. Follow [operations](operations.md) for blocked preparation and uncertain publication.
 

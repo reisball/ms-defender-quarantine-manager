@@ -15,7 +15,7 @@
              is reported in each result when it can be read.
 
     Supported actions:
-        list    -> Get-QuarantineMessage -ReleaseStatus <selected source status>
+        list    -> Get-QuarantineMessage -ReleaseStatus Requested
         export  -> Export-QuarantineMessage -Identity <identity>
         diagnose -> Read-only runtime/cmdlet/identity/RBAC inspection
         reconcile -> Read-only exact Exchange status refresh for one operation
@@ -34,16 +34,10 @@
         { "action": "release", "identity": "GUID1\\GUID2" }
         { "action": "deny",    "identity": "GUID1\\GUID2" }
 
-    Selection setting (omitted means release_requested):
-        "quarantine_selection_mode": "release_requested" -> Requested
-        "quarantine_selection_mode": "needs_review" -> NotReleased
-    List uses the selected source status; release/deny require that exact status
-    before invoking the existing cmdlet. Every response, including errors and
-    chunked-list records/trailers, reports quarantine_selection_mode,
-    selection_release_status and quarantine_selection_contract=quarantine_selection_v1.
-    Example: { "action": "list", "quarantine_selection_mode": "needs_review" }
-    Needs review is an app mapping; Deny eligibility without a release request
-    remains tenant-unverified. Only exact Released/Denied readback proves success.
+    Intake selects only ReleaseStatus Requested (a recipient release request).
+    Release/deny require that source status before invoking the existing cmdlet.
+    Only exact Released/Denied readback proves success. Obsolete selection-mode
+    webhook fields do not alter this fixed behavior.
 
     Optional connection settings, accepted on every action (all are strings;
     surrounding whitespace is trimmed; blank values count as omitted):
@@ -336,8 +330,8 @@ $ErrorMaxChunkCount       = 200
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "3.7.4"
-$RunbookSourceRevision    = "sha256:f4a0370b6b7786cbc8e830960d29a3a8d7eb0a52192ba45c3004de3418d496eb"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-3.7.4+sha256.f4a0370b6b7786cbc8e830960d29a3a8d7eb0a52192ba45c3004de3418d496eb"
+$RunbookSourceRevision    = "sha256:cff7033c69fa4bb473e60a282c188f314d52e58de071e0b8dfb08378683189a2"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-3.7.4+sha256.cff7033c69fa4bb473e60a282c188f314d52e58de071e0b8dfb08378683189a2"
 $ReleaseContractId        = "identity_releasetoall"
 $DenyContractId           = "identities_actiontype_no_dummy"
 $PostconditionMaxAttempts = 7
@@ -351,9 +345,7 @@ $PermissionQueryErrorMaxRecords = 20
 $PermissionQueryErrorMaxUtf8Bytes = 32 * 1024
 $ExchangeConfigContract   = "exchange_connection_v1"
 $ExchangeSettingMaxLength = 256
-$quarantineSelectionMode = "release_requested"
 $selectionReleaseStatus = "Requested"
-$QuarantineSelectionContract = "quarantine_selection_v1"
 $script:ExchangeOnlineManagementVersion = "unknown"
 $script:ExchangeOnlineManagementPath = ""
 $script:ExchangeConfigEvidence = @{
@@ -369,9 +361,6 @@ $script:ExchangeCleanupEvidence = $null
 function Add-RunbookEnvelopeMetadata {
     param([hashtable] $Data)
 
-    $Data.quarantine_selection_mode = [string] $quarantineSelectionMode
-    $Data.selection_release_status = [string] $selectionReleaseStatus
-    $Data.quarantine_selection_contract = $QuarantineSelectionContract
     $Data.runbook_version = [string] $RunbookVersion
     $Data.runbook_source_revision = [string] $RunbookSourceRevision
     $Data.runbook_build_id = [string] $RunbookBuildId
@@ -2933,7 +2922,7 @@ function Invoke-RequestedDisposition {
 
     # The Exchange invocation remains action-specific in
     # Invoke-QuarantineDisposition. Everything around it is the same state
-    # machine: asset-selected source status -> command -> terminal readback.
+    # machine: Requested -> command -> terminal readback.
     if ($Action -eq "release") {
         $dispositionActionType = "Release"
         $expectedStatus = "Released"
@@ -2958,7 +2947,7 @@ function Invoke-RequestedDisposition {
         $executionMessage = "Executing Release-QuarantineMessage -Identities '$Identity' -ActionType Deny -Confirm:`$false"
     }
 
-    # 1. One exact read: only the asset-selected source status may be acted on.
+    # 1. One exact read: only Requested messages may be acted on.
     $precondition = Wait-QuarantinePostcondition `
         -Identity $identity `
         -ExpectedStatus $selectionReleaseStatus `
@@ -3338,26 +3327,6 @@ if ($null -ne $body.include_rbac) {
             -Message "Webhook field 'include_rbac' is supported only for action 'diagnose'."
     }
     $includeRbac = [bool] $body.include_rbac
-}
-
-# Asset selection is validated before loading a module or connecting to Exchange.
-if ($null -ne $body.quarantine_selection_mode) {
-    if (
-        $body.quarantine_selection_mode -isnot [string] -or
-        $body.quarantine_selection_mode -cnotin @("release_requested", "needs_review")
-    ) {
-        Write-ErrorResult `
-            -Action $action `
-            -ErrorCode "invalid_quarantine_selection_mode" `
-            -ErrorContext "webhook_body_validation" `
-            -Message "quarantine_selection_mode must be release_requested or needs_review."
-    }
-    $quarantineSelectionMode = [string] $body.quarantine_selection_mode
-}
-$selectionReleaseStatus = if ($quarantineSelectionMode -eq "needs_review") {
-    "NotReleased"
-} else {
-    "Requested"
 }
 
 # Extract page_size for the list action (optional). Limits how many

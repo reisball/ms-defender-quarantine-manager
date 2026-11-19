@@ -76,13 +76,13 @@ Enter the connection fields in the order shown by the form:
 
 Use the direct **HTTPS** webhook URL, including its token. HTTP URLs and webhook redirects are rejected. Azure TLS certificate verification is enforced; add a private CA to the platform trust store if required.
 
-Choose the email selection mode, active-message limit and mail fields. The complete field and action reference is available in the app's installed **Documentation** page ([HTML help](../app/readme.html)).
+Intake imports only Microsoft `Requested` messages. Configure the active-message limit and mail fields; there is no source-mode selector. The complete field and action reference is available in the app's installed **Documentation** page ([HTML help](../app/readme.html)).
 
-Run **test connectivity** to check the Azure connection and selected quarantine read path. It does not release mail or verify every downstream integration.
+Run **test connectivity** to check the Azure connection and read Microsoft `Requested` messages. It does not release mail or verify every downstream integration.
 
 ### 5. Configure ingestion and analysis
 
-Use **one ingesting asset per tenant**. Keep its tenant, organization, selection mode and ingest target fixed while tracked work exists. Separate ingesting assets have independent state and can process the same message.
+Use **one ingesting asset per tenant**. Keep its tenant, organization and ingest target fixed while tracked work exists. Separate ingesting assets have independent state and can process the same message.
 
 In **Ingest Settings**, configure the container label and polling schedule. Disable the schedule there to pause automatic imports. Use **Poll Now** for a manual import. There is no additional app-level enable checkbox.
 

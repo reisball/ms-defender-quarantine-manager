@@ -44,7 +44,7 @@ jobs:
       - name: Run connector tests
         run: python -m pytest -q
 
-      - name: Run paired quarantine selection contracts
+      - name: Run Requested-only quarantine contracts
         run: python -m pytest -q tests/python/test_quarantine_modes.py
 
       - name: Run PowerShell export transport boundaries

@@ -32,9 +32,8 @@ first release/deny of an asset instance) returns the same fields with
 
 Both actions enter `Invoke-RequestedDisposition` and follow these steps:
 
-1. `Get-QuarantineMessage` must confirm the exact identity and asset-selected
-   source status: `Requested` for default `release_requested`, or `NotReleased`
-   for explicit `needs_review` with paired Runbook 3.7.4.
+1. `Get-QuarantineMessage` must confirm the exact identity and Microsoft
+   status `Requested`.
    An already matching terminal state is idempotent (zero writes); any other
    state stops. No metadata or RBAC query precedes the write.
 2. `Invoke-QuarantineDisposition` performs the only write, exactly once, with
@@ -51,8 +50,8 @@ Both actions enter `Invoke-RequestedDisposition` and follow these steps:
    in `exchange_disconnect_status`/`exchange_disconnect_error` and never alters
    the disposition result.
 
-Check tenant eligibility before using Deny with NotReleased messages. Only
-exact Microsoft Released/Denied observations free an intake slot, not playbook completion.
+Only exact Microsoft `Released`/`Denied` observations free an intake slot,
+not playbook completion. `NotReleased` is an observed status, not an intake option.
 
 Independent result fields: `cmdlet_invocation_attempted` (a call was made),
 `cmdlet_executed` (the cmdlet ran to a native outcome), `cmdlet_error` with

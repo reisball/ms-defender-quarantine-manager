@@ -1475,7 +1475,7 @@ class TestInitialize:
             "data_type": "boolean",
             "required": False,
             "default": False,
-            "order": 24,
+            "order": 23,
         }
         assert config["webhook_url"]["description"] == (
             "Connection: HTTPS webhook URL with token; no redirects"

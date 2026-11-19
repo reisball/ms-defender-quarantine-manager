@@ -165,24 +165,6 @@ MAX_THROTTLE_SLEEP_SECONDS = 30
 MAX_PERSISTED_ERROR_CHARS = 2048
 
 
-QUARANTINE_SELECTION_STATUSES = {
-    "release_requested": "Requested",
-    "needs_review": "NotReleased",
-}
-QUARANTINE_SELECTION_CONTRACT = "quarantine_selection_v1"
-
-
-def normalize_quarantine_selection_mode(value=None) -> str:
-    """Blank upgraded assets retain the original Requested-only behavior."""
-    if value is None or value == "":
-        return "release_requested"
-    if not isinstance(value, str) or value not in QUARANTINE_SELECTION_STATUSES:
-        raise ValueError(
-            "quarantine_selection_mode must be release_requested or needs_review."
-        )
-    return value
-
-
 def normalize_exchange_connection_settings(organization=None) -> dict:
     """
     Build the Exchange connection settings sent with every webhook call.
@@ -439,17 +421,11 @@ class MSQuarantineForSplunkSOARUtils:
         poll_timeout:       int  = 600,
         retain_chunked_base64: bool = True,
         exchange_organization: str = None,
-        quarantine_selection_mode: str = None,
     ):
         self._connection_settings = normalize_exchange_connection_settings(
             exchange_organization,
         )
-        self.quarantine_selection_mode = normalize_quarantine_selection_mode(
-            quarantine_selection_mode
-        )
-        self.selection_release_status = QUARANTINE_SELECTION_STATUSES[
-            self.quarantine_selection_mode
-        ]
+        self.selection_release_status = "Requested"
         self._connection_contract_verified = False
         self._webhook_url        = validate_webhook_url(webhook_url)
         self._tenant_id          = tenant_id
@@ -619,14 +595,7 @@ class MSQuarantineForSplunkSOARUtils:
         Raises:
             WebhookError on failure.
         """
-        if (
-            self.quarantine_selection_mode != "release_requested"
-            and action in {"list", "release", "deny"}
-        ):
-            self.verify_connection_contract()
         body = {"action": action}
-        if self.quarantine_selection_mode != "release_requested":
-            body["quarantine_selection_mode"] = self.quarantine_selection_mode
         body.update(self._connection_settings)
         if identity:
             body["identity"] = identity
@@ -1383,16 +1352,6 @@ class MSQuarantineForSplunkSOARUtils:
         runbook_version = self._validate_runbook_version(
             complete, "chunked list trailer"
         )
-        self._validate_selection_evidence(complete)
-        selection_metadata = {
-            key: complete[key]
-            for key in (
-                "quarantine_selection_mode",
-                "quarantine_selection_contract",
-                "selection_release_status",
-            )
-            if key in complete
-        }
         build_metadata = {
             "runbook_source_revision": complete["runbook_source_revision"],
             "runbook_build_id": complete["runbook_build_id"],
@@ -1422,7 +1381,6 @@ class MSQuarantineForSplunkSOARUtils:
 
         indexed_chunks = {}
         for chunk in chunks:
-            self._validate_selection_evidence(chunk)
             chunk_version = self._validate_runbook_version(
                 chunk, "chunked list record"
             )
@@ -1483,7 +1441,6 @@ class MSQuarantineForSplunkSOARUtils:
             "messages": messages,
             "runbook_version": runbook_version,
             **build_metadata,
-            **selection_metadata,
         }
 
     def _parse_chunked_export_records(self, records: list) -> dict:
@@ -1870,15 +1827,11 @@ class MSQuarantineForSplunkSOARUtils:
         try:
             result = self.run_action("config_check")
         except AutomationError as exc:
-            required_version = (
-                "3.4.3" if self.quarantine_selection_mode == "needs_review"
-                else "3.4.2"
-            )
             raise ConnectionContractError(
                 "The deployed runbook could not confirm the Managed "
-                "Identity-only Exchange connection and selected mode, so "
+                "Identity-only Exchange connection, so "
                 "no irreversible action was sent and no subsequent list "
-                f"was sent. Publish Runbook {required_version} or newer (protocol "
+                "was sent. Publish Runbook 3.4.2 or newer (protocol "
                 "minimum; recommended matching app/runbook release) to the same "
                 "Automation Account first; older runbooks answer 'Unknown "
                 "action' or may still support other sign-in modes. Cause: "
@@ -1934,29 +1887,6 @@ class MSQuarantineForSplunkSOARUtils:
                     "ManagedIdentity only."
                 )
 
-    def _validate_selection_evidence(self, result: dict) -> None:
-        if self.quarantine_selection_mode == "release_requested":
-            # Pairing with the original 3.4.2 remains supported for this mode.
-            if "quarantine_selection_mode" not in result:
-                return
-        if (
-            result.get("quarantine_selection_contract")
-            != QUARANTINE_SELECTION_CONTRACT
-            or result.get("quarantine_selection_mode")
-            != self.quarantine_selection_mode
-            or result.get("selection_release_status")
-            != self.selection_release_status
-        ):
-            raise AutomationError(
-                "Runbook quarantine selection contract mismatch with the "
-                f"current asset mode '{self.quarantine_selection_mode}'. "
-                "When reconciling an existing operation, restore its original "
-                "asset selection mode first; a newer runbook does not change "
-                "stored job output. For new operations, verify protocol minimum "
-                "Runbook 3.4.3 or newer and matching mode; recommended pair: "
-                "matching app/runbook release. No selection is inferred."
-            )
-
     def _validate_config_check_result(self, result: dict) -> None:
         """Validate the read-only connection contract report."""
         version = self._validate_runbook_version(result, "config_check result")
@@ -1993,7 +1923,6 @@ class MSQuarantineForSplunkSOARUtils:
                     "Runbook protocol error: config_check result requires "
                     f"bounded string field '{field}'."
                 )
-        self._validate_selection_evidence(result)
         self._reject_credential_evidence(result, "config_check result")
         if result.get("exchange_auth_method") != EXCHANGE_AUTH_METHOD:
             raise AutomationError(
@@ -2840,8 +2769,6 @@ class MSQuarantineForSplunkSOARUtils:
             )
 
         self._validate_runbook_version(result, "Runbook result")
-        if requested_action in {"list", "release", "deny", "config_check"}:
-            self._validate_selection_evidence(result)
         if (
             requested_action in {"release", "deny"}
             and self._runbook_version_tuple(result)

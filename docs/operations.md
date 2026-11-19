@@ -8,15 +8,14 @@ The app prepares one container per message, saves the original EML and attachmen
 
 | Setting or behavior | Meaning |
 |---|---|
-| `release_requested` (default) | Import Microsoft messages with status `Requested` |
-| `needs_review` | Import messages with status `NotReleased`, including mail without a recipient release request |
+| Intake | Import only Microsoft `Requested` messages; no source-mode selector |
 | Active-message limit | Default 10, configurable 1–50; a total ceiling, not an increment per poll |
 | Slot release | A confirmed Microsoft `Released` or `Denied` status frees a slot |
 | Analysis completed | Does not free a slot while the Microsoft status remains unresolved |
 | Discovery | Uses the first 50 matching source candidates; no pagination or chronological ordering guarantee |
 | Poll Now count | Can restrict new admissions but cannot exceed the asset's active-message ceiling |
 
-A missing or expired source message can retain a slot until investigated. Check your tenant's Deny eligibility before using it with `NotReleased` messages. An empty import does not prove the entire source backlog is empty.
+A missing or expired source message can retain a slot until investigated. An empty import does not prove the entire source backlog is empty. Obsolete source-mode settings are ignored; legacy records are preserved. Pending `NotReleased` mail is not newly published unless its source status becomes `Requested`. See [intake compatibility](ingestion.md#configure-intake).
 
 The advanced `poll_interval_seconds` and `poll_timeout_seconds` settings monitor individual Azure jobs. They do not set the ingestion schedule.
 
@@ -24,7 +23,7 @@ The advanced `poll_interval_seconds` and `poll_timeout_seconds` settings monitor
 
 | Action | Purpose |
 |---|---|
-| **test connectivity** | Check Azure job access and read the selected quarantine source |
+| **test connectivity** | Check Azure job access and read Microsoft `Requested` messages |
 | **on poll** | Import prepared mail to the configured native target |
 | **on es poll** | Import using native ES ingestion settings; requires an ES target |
 | **recover quarantine ingestion** | Resume eligible preparation or acknowledge an independently verified publication |
@@ -33,7 +32,7 @@ The advanced `poll_interval_seconds` and `poll_timeout_seconds` settings monitor
 | **deny quarantine release** | Deny the release request and confirm the resulting Microsoft status |
 | **reconcile quarantine operation** | Read an existing operation's job/output; optionally refresh Microsoft status |
 
-Use the imported message's `quarantineIdentity` for disposition actions. Release/Deny require the selected source status or an already matching terminal status. A successful command return alone is not sufficient: the app checks the resulting `Released` or `Denied` status.
+Use the imported message's `quarantineIdentity` for disposition actions. Release/Deny require Microsoft `Requested` or an already matching terminal status. A successful command return alone is not sufficient: the app checks the resulting `Released` or `Denied` status.
 
 If a disposition has an unknown outcome, use **reconcile quarantine operation** before considering another write. Keep the original operation/job identifiers. Reusing a retained operation ID does not automatically resubmit the write; terminal operation records are bounded to 50 entries.
 
@@ -68,6 +67,6 @@ Quarantined mail and attachments may contain sensitive data or malware. Apply pl
 
 Use the [deployment checklist](validation.md) to verify your own connection, ingestion, analysis and disposition paths with controlled messages.
 
-For support, provide app/runbook and SOAR/ES versions, the selection mode, sanitized action errors and Azure job IDs. Do not include client secrets, webhook tokens or raw message contents.
+For support, provide app/runbook and SOAR/ES versions, sanitized action errors and Azure job IDs. Do not include client secrets, webhook tokens or raw message contents.
 
 Developer instructions are in [CONTRIBUTING.md](../CONTRIBUTING.md); release changes are in [GitHub Releases](https://github.com/reisball/ms-quarantine-for-splunk-soar/releases).
