@@ -20,7 +20,7 @@ The app reads tracked Microsoft statuses and frees slots only after observing ex
 
 Status sweeps check the least-recently observed identities first, including after failed reads, so slow Azure jobs do not permanently starve later records. A budget-exhausted, unattempted record keeps its place for the next poll.
 
-Free slots are filled from the first 50 candidates with status `Requested`. There is no pagination or stable ordering guarantee. An empty import is not proof of an empty backlog. A scheduled poll skips failed identities. Native Poll Now considers eligible failed identities before new candidates, within the same window and poll count. When failed identities are eligible for retry, that manual poll spends its budget on listing/import instead of a preliminary status sweep. Existing slots stay counted; subsequent scheduled polls resume status checks.
+Free slots are filled from the first 50 candidates with status `Requested`. There is no pagination or stable ordering guarantee. An empty import is not proof of an empty backlog. A scheduled poll skips failed identities. Native Poll Now considers eligible failed identities before new candidates, within the same window and poll count. When any failed, unresolved identity is retained, that manual poll spends its budget on listing/import instead of a preliminary status sweep, even if that identity is no longer in the Requested candidates. Existing slots stay counted; subsequent scheduled polls resume status checks. If the schedule is paused, Poll Now alone will not refresh these statuses or free slots after an external Release/Deny. Re-enable scheduled polling to reconcile the active window; do not clear stored state to free slots.
 
 ## Preparation and automation
 
