@@ -18,6 +18,10 @@ This project is for teams operating Microsoft Defender quarantine, Azure Automat
 
 Azure job access and Exchange permissions are separate prerequisites. See [installation and configuration](docs/installation.md).
 
+## Source status
+
+The current source documents the simplified import and disposition workflow. App/runbook version labels remain **3.7.4**; these source changes are not a new published release or a verified customer deployment. Select a unique release version before package handover.
+
 ## Get started
 
 The runbook is deployed separately; installing the SOAR app does not update Azure.
@@ -38,7 +42,7 @@ Import quarantined emails with a recipient release request (Microsoft status `Re
 | Task | Guide |
 |---|---|
 | Install and configure | [Installation](docs/installation.md) |
-| Operate, reconcile and recover | [Operations](docs/operations.md) |
+| Operate and handle failures | [Operations](docs/operations.md) |
 | Understand native SOAR and ES intake | [Email ingestion](docs/ingestion.md) |
 | Diagnose Azure and Exchange failures | [Troubleshooting](docs/troubleshooting.md) |
 | Validate a deployment | [Deployment checklist](docs/validation.md) |

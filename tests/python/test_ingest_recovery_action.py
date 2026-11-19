@@ -13,33 +13,10 @@ else:
 from ms_quarantine_for_splunk_soar_utils import AutomationError, parse_strict_integer
 
 
-def test_recovery_action_manifest_contract():
+def test_public_ingestion_recovery_is_removed():
     manifest = json.loads((Path(__file__).resolve().parents[2] / "app" / "ms_quarantine_for_splunk_soar.json").read_text())
-    actions = [a for a in manifest["actions"]
-               if a["identifier"] == "recover_quarantine_ingestion"]
-    assert len(actions) == 1
-    action = actions[0]
-    assert action["action"] == "recover quarantine ingestion"
-    assert action["read_only"] is False
-    params = action["parameters"]
-    assert set(params) == {"identity", "resolution", "operator_note"}
-    assert all(p["required"] for p in params.values())
-    assert params["identity"]["data_type"] == "string"
-    assert params["operator_note"]["data_type"] == "string"
-    assert params["resolution"]["value_list"] == [
-        "retry_preparation", "confirm_published"]
-
-
-@pytest.mark.parametrize("resolution", ["retry_preparation", "confirm_published"])
-def test_recovery_dispatches_original_parameters(tmp_path, resolution):
-    connector = t.make_connector(state_path=tmp_path / "state.json")
-    connector._action_id = "recover_quarantine_ingestion"
-    connector._handle_ingest_recovery = Mock(return_value=t.APP_SUCCESS)
-    param = {"identity": t.IDENTITY, "resolution": resolution,
-             "operator_note": "Verified synthetic recovery evidence"}
-    assert connector.handle_action(param) == t.APP_SUCCESS
-    connector._handle_ingest_recovery.assert_called_once_with(param)
-    assert connector._handle_ingest_recovery.call_args.args[0] is param
+    assert "recover_quarantine_ingestion" not in {a["identifier"] for a in manifest["actions"]}
+    assert not hasattr(t.MSQuarantineForSplunkSOARConnector, "_handle_ingest_recovery")
 
 
 @pytest.mark.parametrize("value, expected", [(1.0, 1), (10.0, 10), (50.0, 50)])

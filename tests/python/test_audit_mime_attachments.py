@@ -1,15 +1,13 @@
-"""Missing MIME containers are appended without renumbering old Vault files."""
+"""MIME extraction order and complete native Vault publication."""
 from email import policy
 from email.message import EmailMessage
 from email.parser import BytesParser
-import hashlib
-from unittest.mock import Mock
 
 import pytest
 if __package__:
-    from .test_native_ingestion import setup, candidate, sample_mail
+    from .test_native_ingestion import setup, poll, t, sample_mail
 else:
-    from test_native_ingestion import setup, candidate, sample_mail
+    from test_native_ingestion import setup, poll, t, sample_mail
 from ms_quarantine_for_splunk_soar_ingestion import mail_files
 from ms_quarantine_for_splunk_soar_utils import AutomationError
 
@@ -95,27 +93,41 @@ def test_containers_nested_in_rfc822_are_not_extracted_twice(kind):
 
 @pytest.mark.parametrize("target", ["soar", "es"])
 @pytest.mark.parametrize("kind", ["global", "multipart"])
-def test_partial_legacy_vault_map_survives_restart(tmp_path, target, kind):
-    eml = attached_fixture(kind)
-    c = setup(tmp_path, target)
-    c._ingest_settings()
-    c._ingest_reserve([candidate(1)], 10, 1)
-    key, row = next(iter(c._ingest_records().items()))
-    original = c._safe_filename(row["identity"])
-    old_files = [(original, eml)] + OLD_FILES
-    vaults = {str(i): {"vault_id": "legacy-" + str(i), "file_name": name,
-                       "sha256": hashlib.sha256(content).hexdigest(), "size": len(content)}
-              for i, (name, content) in enumerate(old_files)}
-    c._ingest_update(key, phase="preparing", container_id=77, files=vaults,
-                     eml_sha256=hashlib.sha256(eml).hexdigest())
-    resumed = setup(tmp_path, target)
-    resumed.eml = eml
-    resumed._ingest_settings()
-    resumed._store_in_vault = Mock(return_value=(True, {"vault_id": "new-container-file"}))
-    prepared = resumed._ingest_prepare(key, resumed._ingest_records()[key])
-    assert prepared["phase"] == "ready"
-    assert prepared["attachment_count"] == 4
-    assert {key: prepared["files"][key] for key in vaults} == vaults
-    assert prepared["files"]["4"]["vault_id"] == "new-container-file"
-    assert resumed._store_in_vault.call_count == 1
-    assert not any(event[0] in {"container", "publish", "es_publish"} for event in resumed.events)
+def test_all_mime_containers_reach_vault_before_synchronous_publication(tmp_path, target, kind):
+    c = setup(tmp_path, target, limit=1)
+    c.eml = attached_fixture(kind)
+    t.VAULT_ADDS.clear()
+    expected = [(c._safe_filename(c.candidates[0]["Identity"].lower()), c.eml)] + mail_files(c.eml)
+
+    def assert_complete():
+        assert [(v["file_name"], v["content"]) for v in t.VAULT_ADDS] == expected
+        assert len({v["container"] for v in t.VAULT_ADDS}) == 1
+
+    if target == "es":
+        def publish(method, path, **kwargs):
+            assert_complete()
+            assert (method, path) == ("POST", "/rest/enterprise_security/findings/bulk_create")
+            payload = kwargs["json"]
+            assert len(payload["findings"][0]["email"]["attachments"]) == len(expected)
+            return {"status": "success", "created": 1, "failed": 0, "errors": [],
+                    "container_ids": payload["container_ids"], "findings": ["mime-finding"]}
+        c._ingest_es_client_instance.request.side_effect = publish
+    else:
+        save = c.save_artifact
+        def publish(artifact):
+            if artifact["run_automation"]:
+                assert_complete()
+            return save(artifact)
+        c.save_artifact = publish
+
+    status, ar = poll(c)
+    assert status == t.APP_SUCCESS, ar.get_message()
+    assert_complete()
+    row = next(iter(c._ingest_records().values()))
+    assert row["status"] == "completed"
+    assert "files" not in row
+    # Restart deduplicates completion; it does not resume old file checkpoints.
+    restarted = setup(tmp_path, target, limit=1)
+    assert poll(restarted)[0] == t.APP_SUCCESS
+    assert not restarted.events
+    assert_complete()

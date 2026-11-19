@@ -17,7 +17,7 @@ from ms_quarantine_for_splunk_soar_es_ingestion import NativeESClient
 
 
 @pytest.mark.parametrize("target", ["soar", "es"])
-@pytest.mark.parametrize("phase", ["preparing", "ready", "publishing", "published"])
+@pytest.mark.parametrize("phase", ["container", "publishing", "completed"])
 @pytest.mark.parametrize("when", ["before", "after"])
 def test_durable_boundary_fault_never_duplicates_dispatch(tmp_path, target, phase, when):
     c = setup(tmp_path, target, limit=1)
@@ -26,7 +26,10 @@ def test_durable_boundary_fault_never_duplicates_dispatch(tmp_path, target, phas
 
     def update(key, **changes):
         nonlocal fired
-        if not fired and changes.get("phase") == phase:
+        matches = ((phase == "container" and changes.get("container_id"))
+                   or (phase == "publishing" and changes.get("publication_started"))
+                   or (phase == "completed" and changes.get("status") == "completed"))
+        if not fired and matches:
             fired = True
             if when == "after":
                 original(key, **changes)
@@ -38,16 +41,17 @@ def test_durable_boundary_fault_never_duplicates_dispatch(tmp_path, target, phas
     c._ingest_update = original
     poll(c)
     publications = [event for event in c.events if event[0] in {"publish", "es_publish"}]
-    expected = 0 if phase == "publishing" and when == "after" else 1
+    expected = 1 if phase == "completed" else 0
     assert len(publications) == expected
-    if expected == 0:
-        assert next(iter(c._ingest_records().values()))["phase"] == "publishing"
+    row = next(iter(c._ingest_records().values()))
+    assert row["status"] == ("completed" if phase == "completed" and when == "after" else "failed")
+    assert len([x for x in c.calls if x[0] == "export"]) == 1
     assert len(c._saved_containers) <= 1
-    assert len([r for r in c._ingest_records().values() if r["phase"] != "terminal"]) == 1
+    assert len([r for r in c._ingest_records().values() if not r["terminal"]]) == 1
 
 
 @pytest.mark.parametrize("target", ["soar", "es"])
-def test_lost_container_binding_recovers_same_container(tmp_path, target):
+def test_lost_container_binding_waits_for_manual_retry_and_reuses_container(tmp_path, target):
     c = setup(tmp_path, target, limit=1)
     original = c._ingest_update
     fired = False
@@ -62,6 +66,12 @@ def test_lost_container_binding_recovers_same_container(tmp_path, target):
     c._ingest_update = original
     assert poll(c)[0] == t.APP_SUCCESS
     assert len(c._saved_containers) == 1
+    assert len([x for x in c.calls if x[0] == "export"]) == 1
+    assert not [x for x in c.events if x[0] in {"publish", "es_publish"}]
+    c.is_poll_now = lambda: True
+    assert poll(c)[0] == t.APP_SUCCESS
+    assert len(c._saved_containers) == 1
+    assert len([x for x in c.events if x[0] in {"publish", "es_publish"}]) == 1
 
 
 @pytest.mark.parametrize("target", ["soar", "es"])
@@ -99,15 +109,20 @@ def test_separate_metadata_artifact_failure_never_publishes(tmp_path, target):
 
 
 @pytest.mark.parametrize("target", ["soar", "es"])
-def test_changed_eml_during_recovery_is_not_published(tmp_path, target):
+def test_changed_eml_is_only_exported_again_on_explicit_poll_now(tmp_path, target):
     c = setup(tmp_path, target, limit=1)
     original = c._store_in_vault
     c._store_in_vault = lambda *a, **k: (False, "failed")
     assert poll(c)[0] == t.APP_ERROR
     c._store_in_vault = original
     c.eml = c.eml.replace(b"Synthetic body", b"Different body")
-    assert poll(c)[0] == t.APP_ERROR
+    assert poll(c)[0] == t.APP_SUCCESS
     assert not [x for x in c.events if x[0] in {"publish", "es_publish"}]
+    assert len([x for x in c.calls if x[0] == "export"]) == 1
+    c.is_poll_now = lambda: True
+    assert poll(c)[0] == t.APP_SUCCESS
+    assert len([x for x in c.calls if x[0] == "export"]) == 2
+    assert len([x for x in c.events if x[0] in {"publish", "es_publish"}]) == 1
 
 
 def test_native_es_asset_settings_override_missing_connector_config(tmp_path):
@@ -140,7 +155,9 @@ def test_es_payload_validation_failure_does_not_mark_publication_intent(tmp_path
     c = setup(tmp_path, "es", limit=1)
     c._ingest_es_client_instance.prepare_bulk_payload.side_effect = AutomationError("schema error")
     assert poll(c)[0] == t.APP_ERROR
-    assert next(iter(c._ingest_records().values()))["phase"] == "ready"
+    row = next(iter(c._ingest_records().values()))
+    assert row["status"] == "failed"
+    assert row["publication_started"] is False
     assert not c._ingest_es_client_instance.request.called
 
 
@@ -160,8 +177,9 @@ def test_es_ambiguous_receipts_are_not_resubmitted(tmp_path, failure):
     client = c._ingest_es_client_instance
     client.request.side_effect = lambda *a, **kw: receipt
     assert poll(c)[0] == t.APP_ERROR
-    assert next(iter(c._ingest_records().values()))["phase"] == "publishing"
-    assert poll(c)[0] == t.APP_ERROR
+    row = next(iter(c._ingest_records().values()))
+    assert row["status"] == "failed" and row["publication_started"]
+    assert poll(c)[0] == t.APP_SUCCESS
     assert client.request.call_count == 1
 
 

@@ -2,6 +2,8 @@
 
 App **3.7.4** / companion Runbook **3.7.4**. [Documentation index](README.md).
 
+The version labels are unchanged for this source implementation. They do not mean these changes have shipped or been installed on a customer system. Before handing over an updated package, select a unique release version and verify its matching runbook. Publish and confirm that runbook first, install the matching app second, then activate the compatible playbook. The filenames below describe the existing 3.7.4 package naming.
+
 ## Requirements
 
 - Native Splunk SOAR execution with authenticated access to its local REST API. Automation Broker is not supported; SOAR Cloud compatibility has not been verified.
@@ -84,7 +86,7 @@ Run **test connectivity** to check the Azure connection and read Microsoft `Requ
 
 Use **one ingesting asset per tenant**. Keep its tenant, organization and ingest target fixed while tracked work exists. Separate ingesting assets have independent state and can process the same message.
 
-In **Ingest Settings**, configure the container label and polling schedule. Disable the schedule there to pause automatic imports. Use **Poll Now** for a manual import. There is no additional app-level enable checkbox.
+In **Ingest Settings**, configure the container label and polling schedule. Disable the schedule there to pause automatic imports. Use **Poll Now** for a manual import or a deliberate fresh retry of eligible failed identities. Scheduled polls skip failed imports; successful imports remain deduplicated. There is no additional app-level enable checkbox.
 
 For combined-layout SOAR analysis, configure a playbook to consume the single email artifact after the mail is fully prepared. Set the required analyzer assets, analyst/approver, notification recipient, portal URLs and routing label before activating it. Use that artifact's original-email `vaultId`, the event's `data.quarantine_identity` and the [documented input mappings](ingestion.md#data-available-to-soar-playbooks-combined-layout). Update consumers of the old Ready/Request artifacts before activating the changed producer. The app does not configure or activate playbooks for you.
 

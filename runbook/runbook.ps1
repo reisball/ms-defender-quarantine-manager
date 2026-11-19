@@ -12,25 +12,21 @@
              as the exact known-good Microsoft quarantine job (not pinned
              here; PowerShell 7.4 with module 3.5.0 was only a dated
              historical example from 29 July 2026). The loaded module version
-             is reported in each result when it can be read.
+             is reported by manual diagnose when it can be read.
 
     Supported actions:
         list    -> Get-QuarantineMessage -ReleaseStatus Requested
         export  -> Export-QuarantineMessage -Identity <identity>
         diagnose -> Read-only runtime/cmdlet/identity/RBAC inspection
-        reconcile -> Read-only exact Exchange status refresh for one operation
-        config_check -> Read-only report of the effective Exchange connection
-                        (always ManagedIdentity; no Exchange connection, no
-                        message access)
+        reconcile -> Single read-only status refresh for the active window
         release -> Release-QuarantineMessage -Identity <identity> -ReleaseToAll -Confirm:$false
         deny    -> Release-QuarantineMessage -Identity <identity> -ReleaseToAll -ActionType Deny -Confirm:$false
 
     Expected webhook body (JSON):
         { "action": "list" }
-        { "action": "config_check", "auth_method": "ManagedIdentity", "organization": "contoso.onmicrosoft.com" }
         { "action": "export",  "identity": "GUID1\\GUID2" }
         { "action": "diagnose", "identity": "GUID1\\GUID2", "include_rbac": false }
-        { "action": "reconcile", "identity": "GUID1\\GUID2", "operation_action": "release" }
+        { "action": "reconcile", "identity": "GUID1\\GUID2" }
         { "action": "release", "identity": "GUID1\\GUID2" }
         { "action": "deny",    "identity": "GUID1\\GUID2" }
 
@@ -72,9 +68,9 @@
         diagnose:
             { "action": "diagnose", "identity": "...", "status": "inspected", "observed_release_status": "Requested", "cmdlet_contract_id": "identity_releasetoall", "rbac_diagnostics_status": "complete", "release_to_all_roles": "Quarantine", "service_principal_registered": true, "role_assignment_matches_identity": true }
         release:
-            { "action": "release", "identity": "...", "status": "released", "observed_release_status": "Released", "verification_method": "Get-QuarantineMessage" }
+            { "action": "release", "identity": "...", "status": "released", "observed_release_status": "Released", "observed_identity": "..." }
         deny:
-            { "action": "deny", "identity": "...", "status": "denied", "observed_release_status": "Denied", "verification_method": "Get-QuarantineMessage" }
+            { "action": "deny", "identity": "...", "status": "denied", "observed_release_status": "Denied", "observed_identity": "..." }
         error (any action):
             { "action": "...", "error": true, "message": "..." }
 
@@ -109,7 +105,7 @@
     Version: 3.7.4
     Runtime: match the exact known-good Microsoft Automation job (account,
              system identity, runtime, module); the loaded
-             ExchangeOnlineManagement version is reported in each result and
+             ExchangeOnlineManagement version is reported by diagnose and
              is deliberately not pinned here
 
     Export transport limits:
@@ -141,24 +137,18 @@
         ReleaseStatus=Denied. An unconfirmed postcondition fails closed as
         outcome unknown and must not be retried blindly.
 
-    Irreversible-action diagnostics:
-        Release and deny results include a stable build and command-contract
-        fingerprint, the effective Exchange authentication method (always
-        ManagedIdentity), organization and the source of each,
-        PowerShell and ExchangeOnlineManagement runtime evidence, best-effort
-        connection and loaded cmdlet parameter-set metadata (collected without
-        ever blocking the call), structured ErrorRecord fields including
-        position and script stack trace,
-        allowlisted request/correlation identifiers, bounded streams, exact
-        UTC timing, and bounded pre/postcondition traces. The same environment
-        evidence is available through the read-only diagnose action. Diagnose
-        additionally queries the tenant's management-role contracts for Get,
-        Export, ReleaseToAll, and Deny; resolves the active Managed Identity
-        app/object IDs locally without emitting its token; and checks matching
-        Exchange service-principal and Quarantine role-group membership.
-        Missing RBAC diagnostic cmdlets fail the diagnose action explicitly,
-        list the absent commands, and mark unevaluated findings as null.
-        Other RBAC read failures return structured partial diagnostics.
+    Normal results contain only action, identity, status and the verified
+    observed_identity/observed_release_status. After a successful cmdlet the
+    default status-read budget is 7 attempts, 10 seconds apart. A cmdlet error
+    is reported immediately: there is no later error-to-success reconstruction.
+    Errors use one JSON object with redacted, bounded native text, error_code,
+    error_context and optional native exception fields (no error chunk stream).
+
+    Optional manual diagnostics:
+        Only diagnose collects build, runtime, connection and command metadata,
+        proxy details, and (with include_rbac=true) tenant RBAC evidence.
+        Diagnostics are never a prerequisite for normal commands. Missing RBAC
+        diagnostic cmdlets are reported explicitly as not evaluated.
 
     PowerShell Cmdlet references:
         Get-QuarantineMessage:
@@ -190,128 +180,58 @@ function Write-ErrorResult {
     )
     if ($null -ne $ErrorRecord) {
         $Message = Get-OriginalErrorMessage -ErrorRecord $ErrorRecord
-    } else {
-        $Message = ConvertTo-SecretRedactedText -Text $Message
     }
-    if (-not $Message) {
-        $Message = "Unknown error."
-    }
-
-    $effectiveDetails = @{}
-    foreach ($key in $Details.Keys) {
-        $effectiveDetails[$key] = $Details[$key]
-    }
-    if (
-        $Action -in @("release", "deny") -and
-        -not $effectiveDetails.ContainsKey("identity") -and
-        $script:identity
-    ) {
-        # Reconciliation may declare an irreversible operation failed only
-        # when the error envelope is bound to the exact requested identity.
-        $effectiveDetails.identity = [string] $script:identity
-    }
-
+    if (-not $Message) { $Message = "Unknown error." }
     $resultData = @{
-        action  = $Action
-        error   = $true
-        message = $Message
+        action = ConvertTo-RedactedBoundedScalarText -Value $Action -MaxChars 32
+        error = $true
+        message = ConvertTo-RedactedBoundedScalarText -Value $Message -MaxChars 8192
+        error_code = if ($ErrorCode) { $ErrorCode } else { "runbook_error" }
+        error_context = if ($ErrorContext) { $ErrorContext } else { $Action }
     }
-    if ($ErrorCode) {
-        $resultData.error_code = $ErrorCode
+    $knownIdentity = if ($Details.identity) { $Details.identity } else { $script:identity }
+    if ($knownIdentity) {
+        $resultData.identity = ConvertTo-RedactedBoundedScalarText -Value $knownIdentity -MaxChars 128
     }
-    if ($ErrorContext) {
-        $resultData.error_context = $ErrorContext
-    }
+    $resultData.error_context = ConvertTo-RedactedBoundedScalarText -Value $resultData.error_context -MaxChars 128
     if ($null -ne $ErrorRecord) {
-        $nativeEvidence = Get-StructuredErrorEvidence `
-            -ErrorRecord $ErrorRecord
-        $resultData.exception_type = (
-            [string] $nativeEvidence.cmdlet_exception_type
-        )
-        $resultData.fully_qualified_error_id = (
-            [string] $nativeEvidence.cmdlet_fully_qualified_error_id
-        )
-        $resultData.error_category = (
-            [string] $nativeEvidence.cmdlet_error_category
-        )
-        $resultData.error_reason = (
-            [string] $nativeEvidence.cmdlet_error_reason
-        )
-        $resultData.http_status_code = (
-            [string] $nativeEvidence.cmdlet_http_status_code
-        )
-        $resultData.request_id = (
-            [string] $nativeEvidence.cmdlet_request_id
-        )
-        $resultData.correlation_id = (
-            [string] $nativeEvidence.cmdlet_correlation_id
-        )
+        foreach ($field in @{
+            exception_type = $ErrorRecord.Exception.GetType().FullName
+            fully_qualified_error_id = $ErrorRecord.FullyQualifiedErrorId
+            error_category = $ErrorRecord.CategoryInfo.Category
+            error_reason = $ErrorRecord.CategoryInfo.Reason
+        }.GetEnumerator()) {
+            $resultData[$field.Key] = ConvertTo-RedactedBoundedScalarText -Value $field.Value -MaxChars 512
+        }
     }
-    if ($effectiveDetails.Count -gt 0) {
-        $resultData.details = $effectiveDetails
+    # Only explicitly requested diagnostics include the optional evidence report.
+    if ($Action -eq "diagnose" -and $Details.Count -gt 0) {
+        $resultData.details = $Details
     }
-    Add-RunbookEnvelopeMetadata -Data $resultData
     Write-ErrorEnvelope -Data $resultData
-    # Azure job state is the transport state. Expected application errors must
-    # remain readable through the output API, then the connector maps
-    # error=true to APP_ERROR. A non-zero process exit can mark the job Failed
-    # before clients retrieve this structured result.
+    # Azure job completion is transport success; error=true is application failure.
     exit 0
 }
 
-# ---------------------------------------------------------------------------
-# Helper: write a JSON success result
-# ---------------------------------------------------------------------------
 function ConvertTo-RunbookJson {
     param([hashtable] $Data)
-    Add-RunbookEnvelopeMetadata -Data $Data
+    # Preserve list/export transport metadata; ordinary action results stay small.
+    if ($Data.action -in @("list", "export", "diagnose")) {
+        Add-RunbookEnvelopeMetadata -Data $Data
+    }
     return ($Data | ConvertTo-Json -Depth 10 -Compress)
 }
 
 function Write-SuccessResult {
     param([hashtable] $Data)
-
-    # Passive metadata is optional evidence, never the disposition outcome.
-    # Keep genuine application-error envelopes on their existing full-text
-    # chunking path; only success records have this compact transport budget.
-    foreach ($key in @("cmdlet_metadata_error", "exchange_connection_metadata_error")) {
-        if (-not $Data.ContainsKey($key)) {
-            continue
-        }
-        $safeText = ConvertTo-SecretRedactedText -Text ([string] $Data[$key])
-        $Data[$key] = $safeText
-        if ($safeText.Length -gt $DiagnosticMaxChars) {
-            $Data[$key] = $safeText.Substring(0, $DiagnosticMaxChars - 12) + " [truncated]"
-            $Data[$key + "_original_chars"] = $safeText.Length
-            $Data[$key + "_truncated"] = $true
-        }
-    }
-
-    $json = ConvertTo-RunbookJson -Data $Data
-    if ((Get-Utf8ByteCount -Content $json) -gt $ListMaxRecordBytes) {
-        # Additional future module/runtime metadata may be unexpectedly large.
-        # Only these independently collected passive strings may be reduced;
-        # identity, action, status and all postcondition evidence stay intact.
-        $optionalKeys = @(
-            $script:RuntimeDiagnosticEvidence.Keys
-            $script:PassiveExchangeEvidence.Keys
-        ) | Sort-Object -Unique
-        foreach ($key in $optionalKeys) {
-            if (-not $Data.ContainsKey($key) -or $Data[$key] -isnot [string]) {
-                continue
-            }
-            $safeText = ConvertTo-SecretRedactedText -Text ([string] $Data[$key])
-            if ($safeText.Length -gt $DiagnosticMaxChars) {
-                $Data[$key] = $safeText.Substring(0, $DiagnosticMaxChars - 12) + " [truncated]"
-                $Data[$key + "_original_chars"] = $safeText.Length
-                $Data[$key + "_truncated"] = $true
-            } else {
-                $Data[$key] = $safeText
+    if ($Data.action -eq "diagnose") {
+        foreach ($key in @("cmdlet_metadata_error", "exchange_connection_metadata_error")) {
+            if ($Data.ContainsKey($key)) {
+                $Data[$key] = ConvertTo-RedactedBoundedScalarText -Value $Data[$key]
             }
         }
-        $json = ConvertTo-RunbookJson -Data $Data
     }
-    Write-Output $json
+    Write-Output (ConvertTo-RunbookJson -Data $Data)
 }
 
 # ---------------------------------------------------------------------------
@@ -324,14 +244,11 @@ $ExportChunkSizeChars     = 250 * 1024
 $ExportMaxChunkCount      = 200
 $ExportMaxDecodedBytes    = 24 * 1024 * 1024
 $ExportScanBlockChars     = 256 * 1024
-$ErrorChunkThresholdBytes = 750 * 1024
-$ErrorChunkSizeChars      = 250 * 1024
-$ErrorMaxChunkCount       = 200
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "3.7.4"
-$RunbookSourceRevision    = "sha256:5cd32ac0c5f13882b4313b2e3b64857d73ae88f8e71ec53b9da3ef30380424ff"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-3.7.4+sha256.5cd32ac0c5f13882b4313b2e3b64857d73ae88f8e71ec53b9da3ef30380424ff"
+$RunbookSourceRevision    = "sha256:b68bdb2989288f67bb1456e4336cd298a847a5196476464ecf86d78bf5b1e17e"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-3.7.4+sha256.b68bdb2989288f67bb1456e4336cd298a847a5196476464ecf86d78bf5b1e17e"
 $ReleaseContractId        = "identity_releasetoall"
 $DenyContractId           = "identity_releasetoall_actiontype_deny"
 $PostconditionMaxAttempts = 7
@@ -343,7 +260,6 @@ $MaxJwtHeaderSegmentChars = 8 * 1024
 $RbacDiagnosticMaxGroups  = 20
 $PermissionQueryErrorMaxRecords = 20
 $PermissionQueryErrorMaxUtf8Bytes = 32 * 1024
-$ExchangeConfigContract   = "exchange_connection_v1"
 $ExchangeSettingMaxLength = 256
 $selectionReleaseStatus = "Requested"
 $script:ExchangeOnlineManagementVersion = "unknown"
@@ -390,65 +306,16 @@ function Get-Sha256Hex {
 
 function Write-ErrorEnvelope {
     param([hashtable] $Data)
-
+    # One bounded JSON record, never a second error chunk protocol. Diagnostic
+    # reports may be larger than normal errors, but cannot exceed one record.
+    $Data.message = ConvertTo-RedactedBoundedScalarText -Value $Data.message -MaxChars 8192
     $json = $Data | ConvertTo-Json -Depth 10 -Compress
-    $utf8 = [System.Text.Encoding]::UTF8.GetBytes($json)
-    if ($utf8.Length -lt $ErrorChunkThresholdBytes) {
-        Write-Output $json
-        return
+    if ((Get-Utf8ByteCount -Content $json) -gt 64KB -and $Data.ContainsKey("details")) {
+        $Data.Remove("details")
+        $Data.diagnostic_details_truncated = $true
+        $json = $Data | ConvertTo-Json -Depth 10 -Compress
     }
-
-    $encoded = [System.Convert]::ToBase64String($utf8)
-    $chunkCount = [int] [System.Math]::Ceiling(
-        $encoded.Length / [double] $ErrorChunkSizeChars
-    )
-    if ($chunkCount -lt 1 -or $chunkCount -gt $ErrorMaxChunkCount) {
-        $overflow = @{
-            action              = [string] $Data.action
-            error               = $true
-            error_code          = "error_envelope_transport_limit"
-            error_context       = "error_envelope_chunking"
-            message             = "The exact redacted error envelope exceeds the supported chunk transport limit."
-            original_utf8_bytes = [long] $utf8.Length
-            original_sha256     = Get-Sha256Hex -Bytes $utf8
-        }
-        Add-RunbookEnvelopeMetadata -Data $overflow
-        Write-Output ($overflow | ConvertTo-Json -Depth 10 -Compress)
-        return
-    }
-
-    $payloadSha256 = Get-Sha256Hex -Bytes $utf8
-    for ([int] $index = 0; $index -lt $chunkCount; $index++) {
-        $offset = $index * $ErrorChunkSizeChars
-        $length = [System.Math]::Min(
-            $ErrorChunkSizeChars,
-            $encoded.Length - $offset
-        )
-        $record = @{
-            action        = [string] $Data.action
-            error         = $true
-            mode          = "error_chunk"
-            encoding      = "base64"
-            chunk_index   = $index
-            chunk_count   = $chunkCount
-            payload_chunk = $encoded.Substring($offset, $length)
-        }
-        Add-RunbookEnvelopeMetadata -Data $record
-        Write-Output ($record | ConvertTo-Json -Depth 10 -Compress)
-    }
-
-    $trailer = @{
-        action                = [string] $Data.action
-        error                 = $true
-        mode                  = "error_complete"
-        encoding              = "base64"
-        chunk_count           = $chunkCount
-        payload_base64_length = $encoded.Length
-        payload_utf8_bytes    = [long] $utf8.Length
-        payload_sha256        = $payloadSha256
-    }
-    Add-RunbookEnvelopeMetadata -Data $trailer
-    Write-Output ($trailer | ConvertTo-Json -Depth 10 -Compress)
+    Write-Output $json
 }
 
 function ConvertTo-OutputTimestamp {
@@ -1917,10 +1784,8 @@ function Initialize-DiagnosticEvidence {
 }
 
 function Get-PassiveExchangeEvidence {
-    # Read-only metadata about the loaded Release-QuarantineMessage command
-    # and the live Exchange connection. It is collected lazily, after the
-    # disposition call for release/deny, and every failure is converted into
-    # an evidence string: nothing here may veto or alter the write.
+    # Optional manual diagnosis only: inspect the loaded command and connection.
+    # Normal release/deny actions never call these collectors.
     if ($null -ne $script:PassiveExchangeEvidence) {
         return $script:PassiveExchangeEvidence
     }
@@ -1955,7 +1820,7 @@ function Close-ExchangeSessionBestEffort {
         exchange_disconnect_error = ""
     }
     try {
-        Disconnect-ExchangeOnline -Confirm:$false -ErrorAction Stop
+        Disconnect-ExchangeOnline -Confirm:$false -ErrorAction Stop 3>$null 4>$null 5>$null 6>$null | Out-Null
         Write-Verbose "Disconnected from Exchange Online."
     } catch {
         $evidence.exchange_disconnect_status = "failed"
@@ -1971,15 +1836,6 @@ function Close-ExchangeSessionBestEffort {
     }
     $script:ExchangeCleanupEvidence = $evidence
     return $evidence
-}
-
-function Add-ExchangeCleanupEvidence {
-    param([hashtable] $Data)
-
-    $cleanup = Close-ExchangeSessionBestEffort
-    foreach ($key in $cleanup.Keys) {
-        $Data[$key] = $cleanup[$key]
-    }
 }
 
 function Add-StaticDiagnosticEvidence {
@@ -2021,8 +1877,6 @@ function Add-StaticDiagnosticEvidence {
             "-ActionType Deny -Confirm:`$false -ErrorAction Stop"
         )
     }
-    # The single call's outcome is reported by cmdlet_invocation_attempted,
-    # cmdlet_executed, cmdlet_error and the postcondition evidence.
 }
 
 function ConvertTo-RedactedBoundedScalarText {
@@ -2037,469 +1891,53 @@ function ConvertTo-RedactedBoundedScalarText {
         -MaxChars $MaxChars
 }
 
-function Get-StructuredErrorEvidence {
-    param([object] $ErrorRecord)
-
-    $evidence = @{
-        cmdlet_fully_qualified_error_id = ""
-        cmdlet_error_category           = ""
-        cmdlet_error_reason             = ""
-        cmdlet_error_target_name        = ""
-        cmdlet_error_target_type        = ""
-        cmdlet_exception_type           = ""
-        cmdlet_exception_hresult        = ""
-        cmdlet_http_status_code         = ""
-        cmdlet_error_details            = ""
-        cmdlet_inner_exception          = ""
-        cmdlet_error_position           = ""
-        cmdlet_script_stack_trace       = ""
-        cmdlet_request_id               = ""
-        cmdlet_correlation_id           = ""
-        cmdlet_server_timestamp         = ""
-    }
-    if ($null -eq $ErrorRecord) {
-        return $evidence
-    }
-
-    $evidence.cmdlet_fully_qualified_error_id = (
-        ConvertTo-RedactedBoundedScalarText `
-            -Value $ErrorRecord.FullyQualifiedErrorId `
-            -MaxChars 512
-    )
-    if ($ErrorRecord.CategoryInfo) {
-        $evidence.cmdlet_error_category = (
-            ConvertTo-RedactedBoundedScalarText `
-                -Value $ErrorRecord.CategoryInfo.Category `
-                -MaxChars 256
-        )
-        $evidence.cmdlet_error_reason = (
-            ConvertTo-RedactedBoundedScalarText `
-                -Value $ErrorRecord.CategoryInfo.Reason `
-                -MaxChars 512
-        )
-        $evidence.cmdlet_error_target_name = (
-            ConvertTo-RedactedBoundedScalarText `
-                -Value $ErrorRecord.CategoryInfo.TargetName `
-                -MaxChars 512
-        )
-        $evidence.cmdlet_error_target_type = (
-            ConvertTo-RedactedBoundedScalarText `
-                -Value $ErrorRecord.CategoryInfo.TargetType `
-                -MaxChars 512
-        )
-    }
-    if ($ErrorRecord.InvocationInfo) {
-        $evidence.cmdlet_error_position = (
-            ConvertTo-RedactedBoundedScalarText `
-                -Value (ConvertTo-SecretRedactedText `
-                    -Text ([string] $ErrorRecord.InvocationInfo.PositionMessage)
-                ) `
-                -MaxChars $DiagnosticMaxChars
-        )
-    }
-    if ($ErrorRecord.ScriptStackTrace) {
-        $evidence.cmdlet_script_stack_trace = (
-            ConvertTo-RedactedBoundedScalarText `
-                -Value (ConvertTo-SecretRedactedText `
-                    -Text ([string] $ErrorRecord.ScriptStackTrace)
-                ) `
-                -MaxChars $DiagnosticMaxChars
-        )
-    }
-    if ($ErrorRecord.ErrorDetails) {
-        $evidence.cmdlet_error_details = (
-            ConvertTo-SecretRedactedText `
-                -Text ([string] $ErrorRecord.ErrorDetails.Message)
-        )
-    }
-
-    $exception = $ErrorRecord.Exception
-    if ($exception) {
-        $evidence.cmdlet_exception_type = (
-            ConvertTo-RedactedBoundedScalarText `
-                -Value $exception.GetType().FullName `
-                -MaxChars 512
-        )
-        $hresultBytes = [System.BitConverter]::GetBytes(
-            [int] $exception.HResult
-        )
-        $hresultUnsigned = [System.BitConverter]::ToUInt32(
-            $hresultBytes,
-            0
-        )
-        $evidence.cmdlet_exception_hresult = (
-            "0x{0:X8}" -f $hresultUnsigned
-        )
-
-        $statusException = $exception
-        for (
-            [int] $statusDepth = 0;
-            $statusDepth -lt 5 -and $statusException;
-            $statusDepth++
-        ) {
-            $statusCandidates = @()
-            $statusProperty = (
-                $statusException.PSObject.Properties["StatusCode"]
-            )
-            if ($null -ne $statusProperty -and $null -ne $statusProperty.Value) {
-                $statusCandidates += $statusProperty.Value
-            }
-            $responseProperty = (
-                $statusException.PSObject.Properties["Response"]
-            )
-            if (
-                $null -ne $responseProperty -and
-                $null -ne $responseProperty.Value
-            ) {
-                $responseStatusProperty = (
-                    $responseProperty.Value.PSObject.Properties["StatusCode"]
-                )
-                if (
-                    $null -ne $responseStatusProperty -and
-                    $null -ne $responseStatusProperty.Value
-                ) {
-                    $statusCandidates += $responseStatusProperty.Value
-                }
-            }
-            foreach ($candidate in @($statusCandidates)) {
-                [int] $statusCode = 0
-                if (
-                    [int]::TryParse(
-                        [string] $candidate,
-                        [ref] $statusCode
-                    ) -and
-                    $statusCode -ge 100 -and
-                    $statusCode -le 599
-                ) {
-                    $evidence.cmdlet_http_status_code = [string] $statusCode
-                    break
-                }
-                try {
-                    $statusCode = [int] $candidate
-                    if ($statusCode -ge 100 -and $statusCode -le 599) {
-                        $evidence.cmdlet_http_status_code = [string] $statusCode
-                        break
-                    }
-                } catch {
-                    # Ignore non-numeric status representations.
-                }
-            }
-            if ($evidence.cmdlet_http_status_code) {
-                break
-            }
-            $statusException = $statusException.InnerException
-        }
-
-        $innerMessages = New-Object "System.Collections.Generic.List[string]"
-        $inner = $exception.InnerException
-        for ([int] $depth = 0; $depth -lt 4 -and $inner; $depth++) {
-            $innerMessages.Add(
-                (ConvertTo-SecretRedactedText -Text ([string] $inner.Message))
-            )
-            $inner = $inner.InnerException
-        }
-        $evidence.cmdlet_inner_exception = (
-            $innerMessages -join "`n"
-        )
-
-        if ($exception.Data) {
-            foreach ($key in @($exception.Data.Keys)) {
-                $normalisedKey = ([string] $key).Trim().ToLowerInvariant()
-                $value = ConvertTo-RedactedBoundedScalarText `
-                    -Value $exception.Data[$key] `
-                    -MaxChars 512
-                if (
-                    -not $evidence.cmdlet_request_id -and
-                    $normalisedKey -in @(
-                        "requestid",
-                        "request-id",
-                        "x-ms-request-id",
-                        "clientrequestid",
-                        "client-request-id"
-                    )
-                ) {
-                    $evidence.cmdlet_request_id = $value
-                } elseif (
-                    -not $evidence.cmdlet_correlation_id -and
-                    $normalisedKey -in @(
-                        "correlationid",
-                        "correlation-id",
-                        "x-ms-correlation-request-id"
-                    )
-                ) {
-                    $evidence.cmdlet_correlation_id = $value
-                } elseif (
-                    -not $evidence.cmdlet_server_timestamp -and
-                    $normalisedKey -in @(
-                        "timestamp",
-                        "server-timestamp",
-                        "server-date"
-                    )
-                ) {
-                    $evidence.cmdlet_server_timestamp = $value
-                } elseif (
-                    -not $evidence.cmdlet_http_status_code -and
-                    $normalisedKey -in @(
-                        "statuscode",
-                        "status-code",
-                        "httpstatuscode",
-                        "http-status-code"
-                    ) -and
-                    $value -match "^\d{3}$" -and
-                    [int] $value -ge 100 -and
-                    [int] $value -le 599
-                ) {
-                    $evidence.cmdlet_http_status_code = $value
-                }
-            }
-        }
-    }
-    return $evidence
-}
-
 function Invoke-QuarantineDisposition {
     param(
         [string] $Identity,
         [ValidateSet("Release", "Deny")]
         [string] $ActionType
     )
-
-    # The single write. There is no pre-flight binder probe: PowerShell's own
-    # binder and Microsoft's cmdlet are the authority. The exact calls below
-    # are wrapped only so that warning/verbose/information records can be
-    # kept; the wrapper adds no parameters and the call is never repeated.
-    $cmdletRecords = New-Object "System.Collections.Generic.List[object]"
-    [bool] $invocationAttempted = $false
-    [bool] $succeeded = $false
-    [bool] $cmdletExecuted = $true
-    $caughtErrorRecord = $null
-    $startedAt = [datetimeoffset]::UtcNow
-    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-
-    try {
-        $invocationAttempted = $true
+    # Exactly one write. Suppress optional native streams rather than leaking
+    # their potentially sensitive text. Also catch providers which explicitly
+    # emit non-terminating errors despite ErrorAction Stop; retain only errors.
+    & {
         if ($ActionType -eq "Release") {
-            & {
-                Release-QuarantineMessage `
-                    -Identity $Identity `
-                    -ReleaseToAll `
-                    -Confirm:$false `
-                    -ErrorAction Stop
-            } 2>&1 3>&1 4>&1 6>&1 |
-                ForEach-Object {
-                    $cmdletRecords.Add($_)
-                } |
-                Out-Null
+            Release-QuarantineMessage `
+                -Identity $Identity `
+                -ReleaseToAll `
+                -Confirm:$false `
+                -ErrorAction Stop
         } else {
-            & {
-                Release-QuarantineMessage `
-                    -Identity $Identity `
-                    -ReleaseToAll `
-                    -ActionType Deny `
-                    -Confirm:$false `
-                    -ErrorAction Stop
-            } 2>&1 3>&1 4>&1 6>&1 |
-                ForEach-Object {
-                    $cmdletRecords.Add($_)
-                } |
-                Out-Null
+            Release-QuarantineMessage `
+                -Identity $Identity `
+                -ReleaseToAll `
+                -ActionType Deny `
+                -Confirm:$false `
+                -ErrorAction Stop
         }
-        $succeeded = $true
-    } catch {
-        $caughtErrorRecord = $_
-        # A binder or command-resolution failure means the cmdlet body never
-        # ran: the call was attempted but nothing was executed.
-        if (
-            $_.Exception -is
-                [System.Management.Automation.CommandNotFoundException] -or
-            $_.Exception -is
-                [System.Management.Automation.ParameterBindingException] -or
-            $_.FullyQualifiedErrorId -like "*CommandNotFound*"
-        ) {
-            $cmdletExecuted = $false
-        }
-    } finally {
-        $stopwatch.Stop()
+    } 2>&1 3>$null 4>$null 5>$null 6>$null | ForEach-Object {
+        if ($_ -is [System.Management.Automation.ErrorRecord]) { throw $_ }
     }
-
-    $dispositionErrors = New-Object "System.Collections.Generic.List[object]"
-    foreach ($record in $cmdletRecords.ToArray()) {
-        if ($record -is [System.Management.Automation.ErrorRecord]) {
-            $dispositionErrors.Add($record)
-        }
-    }
-    if ($null -ne $caughtErrorRecord) {
-        $alreadyCaptured = $false
-        foreach ($record in $dispositionErrors.ToArray()) {
-            if ([object]::ReferenceEquals($record, $caughtErrorRecord)) {
-                $alreadyCaptured = $true
-            }
-        }
-        if (-not $alreadyCaptured) {
-            $dispositionErrors.Add($caughtErrorRecord)
-        }
-    } elseif ($dispositionErrors.Count -gt 0) {
-        $caughtErrorRecord = $dispositionErrors[0]
-    }
-    if ($dispositionErrors.Count -gt 0) {
-        $succeeded = $false
-    }
-
-    $dispositionWarnings = @(
-        $cmdletRecords |
-            Where-Object {
-                $_ -is [System.Management.Automation.WarningRecord]
-            }
-    )
-    $dispositionInformation = @(
-        $cmdletRecords |
-            Where-Object {
-                $_ -is [System.Management.Automation.InformationRecord]
-            }
-    )
-    $dispositionVerbose = @(
-        $cmdletRecords |
-            Where-Object {
-                $_ -is [System.Management.Automation.VerboseRecord]
-            }
-    )
-
-    $structuredError = Get-StructuredErrorEvidence `
-        -ErrorRecord $caughtErrorRecord
-    $result = @{
-        Succeeded = $succeeded
-        InvocationAttempted = $invocationAttempted
-        CmdletExecuted = $cmdletExecuted
-        Warning = Join-OriginalRecordText -Records @($dispositionWarnings)
-        Information = Join-OriginalRecordText `
-            -Records @($dispositionInformation)
-        Verbose = Join-OriginalRecordText -Records @($dispositionVerbose)
-        Error = Join-OriginalRecordText -Records $dispositionErrors.ToArray()
-        ExchangeOnlineManagementVersion = (
-            [string] $script:ExchangeOnlineManagementVersion
-        )
-        StartedAtUtc = $startedAt.ToString("o")
-        CompletedAtUtc = [datetimeoffset]::UtcNow.ToString("o")
-        DurationMilliseconds = [long] $stopwatch.ElapsedMilliseconds
-    }
-    foreach ($key in $structuredError.Keys) {
-        $result[$key] = $structuredError[$key]
-    }
-    return $result
 }
 
-function Add-DispositionEvidence {
-    param(
-        [hashtable] $Data,
-        [hashtable] $Execution,
-        [ValidateSet("Release", "Deny")]
-        [string] $ActionType,
-        [switch] $BoundErrorDiagnostics
-    )
-
-    Add-StaticDiagnosticEvidence `
-        -Data $Data `
-        -DispositionAction $ActionType
-    $Data.cmdlet_invocation_attempted = [bool] $Execution.InvocationAttempted
-    $Data.cmdlet_executed = [bool] $Execution.CmdletExecuted
-    # Optional streams must not overflow a successful Azure output record.
-    # Genuine error responses retain full redacted evidence for chunking.
-    foreach ($stream in @("Warning", "Information", "Verbose")) {
-        $safeText = ConvertTo-SecretRedactedText -Text ([string] $Execution[$stream])
-        $key = "cmdlet_" + $stream.ToLowerInvariant()
-        $Data[$key] = ConvertTo-BoundedScalarText `
-            -Value $safeText `
-            -MaxChars $DiagnosticMaxChars
-        $Data[$key + "_original_chars"] = $safeText.Length
-        $Data[$key + "_truncated"] = ($safeText.Length -gt $DiagnosticMaxChars)
+function Read-QuarantineStatus {
+    param([string] $Identity)
+    $messages = @(Get-QuarantineMessage -Identity $Identity -ErrorAction Stop 3>$null 4>$null 5>$null 6>$null)
+    if ($messages.Count -ne 1) {
+        throw "Get-QuarantineMessage returned $($messages.Count) results for one identity."
     }
-    $Data.cmdlet_error = [string] $Execution.Error
-    if ($Data.cmdlet_invocation_attempted) {
-        $Data.cmdlet_started_at_utc = [string] $Execution.StartedAtUtc
-        $Data.cmdlet_completed_at_utc = [string] $Execution.CompletedAtUtc
-        $Data.cmdlet_duration_ms = [long] $Execution.DurationMilliseconds
-    } else {
-        $Data.cmdlet_started_at_utc = ""
-        $Data.cmdlet_completed_at_utc = ""
-        $Data.cmdlet_duration_ms = 0
+    $observedIdentity = [string] $messages[0].Identity
+    if (-not (Test-QuarantineIdentityMatch -Left $observedIdentity -Right $Identity)) {
+        throw "Get-QuarantineMessage returned identity '$observedIdentity' instead of '$Identity'."
     }
-    foreach ($key in @(
-        "cmdlet_fully_qualified_error_id",
-        "cmdlet_error_category",
-        "cmdlet_error_reason",
-        "cmdlet_error_target_name",
-        "cmdlet_error_target_type",
-        "cmdlet_exception_type",
-        "cmdlet_exception_hresult",
-        "cmdlet_http_status_code",
-        "cmdlet_error_details",
-        "cmdlet_inner_exception",
-        "cmdlet_error_position",
-        "cmdlet_script_stack_trace",
-        "cmdlet_request_id",
-        "cmdlet_correlation_id",
-        "cmdlet_server_timestamp"
-    )) {
-        $Data[$key] = [string] $Execution[$key]
+    $observedStatus = [string] $messages[0].ReleaseStatus
+    if (-not $observedStatus) {
+        throw "Get-QuarantineMessage returned an empty ReleaseStatus."
     }
-    if ($BoundErrorDiagnostics) {
-        # A terminal readback can confirm success after a cmdlet error. Success
-        # records do not use error chunking, so bound the otherwise unbounded
-        # error evidence here without changing the genuine error contract.
-        foreach ($key in @(
-            "cmdlet_error", "cmdlet_error_details", "cmdlet_inner_exception"
-        )) {
-            $safeText = ConvertTo-SecretRedactedText -Text ([string] $Data[$key])
-            $Data[$key] = ConvertTo-BoundedScalarText `
-                -Value $safeText `
-                -MaxChars $DiagnosticMaxChars
-            $Data[$key + "_original_chars"] = $safeText.Length
-            $Data[$key + "_truncated"] = ($safeText.Length -gt $DiagnosticMaxChars)
-        }
+    return @{
+        ObservedIdentity = $observedIdentity
+        ObservedStatus = $observedStatus
     }
-    # Cleanup is independent best-effort data: it is recorded after the
-    # postcondition has been read and can never alter the disposition result.
-    Add-ExchangeCleanupEvidence -Data $Data
-}
-
-function Add-EmptyDispositionEvidence {
-    param(
-        [hashtable] $Data,
-        [ValidateSet("Release", "Deny")]
-        [string] $ActionType
-    )
-
-    Add-StaticDiagnosticEvidence `
-        -Data $Data `
-        -DispositionAction $ActionType
-    $Data.cmdlet_invocation_attempted = $false
-    $Data.cmdlet_executed = $false
-    foreach ($key in @(
-        "cmdlet_warning",
-        "cmdlet_information",
-        "cmdlet_verbose",
-        "cmdlet_error",
-        "cmdlet_started_at_utc",
-        "cmdlet_completed_at_utc",
-        "cmdlet_fully_qualified_error_id",
-        "cmdlet_error_category",
-        "cmdlet_error_reason",
-        "cmdlet_error_target_name",
-        "cmdlet_error_target_type",
-        "cmdlet_exception_type",
-        "cmdlet_exception_hresult",
-        "cmdlet_http_status_code",
-        "cmdlet_error_details",
-        "cmdlet_inner_exception",
-        "cmdlet_error_position",
-        "cmdlet_script_stack_trace",
-        "cmdlet_request_id",
-        "cmdlet_correlation_id",
-        "cmdlet_server_timestamp"
-    )) {
-        $Data[$key] = ""
-    }
-    $Data.cmdlet_duration_ms = 0
 }
 
 function Wait-QuarantinePostcondition {
@@ -2509,206 +1947,32 @@ function Wait-QuarantinePostcondition {
         [int] $MaxAttempts = $PostconditionMaxAttempts,
         [int] $PollIntervalSeconds = $PostconditionPollSeconds
     )
-
-    if ($MaxAttempts -lt 1) {
-        throw "Postcondition verification requires at least one attempt."
-    }
-    if ($PollIntervalSeconds -lt 0) {
-        throw "Postcondition verification poll interval cannot be negative."
-    }
-
-    [string] $observedStatus = ""
-    [string] $observedIdentity = ""
-    [string] $lastError = ""
-    $observedStatusHistory = New-Object "System.Collections.Generic.List[string]"
-    $verificationTrace = New-Object "System.Collections.Generic.List[object]"
-
+    if ($MaxAttempts -lt 1) { throw "Postcondition verification requires at least one attempt." }
+    if ($PollIntervalSeconds -lt 0) { throw "Postcondition verification poll interval cannot be negative." }
     for ([int] $attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-        $traceEntry = @{
-            attempt                 = $attempt
-            observed_at_utc         = [datetimeoffset]::UtcNow.ToString("o")
-            result_count            = 0
-            observed_identity       = ""
-            observed_release_status = ""
-            exact_identity_match    = $false
-            error                   = ""
+        $result = @{
+            Confirmed = $false
+            ObservedIdentity = ""
+            ObservedStatus = ""
+            Attempts = $attempt
+            LastError = ""
         }
         try {
-            $messages = @(
-                Get-QuarantineMessage `
-                    -Identity $Identity `
-                    -ErrorAction Stop
-            )
-            $traceEntry.result_count = $messages.Count
-
-            if ($messages.Count -eq 1) {
-                $observedIdentity = [string] $messages[0].Identity
-                $observedStatus = [string] $messages[0].ReleaseStatus
-                $traceEntry.observed_identity = $observedIdentity
-                $traceEntry.observed_release_status = $observedStatus
-                if (-not (Test-QuarantineIdentityMatch `
-                    -Left $observedIdentity `
-                    -Right $Identity
-                )) {
-                    $lastError = (
-                        "Get-QuarantineMessage returned identity " +
-                        "'$observedIdentity' instead of '$Identity'."
-                    )
-                    $traceEntry.error = $lastError
-                } else {
-                    $traceEntry.exact_identity_match = $true
-                    $lastError = ""
-                    if (
-                        -not $observedStatusHistory.Contains($observedStatus)
-                    ) {
-                        $observedStatusHistory.Add($observedStatus)
-                    }
-                    if ([string]::Equals(
-                        $observedStatus,
-                        $ExpectedStatus,
-                        [System.StringComparison]::OrdinalIgnoreCase
-                    )) {
-                        $verificationTrace.Add($traceEntry)
-                        return @{
-                            Confirmed      = $true
-                            ExpectedStatus = $ExpectedStatus
-                            ObservedStatus = $observedStatus
-                            ObservedIdentity = $observedIdentity
-                            ObservedStatusHistory = (
-                                $observedStatusHistory -join " -> "
-                            )
-                            Attempts       = $attempt
-                            LastError      = ""
-                            Trace = ConvertTo-DiagnosticJson `
-                                -Records ([object[]] $verificationTrace)
-                        }
-                    }
-                }
-            } elseif ($messages.Count -eq 0) {
-                $observedStatus = ""
-                $observedIdentity = ""
-                $lastError = "Get-QuarantineMessage returned no result."
-                $traceEntry.error = $lastError
-            } else {
-                $observedStatus = ""
-                $observedIdentity = ""
-                $lastError = (
-                    "Get-QuarantineMessage returned $($messages.Count) " +
-                    "results for one identity."
-                )
-                $traceEntry.error = $lastError
+            $observation = Read-QuarantineStatus -Identity $Identity
+            $result.ObservedIdentity = $observation.ObservedIdentity
+            $result.ObservedStatus = $observation.ObservedStatus
+            if ([string]::Equals($observation.ObservedStatus, $ExpectedStatus, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $result.Confirmed = $true
+                return $result
             }
         } catch {
-            $observedStatus = ""
-            $observedIdentity = ""
-            $lastError = Get-OriginalErrorMessage -ErrorRecord $_
-            $traceEntry.error = $lastError
+            $result.LastError = Get-OriginalErrorMessage -ErrorRecord $_
         }
-        $verificationTrace.Add($traceEntry)
-
-        if (
-            $attempt -lt $MaxAttempts -and
-            $PollIntervalSeconds -gt 0
-        ) {
+        if ($attempt -lt $MaxAttempts -and $PollIntervalSeconds -gt 0) {
             Start-Sleep -Seconds $PollIntervalSeconds
         }
     }
-
-    return @{
-        Confirmed      = $false
-        ExpectedStatus = $ExpectedStatus
-        ObservedStatus = $observedStatus
-        ObservedIdentity = $observedIdentity
-        ObservedStatusHistory = ($observedStatusHistory -join " -> ")
-        Attempts       = $MaxAttempts
-        LastError      = $lastError
-        Trace = ConvertTo-DiagnosticJson `
-            -Records ([object[]] $verificationTrace)
-    }
-}
-
-function Join-QuarantineStatusHistory {
-    param([string[]] $Histories)
-
-    $statuses = New-Object "System.Collections.Generic.List[string]"
-    foreach ($history in @($Histories)) {
-        foreach ($status in @([string] $history -split " -> ")) {
-            $trimmedStatus = $status.Trim()
-            if ($trimmedStatus -and -not $statuses.Contains($trimmedStatus)) {
-                $statuses.Add($trimmedStatus)
-            }
-        }
-    }
-    return ($statuses -join " -> ")
-}
-
-function Test-DeterministicDispositionRejection {
-    param(
-        [hashtable] $Execution,
-        [hashtable] $Verification,
-        [string] $Identity
-    )
-
-    if ($Execution.Succeeded -or $PostconditionMaxAttempts -lt 3) {
-        return $false
-    }
-    if (
-        $Verification.Attempts -ne $PostconditionMaxAttempts -or
-        $Verification.LastError -ne "" -or
-        -not (Test-QuarantineIdentityMatch `
-            -Left $Verification.ObservedIdentity `
-            -Right $Identity
-        ) -or
-        $Verification.ObservedStatus -ne $selectionReleaseStatus -or
-        $Verification.ObservedStatusHistory -ne $selectionReleaseStatus
-    ) {
-        return $false
-    }
-
-    try {
-        $traceEntries = @(
-            [string] $Verification.Trace |
-                ConvertFrom-Json -Depth 10
-        )
-    } catch {
-        return $false
-    }
-    if ($traceEntries.Count -ne $PostconditionMaxAttempts) {
-        return $false
-    }
-    foreach ($traceEntry in @($traceEntries)) {
-        if (
-            -not [bool] $traceEntry.exact_identity_match -or
-            [string] $traceEntry.error -ne "" -or
-            -not (Test-QuarantineIdentityMatch `
-                -Left ([string] $traceEntry.observed_identity) `
-                -Right $Identity
-            ) -or
-            [string] $traceEntry.observed_release_status -ne $selectionReleaseStatus
-        ) {
-            return $false
-        }
-    }
-
-    if (-not $Execution.CmdletExecuted) {
-        return (
-            [string] $Execution.cmdlet_exception_type -match
-                "(?i)(CommandNotFound|ParameterBinding)Exception$" -or
-            [string] $Execution.cmdlet_fully_qualified_error_id -match
-                "(?i)CommandNotFound|ParameterBinding"
-        )
-    }
-
-    return (
-        [string] $Execution.cmdlet_http_status_code -in @("401", "403") -or
-        [string] $Execution.cmdlet_error_category -in @(
-            "AuthenticationError",
-            "PermissionDenied",
-            "SecurityError"
-        ) -or
-        [string] $Execution.cmdlet_exception_type -match
-            "(?i)UnauthorizedAccessException$"
-    )
+    return $result
 }
 
 function Write-ChunkedList {
@@ -3038,200 +2302,45 @@ function Invoke-RequestedDisposition {
         [string] $Action,
         [string] $Identity
     )
-
-    # The Exchange invocation remains action-specific in
-    # Invoke-QuarantineDisposition. Everything around it is the same state
-    # machine: Requested -> command -> terminal readback.
-    if ($Action -eq "release") {
-        $dispositionActionType = "Release"
-        $expectedStatus = "Released"
-        $alreadyStatus = "already_released"
-        $completedStatus = "released"
-        $alreadyMessage = "ReleaseStatus=Released was already confirmed for the exact quarantine identity. No release cmdlet was executed."
-        $preconditionUnconfirmedMessage = "Exchange did not confirm ReleaseStatus=$selectionReleaseStatus for the exact identity '$Identity'. The release cmdlet was not executed."
-        $postconditionUnconfirmedMessage = "Release command returned without error, but Exchange did not confirm ReleaseStatus=Released for identity '$Identity'. Do not retry blindly."
-        $confirmedMessage = "Quarantine release confirmed by Exchange quarantine status."
-        $confirmedDespiteErrorMessage = "ReleaseStatus=Released was confirmed after the cmdlet reported an error."
-        $executionMessage = "Executing Release-QuarantineMessage -Identity '$Identity' -ReleaseToAll -Confirm:`$false"
-    } else {
-        $dispositionActionType = "Deny"
-        $expectedStatus = "Denied"
-        $alreadyStatus = "already_denied"
-        $completedStatus = "denied"
-        $alreadyMessage = "ReleaseStatus=Denied was already confirmed for the exact quarantine identity. No deny cmdlet was executed."
-        $preconditionUnconfirmedMessage = "Exchange did not confirm ReleaseStatus=$selectionReleaseStatus for the exact identity '$Identity'. The deny cmdlet was not executed."
-        $postconditionUnconfirmedMessage = "Deny command returned without error, but Exchange did not confirm ReleaseStatus=Denied for identity '$Identity'. Do not retry blindly."
-        $confirmedMessage = "Release denial confirmed by Exchange quarantine status."
-        $confirmedDespiteErrorMessage = "ReleaseStatus=Denied was confirmed after the cmdlet reported an error."
-        $executionMessage = "Executing Release-QuarantineMessage -Identity '$Identity' -ReleaseToAll -ActionType Deny -Confirm:`$false"
+    $expectedStatus = if ($Action -eq "release") { "Released" } else { "Denied" }
+    $completedStatus = $expectedStatus.ToLowerInvariant()
+    try {
+        $before = Read-QuarantineStatus -Identity $Identity
+    } catch {
+        Write-ErrorResult -Action $Action -ErrorCode "precondition_unconfirmed" -ErrorContext "Get-QuarantineMessage" -ErrorRecord $_
     }
-
-    # 1. One exact read: only Requested messages may be acted on.
-    $precondition = Wait-QuarantinePostcondition `
-        -Identity $identity `
-        -ExpectedStatus $selectionReleaseStatus `
-        -MaxAttempts 1 `
-        -PollIntervalSeconds 0
-    if (-not $precondition.Confirmed) {
-        if (
-            (Test-QuarantineIdentityMatch `
-                -Left $precondition.ObservedIdentity `
-                -Right $identity
-            ) -and
-            [string]::Equals(
-                $precondition.ObservedStatus,
-                $expectedStatus,
-                [System.StringComparison]::OrdinalIgnoreCase
-            )
-        ) {
-            $idempotentResult = @{
-                action                  = $Action
-                identity                = $identity
-                status                  = $alreadyStatus
-                message                 = $alreadyMessage
-                idempotent              = $true
-                handling                = "no_retry_needed"
-                expected_release_status = $expectedStatus
-                observed_release_status = $precondition.ObservedStatus
-                observed_identity       = $precondition.ObservedIdentity
-                observed_release_status_history = (
-                    $precondition.ObservedStatusHistory
-                )
-                verification_attempts   = $precondition.Attempts
-                verification_method     = "Get-QuarantineMessage"
-                last_verification_error = $precondition.LastError
-                precondition_trace      = $precondition.Trace
-                postcondition_trace     = ""
-            }
-            Add-EmptyDispositionEvidence `
-                -Data $idempotentResult `
-                -ActionType $dispositionActionType
-            Write-SuccessResult $idempotentResult
-            return
+    if ($before.ObservedStatus -ieq $expectedStatus) {
+        Write-SuccessResult @{
+            action = $Action
+            identity = $Identity
+            status = "already_$completedStatus"
+            observed_identity = $before.ObservedIdentity
+            observed_release_status = $before.ObservedStatus
         }
-        $preconditionDetails = @{
-            identity                = $identity
-            expected_release_status = $precondition.ExpectedStatus
-            observed_release_status = $precondition.ObservedStatus
-            observed_identity       = $precondition.ObservedIdentity
-            observed_release_status_history = (
-                $precondition.ObservedStatusHistory
-            )
-            verification_attempts   = $precondition.Attempts
-            verification_method     = "Get-QuarantineMessage"
-            last_verification_error = $precondition.LastError
-            precondition_trace       = $precondition.Trace
-            postcondition_trace      = ""
-            handling                 = "manual_review"
-        }
-        Add-EmptyDispositionEvidence `
-            -Data $preconditionDetails `
-            -ActionType $dispositionActionType
-        $preconditionMessage = if ($precondition.LastError) {
-            [string] $precondition.LastError
-        } else {
-            $preconditionUnconfirmedMessage
-        }
-        Write-ErrorResult `
-            -Action $Action `
-            -ErrorCode "precondition_unconfirmed" `
-            -Details $preconditionDetails `
-            -Message $preconditionMessage
+        return
     }
-
-    # 2. The only write. Invoke-QuarantineDisposition keeps the Release
-    # and Deny parameter sets explicit and captures all command streams.
-    Write-Verbose $executionMessage
-
-    $disposition = Invoke-QuarantineDisposition `
-        -Identity $identity `
-        -ActionType $dispositionActionType
-
-    # 3. Read Exchange again even after a cmdlet error: a write can have
-    # succeeded despite a transport failure. Never blindly retry.
-    $verification = Wait-QuarantinePostcondition `
-        -Identity $identity `
-        -ExpectedStatus $expectedStatus
-    $statusHistory = Join-QuarantineStatusHistory -Histories @(
-        $precondition.ObservedStatusHistory
-        $verification.ObservedStatusHistory
-    )
-    if (-not $verification.Confirmed) {
-        $postconditionDetails = @{
-            identity                = $identity
-            expected_release_status = $verification.ExpectedStatus
-            observed_release_status = $verification.ObservedStatus
-            observed_identity       = $verification.ObservedIdentity
-            observed_release_status_history = (
-                $statusHistory
-            )
-            verification_attempts   = $verification.Attempts
-            verification_method     = "Get-QuarantineMessage"
-            last_verification_error = $verification.LastError
-            precondition_trace      = $precondition.Trace
-            postcondition_trace     = $verification.Trace
-            handling                = "reconcile_before_retry"
-        }
-        Add-DispositionEvidence `
-            -Data $postconditionDetails `
-            -Execution $disposition `
-            -ActionType $dispositionActionType
-        if (
-            Test-DeterministicDispositionRejection `
-                -Execution $disposition `
-                -Verification $verification `
-                -Identity $identity
-        ) {
-            $postconditionDetails.handling = "manual_review"
-            Write-ErrorResult `
-                -Action $Action `
-                -ErrorCode "disposition_rejected" `
-                -Details $postconditionDetails `
-                -Message $disposition.Error
-        }
-        $postconditionMessage = if ($disposition.Succeeded) {
-            if ($verification.LastError) {
-                [string] $verification.LastError
-            } else {
-                $postconditionUnconfirmedMessage
-            }
-        } else {
-            [string] $disposition.Error
-        }
-        Write-ErrorResult `
-            -Action $Action `
-            -ErrorCode "postcondition_unconfirmed" `
-            -Details $postconditionDetails `
-            -Message $postconditionMessage
+    if ($before.ObservedStatus -ine $selectionReleaseStatus) {
+        Write-ErrorResult -Action $Action -ErrorCode "precondition_unconfirmed" -ErrorContext "Get-QuarantineMessage" -Message "Exchange did not confirm ReleaseStatus=$selectionReleaseStatus for identity '$Identity' (observed $($before.ObservedStatus)). No disposition cmdlet was executed."
     }
-
-    $successResult = @{
-        action                  = $Action
-        identity                = $identity
-        status                  = $completedStatus
-        message                 = if ($disposition.Succeeded) {
-            $confirmedMessage
-        } else {
-            $confirmedDespiteErrorMessage
-        }
-        expected_release_status = $verification.ExpectedStatus
-        observed_release_status = $verification.ObservedStatus
-        observed_identity       = $verification.ObservedIdentity
-        observed_release_status_history = (
-            $statusHistory
-        )
-        verification_attempts   = $verification.Attempts
-        verification_method     = "Get-QuarantineMessage"
-        last_verification_error = $verification.LastError
-        precondition_trace      = $precondition.Trace
-        postcondition_trace     = $verification.Trace
+    try {
+        Invoke-QuarantineDisposition -Identity $Identity -ActionType $Action
+    } catch {
+        # Never turn an actual command exception into success using later reads.
+        Write-ErrorResult -Action $Action -ErrorCode "disposition_failed" -ErrorContext "Release-QuarantineMessage" -ErrorRecord $_
     }
-    Add-DispositionEvidence `
-        -Data $successResult `
-        -Execution $disposition `
-        -ActionType $dispositionActionType `
-        -BoundErrorDiagnostics
-    Write-SuccessResult $successResult
+    $after = Wait-QuarantinePostcondition -Identity $Identity -ExpectedStatus $expectedStatus
+    if (-not $after.Confirmed) {
+        $message = "The command returned without error, but Exchange did not confirm ReleaseStatus=$expectedStatus for identity '$Identity' after $($after.Attempts) checks. Outcome is unknown; inspect Exchange before deciding on a new action."
+        if ($after.LastError) { $message += " Last status read: $($after.LastError)" }
+        Write-ErrorResult -Action $Action -ErrorCode "postcondition_unconfirmed" -ErrorContext "Get-QuarantineMessage" -Message $message
+    }
+    Write-SuccessResult @{
+        action = $Action
+        identity = $Identity
+        status = $completedStatus
+        observed_identity = $after.ObservedIdentity
+        observed_release_status = $after.ObservedStatus
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -3299,7 +2408,6 @@ if ($action.Length -gt 32) {
 
 $validActions = @(
     "list",
-    "config_check",
     "export",
     "diagnose",
     "reconcile",
@@ -3322,7 +2430,7 @@ $identity = if ($null -ne $body.identity) {
     ([string] $body.identity).Trim()
 } else { "" }
 
-if ($action -notin @("list", "config_check") -and -not $identity) {
+if ($action -ne "list" -and -not $identity) {
     Write-ErrorResult `
         -Action $action `
         -ErrorCode "missing_identity" `
@@ -3330,7 +2438,7 @@ if ($action -notin @("list", "config_check") -and -not $identity) {
         -Message "Required field 'identity' is missing for action '$action'."
 }
 if (
-    $action -notin @("list", "config_check") -and
+    $action -ne "list" -and
     -not (Test-QuarantineIdentityValue -Value $identity)
 ) {
     Write-ErrorResult `
@@ -3338,32 +2446,6 @@ if (
         -ErrorCode "invalid_identity_format" `
         -ErrorContext "webhook_body_validation" `
         -Message "Webhook field 'identity' must be an exact GUID1\\GUID2 pair."
-}
-
-$operationAction = ""
-if ($action -eq "reconcile") {
-    if (
-        $null -ne $body.operation_action -and
-        $body.operation_action -isnot [string]
-    ) {
-        Write-ErrorResult `
-            -Action $action `
-            -ErrorCode "invalid_operation_action_type" `
-            -ErrorContext "webhook_body_validation" `
-            -Message "Webhook field 'operation_action' must be a string."
-    }
-    if ($null -ne $body.operation_action) {
-        $operationAction = (
-            [string] $body.operation_action
-        ).Trim().ToLowerInvariant()
-    }
-    if ($operationAction -notin @("release", "deny")) {
-        Write-ErrorResult `
-            -Action $action `
-            -ErrorCode "invalid_operation_action" `
-            -ErrorContext "webhook_body_validation" `
-            -Message "Required field 'operation_action' must be release or deny for action 'reconcile'."
-    }
 }
 
 function Get-OptionalWebhookSetting {
@@ -3558,6 +2640,7 @@ function Get-OptionalBoundedAutomationInteger {
     return $parsedValue
 }
 
+if ($action -in @("release", "deny")) {
 $PostconditionMaxAttempts = Get-OptionalBoundedAutomationInteger `
     -Name "QuarantinePostconditionMaxAttempts" `
     -DefaultValue $PostconditionMaxAttempts `
@@ -3578,25 +2661,6 @@ if (
         -Message "Configured quarantine postcondition window must not exceed 300 seconds."
 }
 
-# ---------------------------------------------------------------------------
-# Read-only configuration check: report the settings this runbook would use
-# for the connection without connecting to Exchange or touching any message.
-# The Python app calls it before every irreversible write, so an older runbook
-# that would ignore the Managed Identity-only contract is detected before
-# anything is released or denied.
-# ---------------------------------------------------------------------------
-
-if ($action -eq "config_check") {
-    $configCheckResult = @{
-        action = "config_check"
-        status = "verified"
-        config_contract = $ExchangeConfigContract
-    }
-    foreach ($key in $script:ExchangeConfigEvidence.Keys) {
-        $configCheckResult[$key] = [string] $script:ExchangeConfigEvidence[$key]
-    }
-    Write-SuccessResult $configCheckResult
-    exit 0
 }
 
 # ---------------------------------------------------------------------------
@@ -3606,7 +2670,7 @@ if ($action -eq "config_check") {
 # The module version is not pinned; the loaded version is reported when known.
 
 try {
-    Import-Module ExchangeOnlineManagement -ErrorAction Stop
+    Import-Module ExchangeOnlineManagement -ErrorAction Stop 3>$null 4>$null 5>$null 6>$null | Out-Null
 } catch {
     Write-ErrorResult `
         -Action $action `
@@ -3615,6 +2679,7 @@ try {
         -ErrorRecord $_
 }
 
+if ($action -eq "diagnose") {
 # Passive module metadata is best-effort evidence: a failing lookup must never
 # veto the connection or the disposition, and no version is invented.
 try {
@@ -3651,6 +2716,8 @@ Write-Verbose (
     "$script:ExchangeOnlineManagementVersion)."
 )
 
+}
+
 # ---------------------------------------------------------------------------
 # Step 4: Connect to Exchange Online
 # ---------------------------------------------------------------------------
@@ -3665,7 +2732,7 @@ try {
         -ManagedIdentity `
         -Organization $organization `
         -ShowBanner:$false `
-        -ErrorAction Stop
+        -ErrorAction Stop 3>$null 4>$null 5>$null 6>$null | Out-Null
 } catch {
     Write-ErrorResult `
         -Action $action `
@@ -3676,7 +2743,7 @@ try {
 }
 
 Write-Verbose "Connected to Exchange Online."
-Initialize-DiagnosticEvidence
+if ($action -eq "diagnose") { Initialize-DiagnosticEvidence }
 
 # ---------------------------------------------------------------------------
 # Step 5: Execute the requested action
@@ -3692,7 +2759,7 @@ try {
         "list" {
             Write-Verbose "Executing Get-QuarantineMessage -ReleaseStatus $selectionReleaseStatus -PageSize $pageSize"
 
-            $messages = Get-QuarantineMessage -ReleaseStatus $selectionReleaseStatus -PageSize $pageSize -ErrorAction Stop
+            $messages = Get-QuarantineMessage -ReleaseStatus $selectionReleaseStatus -PageSize $pageSize -ErrorAction Stop 3>$null 4>$null 5>$null 6>$null
 
             # Normalise to array even if single result or null
             if ($null -eq $messages) {
@@ -3745,7 +2812,7 @@ try {
         "export" {
             Write-Verbose "Executing Export-QuarantineMessage -Identity '$identity'"
 
-            $exported = Export-QuarantineMessage -Identity $identity -ErrorAction Stop
+            $exported = Export-QuarantineMessage -Identity $identity -ErrorAction Stop 3>$null 4>$null 5>$null 6>$null
 
             if ($null -eq $exported) {
                 Write-ErrorResult -Action $action -Message "Export-QuarantineMessage returned no result for identity '$identity'."
@@ -3987,73 +3054,14 @@ try {
         # reconcile: read the exact Exchange state without a disposition call
         # --------------------------------------------------------------------
         "reconcile" {
-            $expectedStatus = if ($operationAction -eq "release") {
-                "Released"
-            } else {
-                "Denied"
-            }
-            $observation = Wait-QuarantinePostcondition `
-                -Identity $identity `
-                -ExpectedStatus $expectedStatus `
-                -MaxAttempts 1 `
-                -PollIntervalSeconds 0
-            $reconcileResult = @{
-                action                  = "reconcile"
-                operation_action       = $operationAction
-                identity                = $identity
-                status                  = "outcome_unknown"
-                handling                = "reconcile_before_retry"
-                expected_release_status = $expectedStatus
+            # One plain read for the connector's active-window decision.
+            $observation = Read-QuarantineStatus -Identity $identity
+            Write-SuccessResult @{
+                action = "reconcile"
+                identity = $identity
+                observed_identity = $observation.ObservedIdentity
                 observed_release_status = $observation.ObservedStatus
-                observed_identity       = $observation.ObservedIdentity
-                observed_release_status_history = (
-                    $observation.ObservedStatusHistory
-                )
-                verification_attempts   = $observation.Attempts
-                verification_method     = "Get-QuarantineMessage"
-                last_verification_error = $observation.LastError
-                precondition_trace      = ""
-                postcondition_trace     = $observation.Trace
             }
-            $reconcileDispositionAction = if (
-                $operationAction -eq "release"
-            ) {
-                "Release"
-            } else {
-                "Deny"
-            }
-            Add-EmptyDispositionEvidence `
-                -Data $reconcileResult `
-                -ActionType $reconcileDispositionAction
-
-            if (
-                -not (Test-QuarantineIdentityMatch `
-                    -Left $observation.ObservedIdentity `
-                    -Right $identity
-                ) -or
-                -not $observation.ObservedStatus
-            ) {
-                $reconcileMessage = if ($observation.LastError) {
-                    [string] $observation.LastError
-                } else {
-                    "Read-only Exchange reconciliation could not bind one current status to the exact quarantine identity. No release or deny cmdlet was executed."
-                }
-                Write-ErrorResult `
-                    -Action $action `
-                    -ErrorCode "reconciliation_inspection_unconfirmed" `
-                    -Details $reconcileResult `
-                    -Message $reconcileMessage
-            }
-            if ($observation.Confirmed) {
-                $reconcileResult.status = "confirmed_success"
-                $reconcileResult.handling = "no_retry_needed"
-            } elseif (
-                $observation.ObservedStatus -in @("Released", "Denied")
-            ) {
-                $reconcileResult.status = "confirmed_failed"
-                $reconcileResult.handling = "retry_requires_new_operation"
-            }
-            Write-SuccessResult $reconcileResult
         }
 
         # --------------------------------------------------------------------
@@ -4079,8 +3087,6 @@ try {
         -ErrorRecord $_
 
 } finally {
-    # Always disconnect, even on error. Release/deny already recorded their
-    # cleanup before emitting the result; this is then a no-op. A failing
-    # disconnect never changes a result.
+    # Always disconnect; cleanup failure never changes the action result.
     $null = Close-ExchangeSessionBestEffort
 }

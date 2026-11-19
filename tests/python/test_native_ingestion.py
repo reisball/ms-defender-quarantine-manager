@@ -73,9 +73,9 @@ def setup(tmp_path, target="soar", mode="release_requested", limit=10,
         if artifact["run_automation"]:
             rows = c._ingest_records()
             row = next(r for r in rows.values() if r["container_id"] == artifact["container_id"])
-            assert row["phase"] == "publishing"
-            assert len(row["files"]) == 1 + len(mail_files(c.eml))
-            assert row["vault_id"]
+            assert row["status"] == "running"
+            assert row["publication_started"] is True
+            assert artifact["cef"]["vaultId"]
             c.events.append(("publish", artifact["container_id"]))
         else:
             c.events.append(("artifact", artifact["container_id"]))
@@ -94,23 +94,14 @@ def setup(tmp_path, target="soar", mode="release_requested", limit=10,
             out = dict(t.build_metadata(), action="export", identity=identity,
                        eml=base64.b64encode(c.eml).decode())
         elif action == "reconcile":
-            assert kwargs == {"operation_action": "release"}
+            assert kwargs == {}
             status = c.observed.get(identity, c._utils.selection_release_status)
             if isinstance(status, Exception):
                 raise status
-            out = t.TestIrreversibleOperationReconciliation.read_only_refresh_result(
-                observed_status=status
-            )
-            out["identity"] = out["observed_identity"] = identity
-            trace = json.loads(out["postcondition_trace"])
-            trace[0]["observed_identity"] = identity
-            out["postcondition_trace"] = json.dumps(trace)
+            out = {"action": "reconcile", "identity": identity,
+                   "observed_release_status": status}
         else:
             raise AssertionError("Unexpected Exchange action: " + action)
-        c._utils._validate_runbook_result(out, requested_action=action,
-                                        requested_identity=identity)
-        c._utils._raise_for_runbook_error(out, requested_action=action,
-                                        requested_identity=identity)
         return out
     c._utils.run_action = run
     client = Mock(base_url="https://soar.example.test")
@@ -123,7 +114,7 @@ def setup(tmp_path, target="soar", mode="release_requested", limit=10,
         assert payload["findings"][0]["launch_automation"] is True
         cid = payload["container_ids"][0]
         assert next(r for r in c._ingest_records().values()
-                    if r["container_id"] == cid)["phase"] == "publishing"
+                    if r["container_id"] == cid)["publication_started"] is True
         c.events.append(("es_publish", cid))
         return {"status": "success", "created": 1, "failed": 0, "errors": [],
                 "container_ids": [cid], "findings": [f"finding-{cid}"]}
@@ -251,7 +242,7 @@ def test_case_duplicates_are_one_identity(tmp_path, target):
     assert len(c._saved_containers) == 1
 
 
-def test_import_failure_reserves_slot_and_retries_preparation(tmp_path, target):
+def test_import_failure_reserves_slot_and_only_poll_now_retries(tmp_path, target):
     c = setup(tmp_path, target, limit=1)
     original = c._store_in_vault
     c._store_in_vault = lambda *a, **k: (False, "failed")
@@ -259,8 +250,15 @@ def test_import_failure_reserves_slot_and_retries_preparation(tmp_path, target):
     assert len(c._ingest_records()) == 1
     assert not [e for e in c.events if e[0] in {"publish", "es_publish"}]
     c._store_in_vault = original
+    exports = sum(action == "export" for action, *_ in c.calls)
     status, ar = poll(c)
     assert status == t.APP_SUCCESS, ar.get_message()
+    assert ar.get_summary()["failed_imports"] == 1
+    assert sum(action == "export" for action, *_ in c.calls) == exports
+    c._is_poll_now = True
+    status, ar = poll(c)
+    assert status == t.APP_SUCCESS, ar.get_message()
+    assert ar.get_summary()["active_messages"] == 1
     assert len(c._saved_containers) == 1
     assert len([e for e in c.events if e[0] in {"publish", "es_publish"}]) == 1
 
@@ -277,9 +275,9 @@ def test_uncertain_publication_is_not_repeated(tmp_path, target):
             return original(artifact)
         c.save_artifact = fail
     assert poll(c)[0] == t.APP_ERROR
-    assert next(iter(c._ingest_records().values()))["phase"] == "publishing"
+    assert next(iter(c._ingest_records().values()))["status"] == "failed"
     calls = c._ingest_es_client_instance.request.call_count
-    assert poll(c)[0] == t.APP_ERROR
+    assert poll(c)[0] == t.APP_SUCCESS
     assert c._ingest_es_client_instance.request.call_count == calls
     assert len(c._saved_containers) == 1
 
@@ -471,25 +469,23 @@ def test_legacy_scope_preserves_published_records_without_republishing(tmp_path,
     assert "selection_mode" not in c.load_state()[INGEST_STATE_KEY]["scope"]
 
 
-def test_pending_legacy_notreleased_waits_for_requested_before_publication(tmp_path, target):
+def test_pending_legacy_never_automatically_replays(tmp_path, target):
     c = setup(tmp_path, target, mode="needs_review", limit=1)
     c._ingest_settings()
-    message = candidate(1, status="NotReleased")
-    c._ingest_reserve([message], 1, 1)
-    key, row = next(iter(c._ingest_records().items()))
-    state = c.load_state()
-    state[INGEST_STATE_KEY]["scope"]["selection_mode"] = "needs_review"
-    c.save_state(state)
-    c.observed[row["identity"]] = "NotReleased"
-    assert poll(c)[0] == t.APP_SUCCESS
-    assert not c.events
-    assert not c._saved_containers
-    assert c._ingest_records()[key]["phase"] == "reserved"
-    assert not any(action == "export" for action, *_ in c.calls)
-    c.observed[row["identity"]] = "Requested"
+    identity = candidate(1)["Identity"].lower()
+    key = c._worker_identity_key(identity, c.get_asset_id())
+    c.save_state({INGEST_STATE_KEY: {"scope": {**c._ingest_scope(), "selection_mode": "needs_review"},
+        "records": {key: {"key": key, "identity": identity, "phase": "reserved"}}}})
+    for observed in ("NotReleased", "Requested"):
+        c.observed[identity] = observed
+        assert poll(c)[0] == t.APP_SUCCESS
+        assert not c.events
+        assert c._ingest_records()[key]["status"] == "failed"
+        assert not any(action == "export" for action, *_ in c.calls)
+    c._is_poll_now = True
     status, ar = poll(c)
     assert status == t.APP_SUCCESS, ar.get_message()
-    assert c._ingest_records()[key]["phase"] == "published"
+    assert c._ingest_records()[key]["status"] == "completed"
     assert len(c._saved_containers) == 1
 
 

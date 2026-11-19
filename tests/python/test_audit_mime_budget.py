@@ -85,7 +85,8 @@ def test_structure_rejection_retains_slot_without_side_effects(tmp_path, target)
     _, ar = poll(c)
     assert ar.get_summary()["active_messages"] == 1
     row = next(iter(c._ingest_records().values()))
-    assert row["phase"] == "blocked"
+    assert row["status"] == "failed"
+    assert row["terminal"] is False
     assert not c.events
     assert len([call for call in c.calls if call[0] == "export"]) == 1
     poll(c)

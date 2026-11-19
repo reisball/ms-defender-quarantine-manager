@@ -21,18 +21,6 @@ from ms_quarantine_for_splunk_soar_ingestion import (
 ES_MAX_JSON_BYTES = 2 * 1024 * 1024
 
 
-class ESSubmissionRejected(AutomationError):
-    """Definitive HTTP rejection, safe for the caller to clear submit intent.
-
-    A response body is deliberately not retained. Network errors, invalid/lost
-    responses, 5xx and ambiguous 408/425/429/499 never use this exception.
-    """
-
-    def __init__(self, status_code):
-        self.status_code = status_code
-        super().__init__(f"SOAR ES transport rejected request: HTTP {status_code}.")
-
-
 def _platform_transport_policy():
     """Read the actual platform policy, not asset/runtime TLS overrides.
 
@@ -168,7 +156,7 @@ class NativeESClient:
                 "SOAR ES transport failed: " + type(exc).__name__
             ) from None
         if 400 <= response.status_code < 500 and response.status_code not in {408, 425, 429, 499}:
-            raise ESSubmissionRejected(response.status_code)
+            raise AutomationError(f"SOAR ES transport rejected request: HTTP {response.status_code}.")
         if response.status_code >= 400 or (
             response.is_redirect and path != "/login" and not allow_login_redirect
         ):

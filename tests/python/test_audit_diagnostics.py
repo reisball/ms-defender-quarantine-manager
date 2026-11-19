@@ -165,55 +165,8 @@ $rows = Get-Content -Raw (Join-Path $PSScriptRoot 'headers.json') | ConvertFrom-
     assert values == [expected.replace('[REDACTED]', '[redacted]') for _, expected in cases]
 
 
-@pytest.mark.skipif(shutil.which('pwsh') is None, reason='PowerShell is not installed')
-@pytest.mark.parametrize('action', ['release', 'deny'])
-def test_success_guard_counts_serialized_bytes_and_preserves_contract(tmp_path, action):
-    required = dict(action=action, identity='identity-must-stay',
-                    status='released' if action == 'release' else 'denied',
-                    operation_action=action, operation_id='operation-must-stay',
-                    observed_release_status='Released' if action == 'release' else 'Denied',
-                    cmdlet_invocation_attempted=True, cmdlet_executed=True)
-    (tmp_path / 'required.json').write_text(json.dumps(required))
-    output = run_powershell_helpers(tmp_path, [
-        'Write-SuccessResult', 'ConvertTo-RunbookJson', 'Add-RunbookEnvelopeMetadata',
-        'Get-Utf8ByteCount', 'Test-JwtCompactSerialization', 'ConvertTo-SecretRedactedText'], '''
-$ListMaxRecordBytes = 900 * 1024
-$DiagnosticMaxChars = 2048
-$script:RuntimeDiagnosticEvidence = @{}
-$script:PassiveExchangeEvidence = @{ cmdlet_default_parameter_set = ([string][char]1 * 180000) }
-$data = Get-Content -Raw (Join-Path $PSScriptRoot 'required.json') | ConvertFrom-Json -AsHashtable
-$data.cmdlet_default_parameter_set = $script:PassiveExchangeEvidence.cmdlet_default_parameter_set
-Write-Output ([Text.Encoding]::UTF8.GetByteCount((ConvertTo-RunbookJson -Data $data)))
-Write-SuccessResult -Data $data
-''')
-    before, record = output.splitlines()
-    assert int(before) > 1024 * 1024
-    assert len(record.encode('utf-8')) <= 900 * 1024
-    data = json.loads(record)
-    assert {key: data[key] for key in required} == required
-    assert data['cmdlet_default_parameter_set_truncated'] is True
-    assert data['cmdlet_default_parameter_set_original_chars'] == 180000
 
 
-@pytest.mark.skipif(shutil.which('pwsh') is None, reason='PowerShell is not installed')
-@pytest.mark.parametrize('action', ['release', 'deny'])
-def test_native_disposition_success_with_large_passive_metadata(tmp_path, action):
-    if __package__:
-        from .test_runbook_release_diagnostics import run_fixture
-    else:
-        from test_runbook_release_diagnostics import run_fixture
-    # Fixture asserts exactly one disposition call and validates native args.
-    data = run_fixture(tmp_path, action, large=False, oversized_passive_metadata=True)
-    assert data['action'] == action
-    assert data['identity'] == 'c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7'
-    assert data['status'] == ('released' if action == 'release' else 'denied')
-    assert data['observed_release_status'] == ('Released' if action == 'release' else 'Denied')
-    assert data['cmdlet_invocation_attempted'] is True
-    assert data['cmdlet_executed'] is True
-    assert data['cmdlet_contract_id'] == ('identity_releasetoall' if action == 'release' else 'identity_releasetoall_actiontype_deny')
-    assert data['cmdlet_default_parameter_set_truncated'] is True
-    assert data['cmdlet_default_parameter_set_original_chars'] == 180000
-    assert len(json.dumps(data, ensure_ascii=False).encode('utf-8')) <= 900 * 1024
 
 
 JSON_HEADER_CASES = [

@@ -7,7 +7,7 @@ Start with [installation](installation.md), then validate the configured workflo
 | Need | Read |
 |---|---|
 | Prerequisites, identities, runbook and asset setup | [Installation](installation.md) |
-| Import window, actions, limits and recovery | [Operations](operations.md) |
+| Import window, actions, limits and deliberate retries | [Operations](operations.md) |
 | SOAR/ES ingestion contracts and migration | [Email ingestion](ingestion.md) |
 | Azure job and Exchange diagnostics | [Troubleshooting](troubleshooting.md) |
 | Environment acceptance | [Deployment checklist](validation.md) |

@@ -1,124 +1,71 @@
 # Runbook troubleshooting
 
-Use companion Runbook 3.7.4 with App 3.7.4. Deploy it separately to Azure
-Automation. Compare the runbook version and source fingerprint in the job
-result with the file you deployed when investigating an unexpected response.
-Exchange authentication uses the Automation Account's Managed Identity.
+Deploy the matching companion runbook separately to Azure Automation. The source still carries App/Runbook **3.7.4** labels; the simplification documented here is a source change, not evidence of a new shipped release or customer deployment. Compare the actual source revision and available runbook version/fingerprint when investigating an unexpected response.
 
-## Bounded disposition diagnostics
+## Start with the native result
 
-Since Runbook 3.4.5, the runbook redacts optional warning/information/verbose streams before bounding each to 2,048 characters. Each `cmdlet_<stream>` has `<field>_original_chars` (redacted source length) and `<field>_truncated` evidence. Structured freeform error targets are also redacted before truncation. Full errors retain their existing chunked error transport; a truncated optional diagnostic is not a failed disposition. Compare actual terminal status and postcondition evidence.
+Read the SOAR ActionResult status and message, including the actual Azure/Exchange error and known `azure_job_id`. Open that job in Azure Automation to inspect its status and output. Preserve the original error text in a sanitized support report; a missing result does not establish a particular root cause.
 
-## Exchange sign-in evidence
+| Observation | Next step |
+|---|---|
+| Azure authorization or job-read failure | Check the App Registration's credentials, Automation Account coordinates and job-read role |
+| Exchange connection or permission error | Check the Automation Account Managed Identity, organization and the permission named by the actual error |
+| Missing organization | Set the asset organization or the `ExchangeOrganization` Automation Variable |
+| Cmdlet failure | Inspect the returned native error and job output; do not report success based on a later status read |
+| Command succeeded but target status was not confirmed | Inspect job output and current Microsoft status before deciding on a new action |
+| Azure timeout or unavailable output | Treat the outcome as unknown; inspect the known job and current status |
+| Webhook response lost without a job ID | Inspect Azure job history; absence of an ID is not proof that no job started |
+| Import/publication failed | Inspect native container/artifact/finding evidence, fix the cause, then deliberately use Poll Now if appropriate |
 
-Every Release/Deny/diagnose result states the effective, non-secret sign-in:
-`exchange_auth_method` (always `ManagedIdentity`; source `webhook`, or `default`
-when no method was sent) and `exchange_organization` (+`_source`: `webhook` for
-the asset field, `automation_variable` for the `ExchangeOrganization`
-variable). There are no credential fields; a result carrying
-`exchange_credential_name` or `exchange_credential_source` does not satisfy the current
-Managed Identity-only contract and the app rejects it. Exchange authentication does not use a stored username/password credential.
+A job/output timeout does **not** cancel Azure. The app never automatically retries the writing webhook or resumes the action later. A new user/playbook invocation is a new attempt, not an automatic continuation.
 
-An explicit `auth_method` other than exactly `ManagedIdentity`
-(`invalid_exchange_auth_method`) and any `credential_name`
-(`unsupported_credential_name`) are rejected up front, before module import,
-sign-in, message access or release/deny. A blank method means Managed Identity.
-`exchange_connection_metadata` is best-effort passive evidence and never blocks
-a disposition. The read-only action `config_check` (run by the app before the
-first release/deny of an asset instance) returns the same fields with
-`config_contract=exchange_connection_v1` and makes no Exchange connection.
+## Normal Release/Deny path
 
-## Release and Deny: one workflow, two explicit commands
+The app submits one webhook job, waits for its output and returns one native ActionResult. It does not require an extra configuration-check job, RBAC inspection or a diagnostic proof matrix.
 
-Both actions enter `Invoke-RequestedDisposition` and follow these steps:
+The runbook performs these steps:
 
-1. `Get-QuarantineMessage` must confirm the exact identity and Microsoft
-   status `Requested`.
-   An already matching terminal state is idempotent (zero writes); any other
-   state stops. No metadata or RBAC query precedes the write.
-2. `Invoke-QuarantineDisposition` performs the only write, exactly once, with
-   no retry. Release uses `Release-QuarantineMessage -Identity <id>
-   -ReleaseToAll -Confirm:$false -ErrorAction Stop`; Deny uses
-   `Release-QuarantineMessage -Identity <id> -ReleaseToAll -ActionType Deny
-   -Confirm:$false -ErrorAction Stop`. Warning, information, verbose and error
-   streams are captured. The real ID is passed through singular `Identity`;
-   no dummy or plural `Identities` is sent. Both operations select all recipients;
-   Deny explicitly adds `ActionType Deny`. The observed ExchangeOnlineManagement
-   3.5.0 parameter metadata permits this combination in `OrgReleaseToAll`.
-   Offline tests verify invocation and protocol, not Exchange acceptance.
-   Expanded read-only proxy diagnostics
-   remain available through `diagnose`.
-   Install the paired app update before deploying this runbook. It accepts
-   `identity_releasetoall_actiontype_deny` with exact Identity/ReleaseToAll/ActionType
-   argument evidence and retains all three earlier Deny contracts for readback.
-   Earlier apps reject the new contract. Release is unchanged.
-3. `Wait-QuarantinePostcondition` reads Exchange again, also after a cmdlet
-   failure. Only the matching terminal state (`Released` or `Denied`) proves
-   success. A cmdlet error can coexist with confirmed success. An unconfirmed
-   outcome requires `reconcile` before considering any retry.
-4. The Exchange session is disconnected exactly once; the outcome is recorded
-   in `exchange_disconnect_status`/`exchange_disconnect_error` and never alters
-   the disposition result.
+1. Read the exact identity using `Get-QuarantineMessage`. Microsoft must report `Requested`; an already matching terminal status succeeds without a write. Any other state stops.
+2. Invoke the selected command once, without retry:
 
-Only exact Microsoft `Released`/`Denied` observations free an intake slot,
-not playbook completion. `NotReleased` is an observed status, not an intake option.
+   **Release**
 
-Independent result fields: `cmdlet_invocation_attempted` (a call was made),
-`cmdlet_executed` (the cmdlet ran to a native outcome), `cmdlet_error` with
-`cmdlet_fully_qualified_error_id`, `cmdlet_exception_type`,
-`cmdlet_error_category`, `cmdlet_error_position`, `cmdlet_script_stack_trace`,
-request/correlation IDs, plus `precondition_trace`, `postcondition_trace`,
-`observed_release_status_history` and `handling`. A genuine binder or
-command-not-found error has `cmdlet_invocation_attempted=true` and
-`cmdlet_executed=false`.
+   ```powershell
+   Release-QuarantineMessage -Identity <id> -ReleaseToAll -Confirm:$false -ErrorAction Stop
+   ```
 
-| `error_code` | Meaning / next step |
-| --- | --- |
-| `precondition_unconfirmed` | No write; inspect exact identity and current status. |
-| `disposition_rejected` | Deterministic rejection; inspect native cmdlet error. |
-| `postcondition_unconfirmed` | Write may have happened; run read-only reconcile before retry. |
-| `exchange_connection_failed` | Sign-in failed before any write; the native error is returned without credential values. |
-| `automation_variable_empty` | No organization (asset field or `ExchangeOrganization` variable). |
-| `invalid_exchange_auth_method` | A caller sent an auth method other than `ManagedIdentity` (for example `Credential`); nothing was connected or read. |
-| `unsupported_credential_name` | A caller sent `credential_name`; credential sign-in no longer exists. |
+   **Deny**
 
-## Module metadata
+   ```powershell
+   Release-QuarantineMessage -Identity <id> -ReleaseToAll -ActionType Deny -Confirm:$false -ErrorAction Stop
+   ```
 
-After `Import-Module` succeeds the runbook reads the loaded module version and
-path as passive evidence. A failure there is ignored (version `unknown`) and
-never blocks the sign-in or disposition (only a fixed verbose notice is
-written, never the lookup's error text); a failing `Import-Module`
-(`module_import_failed`) or `Connect-ExchangeOnline`
-(`exchange_connection_failed`) is a real error and is returned unchanged.
+   Both retain the original all-recipient semantics. The actual identity uses singular `Identity`.
+3. Only after command success, read Exchange up to seven times, ten seconds apart, for the matching `Released` or `Denied` status. The first unchanged status is not an immediate failure. If the command itself fails, return that error; do not reconstruct success from another status read.
+4. Disconnect the Exchange session. Diagnostic cleanup information does not replace the action outcome.
 
-## Collecting diagnostic information
+The Azure wait defaults to **600 seconds** and status polling to **5 seconds**. The existing whole-second limits remain 600–3600 and 1–60 respectively. Transient status/output **reads** can retry within one deadline, respecting Retry-After. These settings are independent of the native ingestion schedule.
 
-Record the app/runbook versions, Azure job ID, selected message identity and
-sanitized error fields. Use **inspect release environment** for read-only
-identity/runtime details. Enable its optional RBAC diagnostics only when you
-need tenant permission information. Verify uncertain Release/Deny results
-with **reconcile quarantine operation** before considering another write.
+Only exact Microsoft `Released`/`Denied` observations free intake slots, not playbook completion or a failed import. Offline tests verify invocation and waiting behavior, not live Exchange acceptance.
 
-For intake status, recovery and artifact fields, see
-[Email import and recovery](ingestion.md).
+## Separate Azure and Exchange identities
 
-## Collect loaded Exchange proxy evidence without tenant shell access
+Exchange authentication uses the Automation Account's **Managed Identity**, with the organization from the asset or, if absent, the `ExchangeOrganization` Automation Variable. The asset's App Registration/client secret is only for Azure job reads. It is not an Exchange login.
 
-Use the paired diagnostic hotfix app and runbook, then run **inspect release
-environment** in SOAR with the exact quarantine identity. Leave `include_rbac`
-false unless tenant-wide RBAC inspection is separately requested. The customer
-only needs to replace/publish the runbook; no interactive tenant session is
-required by the operator. No Release/Deny cmdlet or captured source is executed.
+Normal input validation remains in place, including rejection of unsupported legacy authentication. A module import or Exchange connection failure is a real error. Optional module/connection metadata is diagnostic context, not a mandatory proof gate for business actions.
 
-The action returns `cmdlet_proxy_diagnostics` (JSON string) and
-`cmdlet_proxy_diagnostics_status` in data/summary. The JSON contains ActionType's
-actual type, enum names/numeric values and ValidateSet; loaded proxy source and
-same-module Execute-Command / CheckRetryAndHandleWaitTime source, hashes and
-line-numbered forwarding excerpts. Source is redacted before output. Per command,
-source is capped at 32768 characters, excerpts at 16384 and excerpt lines at 512.
-Missing helpers, compiled commands and truncation are explicit; `partial` is not
-proof of a complete transport trace. `request_capture=false` means these are
-static definitions, not the actual outgoing HTTP request. No live variables,
-access tokens or headers are collected. Release, Deny and reconciliation paths
-are unchanged by this diagnostic addition. Older runbooks remain compatible
-and show `not_available` in the new app summary.
+## Optional manual diagnostics
+
+Use **inspect release environment** with the exact quarantine identity to read its current Microsoft state and inspect the loaded Exchange runtime. It does not call Release/Deny. Leave `include_rbac` false unless tenant permission diagnosis is needed. A partial optional RBAC report is not a prerequisite failure for every normal action.
+
+The action can return `cmdlet_proxy_diagnostics` and `cmdlet_proxy_diagnostics_status`. This includes the loaded ActionType type/enum/ValidateSet and available proxy/helper source excerpts. Source is redacted and bounded: up to 32,768 characters per command, 16,384 excerpt characters and 512 excerpt lines. Missing helpers, compiled commands and truncation are explicit. These are static definitions, not capture of the outgoing HTTP request; a partial report is not proof of a complete transport trace.
+
+Keep diagnostic collection separate from normal operations. Do not execute captured source or add diagnostics as a required playbook step. For a new installation or coordinated update, publish and confirm the matching runbook, install the matching app, then activate its compatible playbook.
+
+## Import diagnosis
+
+A small identity/result record retains successful and failed imports and their native references. Scheduled polling does not retry a failed or interrupted identity. Native **Poll Now** is the deliberate fresh retry path for failed identities still visible in the first 50 `Requested` candidates; successful imports remain deduplicated.
+
+Inspect existing files and final publication before retrying an uncertain attempt. SOAR and ES APIs do not form one exactly-once transaction, and a lost ES receipt does not guarantee that a finding was not created. Never clear app state or change ingesting assets just to force a retry.
+
+See [Email import](ingestion.md) for layout, scope, active-window and retry details, and [Deployment checklist](validation.md) for environment checks.

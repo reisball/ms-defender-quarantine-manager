@@ -87,8 +87,10 @@ function Get-QuarantineMessage {
     }
 }
 
+$global:PostconditionSleepSeconds = [System.Collections.Generic.List[int]]::new()
 function Start-Sleep {
     param([int] $Seconds)
+    $global:PostconditionSleepSeconds.Add($Seconds)
 }
 
 function Assert-Result {
@@ -140,12 +142,6 @@ Assert-Result `
     -Confirmed $true `
     -Attempts 3 `
     -ObservedStatus "Released"
-if (
-    $releaseDelayed.ObservedStatusHistory -ne
-    "Requested -> PreparingToRelease -> Released"
-) {
-    throw "Release status history did not retain documented transitions."
-}
 if ($releaseDelayed.ObservedIdentity -ne $global:PostconditionTestIdentity) {
     throw "Release confirmation did not retain the exact observed identity."
 }
@@ -233,15 +229,9 @@ Assert-Result `
     -Result $foreignReleased `
     -Confirmed $false `
     -Attempts 1 `
-    -ObservedStatus "Released"
-if (
-    $foreignReleased.ObservedIdentity -ne
-    $global:PostconditionTestForeignIdentity
-) {
-    throw "Foreign identity evidence was not retained."
-}
-if ($foreignReleased.ObservedStatusHistory -ne "") {
-    throw "A foreign object's status must not enter the target status history."
+    -ObservedStatus ""
+if ($foreignReleased.ObservedIdentity -ne "") {
+    throw "A foreign identity must not become a trusted observation."
 }
 if ($foreignReleased.LastError -notmatch "instead of") {
     throw "Foreign identity mismatch was not reported."
@@ -294,7 +284,19 @@ if ($boundedDiagnostic.Contains("must-not-fit")) {
     throw "Diagnostic text exceeded its record bound."
 }
 
+if ($PostconditionMaxAttempts -ne 7 -or $PostconditionPollSeconds -ne 10) {
+    throw "Default status-read budget changed."
+}
+Set-PostconditionScenario -Statuses @("Requested")
+$global:PostconditionSleepSeconds.Clear()
+$defaultWindow = Wait-QuarantinePostcondition -Identity $global:PostconditionTestIdentity -ExpectedStatus "Released"
+if ($defaultWindow.Confirmed -or $defaultWindow.Attempts -ne 7 -or $global:PostconditionSleepSeconds.Count -ne 6) {
+    throw "Default bounded status-read loop did not use seven attempts and six intervals."
+}
+foreach ($seconds in $global:PostconditionSleepSeconds) {
+    if ($seconds -ne 10) { throw "Default polling interval changed." }
+}
 Write-Output (@{
-    scenarios = 9
+    scenarios = 10
     status = "postcondition contract passed"
 } | ConvertTo-Json -Compress)

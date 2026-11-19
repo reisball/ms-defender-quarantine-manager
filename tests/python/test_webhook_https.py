@@ -83,27 +83,17 @@ def test_redirect_is_rejected_even_with_job_ids_and_never_followed(code, target)
     "_handle_release_quarantine_message",
     "_handle_deny_quarantine_release",
 ])
-def test_redirect_preserves_unknown_outcome_and_blocks_replay_after_restart(
-    handler, tmp_path
-):
+def test_redirect_is_not_retried_but_new_action_after_restart_is_allowed(handler, tmp_path):
     state = tmp_path / "state.json"
-    params = {"identity": t.IDENTITY, "operation_id": "redirect-once"}
-    connector = t.make_connector(state_path=state)
-    connector._utils._connection_contract_verified = True
-    result = t.patch_ar(connector)
-    with t.req_mock.Mocker() as mock:
-        mock.register_uri(t.req_mock.ANY, t.req_mock.ANY,
-                          json={"JobIds": [t.JOB_ID]})
-        mock.post(t.WEBHOOK_URL, status_code=307,
-                  headers={"Location": "https://other.invalid/webhook"})
-        assert getattr(connector, handler)(params) == t.APP_ERROR
-        assert mock.call_count == 1
-    assert result.get_data()[0]["state"] == "outcome_unknown"
-    assert result.get_data()[0]["handling"] == "manual_review"
-
-    restarted = t.make_connector(state_path=state)
-    replay = t.patch_ar(restarted)
-    with t.req_mock.Mocker() as mock:
-        assert getattr(restarted, handler)(params) == t.APP_ERROR
-        assert not mock.called
-    assert replay.get_data()[0]["state"] == "outcome_unknown"
+    params = {"identity": t.IDENTITY}
+    for _ in range(2):
+        connector = t.make_connector(state_path=state)
+        result = t.patch_ar(connector)
+        with t.req_mock.Mocker() as mock:
+            mock.post(t.WEBHOOK_URL, status_code=307,
+                      headers={"Location": "https://other.invalid/webhook"})
+            assert getattr(connector, handler)(params) == t.APP_ERROR
+            assert mock.call_count == 1
+        assert "HTTP 307" in result.get_message()
+        assert "state" not in result.get_data()[0]
+        assert result.get_data()[0]["error"] is True
