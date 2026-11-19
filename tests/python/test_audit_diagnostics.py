@@ -210,7 +210,7 @@ def test_native_disposition_success_with_large_passive_metadata(tmp_path, action
     assert data['observed_release_status'] == ('Released' if action == 'release' else 'Denied')
     assert data['cmdlet_invocation_attempted'] is True
     assert data['cmdlet_executed'] is True
-    assert data['cmdlet_contract_id'] == ('identity_releasetoall' if action == 'release' else 'identities_actiontype_no_dummy')
+    assert data['cmdlet_contract_id'] == ('identity_releasetoall' if action == 'release' else 'identity_releasetoall_actiontype_deny')
     assert data['cmdlet_default_parameter_set_truncated'] is True
     assert data['cmdlet_default_parameter_set_original_chars'] == 180000
     assert len(json.dumps(data, ensure_ascii=False).encode('utf-8')) <= 900 * 1024

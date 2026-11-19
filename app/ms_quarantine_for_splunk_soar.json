@@ -355,7 +355,7 @@
             "action": "inspect release environment",
             "identifier": "inspect_release_environment",
             "description": "Read-only inspection of the deployed runbook, loaded Exchange cmdlet contract, and one exact quarantine identity; optional tenant RBAC inspection requires explicit opt-in",
-            "verbose": "Fires the Azure Automation webhook with action=diagnose. The runbook binds the exact Get-QuarantineMessage identity before any optional tenant-wide RBAC query. By default it reads only the identity and local runtime/cmdlet metadata. When include_rbac=true, it additionally reads management-role contracts, the Quarantine role and assignments, managed-identity app/object GUIDs, the matching Exchange service principal, and relevant role-group membership. Only GUID-confirmed matching group names cross into the result; unrelated assignment names and members remain private. Permission-query totals count every real failure while retained records are capped at 20 and 32 KiB of compact UTF-8 JSON. It never returns an access token or xms_mirid resource path and never invokes Release-QuarantineMessage.",
+            "verbose": "Fires the Azure Automation webhook with action=diagnose. The runbook binds the exact Get-QuarantineMessage identity before any optional tenant-wide RBAC query. By default it reads only the identity and local runtime/cmdlet metadata. When include_rbac=true, it additionally reads management-role contracts, the Quarantine role and assignments, managed-identity app/object GUIDs, the matching Exchange service principal, and relevant role-group membership. Only GUID-confirmed matching group names cross into the result; unrelated assignment names and members remain private. Permission-query totals count every real failure while retained records are capped at 20 and 32 KiB of compact UTF-8 JSON. It never returns an access token or xms_mirid resource path and never invokes Release-QuarantineMessage. Also collects bounded, redacted static source from the loaded Release-QuarantineMessage proxy and same-module forwarding helpers, plus ActionType type/enum/ValidateSet metadata. Source availability and truncation are explicit. No HTTP request capture or command invocation occurs.",
             "type": "investigate",
             "read_only": true,
             "parameters": {
@@ -793,6 +793,18 @@
                 {
                     "data_path": "action_result.message",
                     "data_type": "string"
+                },
+                {
+                    "data_path": "action_result.data.*.cmdlet_proxy_diagnostics",
+                    "data_type": "string"
+                },
+                {
+                    "data_path": "action_result.data.*.cmdlet_proxy_diagnostics_status",
+                    "data_type": "string"
+                },
+                {
+                    "data_path": "action_result.summary.cmdlet_proxy_diagnostics_status",
+                    "data_type": "string"
                 }
             ],
             "versions": "EQ(*)"
@@ -1227,7 +1239,7 @@
             "action": "deny quarantine release",
             "identifier": "deny_quarantine_release",
             "description": "Deny a user's request to release a quarantined message",
-            "verbose": "Fires the Azure Automation webhook with action=deny. The runbook confirms the exact Identity matches the Requested source status and then invokes Release-QuarantineMessage -Identities @(<id>) -ActionType Deny -Confirm:$false -ErrorAction Stop exactly once, with no synthetic binder or capability gate and no automatic retry. Native cmdlet/binder errors, the exact-identity postcondition and the effective Exchange sign-in (always the Automation Account Managed Identity, plus organization and its source; never secrets) are reported separately; cleanup never overrides them. Before every write a read-only config_check proves that the protocol minimum Runbook 3.4.2+ applies the Managed Identity-only connection and the configured organization. It then performs a bounded postcondition window (default seven exact reads at ten-second intervals). Only Denied is success. A deterministic rejection with an unchanged source state is confirmed_failed; ambiguous outcomes remain outcome_unknown and block blind retry. Successful diagnostics are compact unless enabled on the asset. Reference: https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/release-quarantinemessage#-actiontype The recommended pair is App 3.7.4 / Runbook 3.4.5 for bounded/redacted disposition diagnostics.",
+            "verbose": "Fires the Azure Automation webhook with action=deny. The runbook confirms the exact Identity matches the Requested source status and then invokes Release-QuarantineMessage -Identity <id> -ReleaseToAll -ActionType Deny -Confirm:$false -ErrorAction Stop exactly once, with no synthetic binder or capability gate and no automatic retry. Native cmdlet/binder errors, the exact-identity postcondition and the effective Exchange sign-in (always the Automation Account Managed Identity, plus organization and its source; never secrets) are reported separately; cleanup never overrides them. Before every write a read-only config_check proves that the protocol minimum Runbook 3.4.2+ applies the Managed Identity-only connection and the configured organization. It then performs a bounded postcondition window (default seven exact reads at ten-second intervals). Only Denied is success. A deterministic rejection with an unchanged source state is confirmed_failed; ambiguous outcomes remain outcome_unknown and block blind retry. Successful diagnostics are compact unless enabled on the asset. Reference: https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/release-quarantinemessage#-actiontype The recommended pair is App 3.7.4 / Runbook 3.4.5 for bounded/redacted disposition diagnostics.",
             "type": "correct",
             "read_only": false,
             "parameters": {

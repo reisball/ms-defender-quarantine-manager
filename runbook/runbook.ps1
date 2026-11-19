@@ -23,7 +23,7 @@
                         (always ManagedIdentity; no Exchange connection, no
                         message access)
         release -> Release-QuarantineMessage -Identity <identity> -ReleaseToAll -Confirm:$false
-        deny    -> Release-QuarantineMessage -Identities <identity> -ActionType Deny -Confirm:$false
+        deny    -> Release-QuarantineMessage -Identity <identity> -ReleaseToAll -ActionType Deny -Confirm:$false
 
     Expected webhook body (JSON):
         { "action": "list" }
@@ -125,8 +125,8 @@
         After the exact Requested precondition read, Release-QuarantineMessage
         is invoked directly, exactly as in Microsoft's documented example
         (-Identity <identity> -ReleaseToAll -Confirm:$false -ErrorAction
-        Stop). Deny uses -Identities @(<identity>) -ActionType Deny
-        -Confirm:$false -ErrorAction Stop and never ReleaseToAll. No
+        Stop). Deny uses -Identity <identity> -ReleaseToAll -ActionType Deny
+        -Confirm:$false -ErrorAction Stop. No
         synthetic parameter-binding probe or other pre-flight capability
         gate can veto the call; a genuine PowerShell binding error surfaces
         with its original message and error record. Tenant RBAC
@@ -330,10 +330,10 @@ $ErrorMaxChunkCount       = 200
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "3.7.4"
-$RunbookSourceRevision    = "sha256:cff7033c69fa4bb473e60a282c188f314d52e58de071e0b8dfb08378683189a2"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-3.7.4+sha256.cff7033c69fa4bb473e60a282c188f314d52e58de071e0b8dfb08378683189a2"
+$RunbookSourceRevision    = "sha256:5cd32ac0c5f13882b4313b2e3b64857d73ae88f8e71ec53b9da3ef30380424ff"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-3.7.4+sha256.5cd32ac0c5f13882b4313b2e3b64857d73ae88f8e71ec53b9da3ef30380424ff"
 $ReleaseContractId        = "identity_releasetoall"
-$DenyContractId           = "identities_actiontype_no_dummy"
+$DenyContractId           = "identity_releasetoall_actiontype_deny"
 $PostconditionMaxAttempts = 7
 $PostconditionPollSeconds = 10
 $DiagnosticMaxRecords     = 20
@@ -1289,7 +1289,7 @@ function Get-QuarantineRbacDiagnosticEvidence {
     $evidence.release_deny_roles = Invoke-ManagementRoleContractQuery `
         -QueryName "release_deny" `
         -CmdletName "Release-QuarantineMessage" `
-        -Parameters @("Identities", "ActionType") `
+        -Parameters @("Identity", "ReleaseToAll", "ActionType") `
         -Errors $errors
 
     try {
@@ -1711,6 +1711,124 @@ function Get-ReleaseCommandMetadataEvidence {
     return $evidence
 }
 
+function Get-ReleaseProxyDiagnosticEvidence {
+    # Static inspection only: never invoke the proxy, helpers or captured code.
+    $report = @{
+        schema = "exchange_proxy_v1"
+        status = "unavailable"
+        request_capture = $false
+        action_type = @{}
+        commands = @()
+        error = ""
+    }
+    try {
+        $command = Resolve-ReleaseCommandMetadataTarget -Command (
+            Get-Command -Name "Release-QuarantineMessage" -ErrorAction Stop
+        )
+        $parameter = $command.Parameters["ActionType"]
+        if ($null -ne $parameter) {
+            $type = $parameter.ParameterType
+            $report.action_type = @{
+                type = [string] $type.FullName
+                is_enum = [bool] $type.IsEnum
+                enum_values = @()
+                validate_set = @()
+            }
+            if ($type.IsEnum) {
+                $report.action_type.enum_values = @(
+                    [Enum]::GetValues($type) | ForEach-Object {
+                        @{ name = $_.ToString(); value = $_.ToString("D") }
+                    }
+                )
+            }
+            $report.action_type.validate_set = @(
+                $parameter.Attributes | Where-Object {
+                    $_ -is [System.Management.Automation.ValidateSetAttribute]
+                } | ForEach-Object { $_.ValidValues }
+            )
+        }
+        $report.status = "collected"
+        foreach ($name in @(
+            "Release-QuarantineMessage", "Execute-Command", "CheckRetryAndHandleWaitTime"
+        )) {
+            $entry = @{ name = $name; status = "unavailable"; error = "" }
+            try {
+                $target = if ($name -eq "Release-QuarantineMessage") {
+                    $command
+                } elseif ($null -ne $command.Module) {
+                    # Resolve private helpers in the SAME module, not another import.
+                    & $command.Module {
+                        param($HelperName)
+                        Get-Command -Name $HelperName -CommandType Function -ErrorAction Stop
+                    } $name
+                } else { $null }
+                if ($name -ne "Release-QuarantineMessage" -and $null -ne $target -and
+                    $target.Module -ne $command.Module) {
+                    $target = $null
+                }
+                if ($null -eq $target) {
+                    $entry.error = "No matching helper in the loaded command module."
+                } else {
+                    $entry.command_type = [string] $target.CommandType
+                    $entry.module_name = [string] $target.ModuleName
+                    $entry.module_path = [string] $target.Module.Path
+                    $entry.module_version = [string] $target.Module.Version
+                    $entry.default_parameter_set = [string] $target.DefaultParameterSet
+                    $source = if ($null -ne $target.ScriptBlock) {
+                        [string] $target.ScriptBlock.ToString()
+                    } else { "" }
+                    $entry.source_sha256 = Get-Sha256Hex -Bytes (
+                        [System.Text.Encoding]::UTF8.GetBytes($source)
+                    )
+                    $safe = ConvertTo-SecretRedactedText -Text $source
+                    $entry.source_chars = $safe.Length
+                    $entry.source_truncated = $safe.Length -gt 32768
+                    $entry.source = $safe.Substring(0, [Math]::Min(32768, $safe.Length))
+                    # Retain late forwarding code even if the full source is clipped.
+                    $lines = $safe -split '\r?\n'
+                    $selected = [System.Collections.Generic.SortedSet[int]]::new()
+                    for ($i = 0; $i -lt $lines.Count; $i++) {
+                        if ($lines[$i] -match 'ActionType|PSBoundParameters|Execute-Command|Invoke-RestMethod|Invoke-WebRequest|ConvertTo-Json|GetSteppablePipeline|Invoke-Command') {
+                            for ($j = [Math]::Max(0, $i - 3); $j -le [Math]::Min($lines.Count - 1, $i + 3); $j++) {
+                                $null = $selected.Add($j)
+                            }
+                        }
+                    }
+                    $entry.excerpt_lines_truncated = $false
+                    $excerpt = (@($selected | ForEach-Object {
+                        $line = $lines[$_]
+                        if ($line.Length -gt 512) {
+                            $line = $line.Substring(0, 512) + " [line truncated]"
+                            $entry.excerpt_lines_truncated = $true
+                        }
+                        "{0}: {1}" -f ($_ + 1), $line
+                    }) -join "`n")
+                    $entry.excerpts_truncated = $excerpt.Length -gt 16384
+                    $entry.forwarding_excerpts = $excerpt.Substring(0, [Math]::Min(16384, $excerpt.Length))
+                    $entry.status = if ($source) { "collected" } else { "no_script_source" }
+                }
+            } catch {
+                $entry.error = ConvertTo-BoundedScalarText -Value (
+                    ConvertTo-SecretRedactedText -Text (Get-OriginalErrorMessage -ErrorRecord $_)
+                ) -MaxChars 1024
+            }
+            if ($entry.status -ne "collected" -or $entry.source_truncated -or $entry.excerpts_truncated -or $entry.excerpt_lines_truncated) {
+                $report.status = "partial"
+            }
+            $report.commands += $entry
+        }
+        if ($report.action_type.Count -eq 0) { $report.status = "partial" }
+    } catch {
+        $report.error = ConvertTo-BoundedScalarText -Value (
+            ConvertTo-SecretRedactedText -Text (Get-OriginalErrorMessage -ErrorRecord $_)
+        ) -MaxChars 1024
+    }
+    return @{
+        cmdlet_proxy_diagnostics_status = $report.status
+        cmdlet_proxy_diagnostics = ($report | ConvertTo-Json -Depth 8 -Compress)
+    }
+}
+
 function Get-ExchangeConnectionMetadataEvidence {
     $evidence = @{
         exchange_connection_metadata = ""
@@ -1894,12 +2012,12 @@ function Add-StaticDiagnosticEvidence {
         )
     } else {
         $Data.cmdlet_contract_id = $DenyContractId
-        $Data.cmdlet_expected_argument_names = "Identities,ActionType"
+        $Data.cmdlet_expected_argument_names = "Identity,ReleaseToAll,ActionType"
         $Data.cmdlet_parameter_names = (
-            "Identities,ActionType,Confirm,ErrorAction"
+            "Identity,ReleaseToAll,ActionType,Confirm,ErrorAction"
         )
         $Data.cmdlet_invocation_form = (
-            "Release-QuarantineMessage -Identities <identity> " +
+            "Release-QuarantineMessage -Identity <identity> -ReleaseToAll " +
             "-ActionType Deny -Confirm:`$false -ErrorAction Stop"
         )
     }
@@ -2175,7 +2293,8 @@ function Invoke-QuarantineDisposition {
         } else {
             & {
                 Release-QuarantineMessage `
-                    -Identities @($Identity) `
+                    -Identity $Identity `
+                    -ReleaseToAll `
                     -ActionType Deny `
                     -Confirm:$false `
                     -ErrorAction Stop
@@ -2944,7 +3063,7 @@ function Invoke-RequestedDisposition {
         $postconditionUnconfirmedMessage = "Deny command returned without error, but Exchange did not confirm ReleaseStatus=Denied for identity '$Identity'. Do not retry blindly."
         $confirmedMessage = "Release denial confirmed by Exchange quarantine status."
         $confirmedDespiteErrorMessage = "ReleaseStatus=Denied was confirmed after the cmdlet reported an error."
-        $executionMessage = "Executing Release-QuarantineMessage -Identities '$Identity' -ActionType Deny -Confirm:`$false"
+        $executionMessage = "Executing Release-QuarantineMessage -Identity '$Identity' -ReleaseToAll -ActionType Deny -Confirm:`$false"
     }
 
     # 1. One exact read: only Requested messages may be acted on.
@@ -3797,6 +3916,10 @@ try {
             Add-StaticDiagnosticEvidence `
                 -Data $diagnosticResult `
                 -DispositionAction "Release"
+            $proxyEvidence = Get-ReleaseProxyDiagnosticEvidence
+            foreach ($key in $proxyEvidence.Keys) {
+                $diagnosticResult[$key] = $proxyEvidence[$key]
+            }
             if ($diagnosticResult.inspection_error) {
                 $rbacDiagnosticEvidence = (
                     Get-QuarantineRbacDiagnosticEvidence
