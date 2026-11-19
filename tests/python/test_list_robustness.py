@@ -8,23 +8,21 @@ if __package__:
         APP_ERROR, APP_SUCCESS, IDENTITY, ORG, build_metadata,
         config_check_output, dispatch_flow, job_output_url, make_connector, patch_ar,
     )
-    from .test_quarantine_modes import selected
 else:
     from test_connector import (
         APP_ERROR, APP_SUCCESS, IDENTITY, ORG, build_metadata,
         config_check_output, dispatch_flow, job_output_url, make_connector, patch_ar,
     )
-    from test_quarantine_modes import selected
 
 MODES = ['release_requested', 'needs_review']
 
 def envelope(mode, output):
     value = {**output, **build_metadata()}
-    return selected(value) if mode == 'needs_review' else value
+    return value
 
 def row(mode, **changes):
     return {'Identity': IDENTITY,
-            'ReleaseStatus': 'NotReleased' if mode == 'needs_review' else 'Requested',
+            'ReleaseStatus': 'Requested',
             **changes}
 
 def flow(mode, rows, **changes):

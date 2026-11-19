@@ -24,7 +24,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $runbookPath = Join-Path $PSScriptRoot "../../runbook/runbook.ps1"
-$global:RunbookTestSelectionStatus = if ($SelectionMode -eq "needs_review") { "NotReleased" } else { "Requested" }
+$global:RunbookTestSelectionStatus = "Requested"
 $global:RunbookTestMessageCount = $MessageCount
 $global:RunbookTestSubjectLength = $SubjectLength
 $global:RunbookTestUseStringDates = $UseStringDates.IsPresent
@@ -146,13 +146,6 @@ if ($jsonLines.Count -lt 1) {
 }
 
 $records = @($jsonLines | ForEach-Object { $_ | ConvertFrom-Json })
-foreach ($record in $records) {
-    if (
-        $record.quarantine_selection_mode -ne $SelectionMode -or
-        $record.selection_release_status -ne $global:RunbookTestSelectionStatus -or
-        $record.quarantine_selection_contract -ne "quarantine_selection_v1"
-    ) { throw "Selection metadata was not preserved across all list records." }
-}
 if ($RawOutput.IsPresent) {
     $jsonLines | ForEach-Object { Write-Output $_ }
     exit 0

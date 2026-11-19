@@ -16,13 +16,13 @@ python tools/stamp_runbook.py --check
 python tools/check_mime_parser_compat.py
 ```
 
-The pytest suite in `tests/python/` covers the connector, ingestion, selection, recovery and packaging. It uses synthetic API/SDK inputs. This repository does not include playbooks, playbook fixtures or platform-source-dependent playbook tests.
+The pytest suite in `tests/python/` covers the connector, Requested-only intake, recovery and packaging. It uses synthetic API/SDK inputs. This repository does not include playbooks, playbook fixtures or platform-source-dependent playbook tests.
 
 ## GitHub Actions and PowerShell
 
 [GitHub workflow](../.github/workflows/ci.yml) runs the Python matrix and, on Python 3.13, the complete PowerShell contract sequence. The Python 3.9 job uses `ubuntu-22.04`, where `setup-python` provides a compatible build; Python 3.13 uses `ubuntu-latest`. PowerShell is provided by the GitHub-hosted Ubuntu runner and checked before use. Actions are pinned to immutable commits and the workflow has read-only repository permission.
 
-The PowerShell scripts live in `tests/powershell/` and exercise `runbook/runbook.ps1`. The PowerShell sequence includes inline assertions and parameter variants for export/base64/list/error transport, Managed Identity and rejected legacy authentication, Release/Deny preconditions and postconditions, read-only diagnostics/RBAC, and selection modes. Running one script or only pytest does not replace the sequence.
+The PowerShell scripts live in `tests/powershell/` and exercise `runbook/runbook.ps1`. The PowerShell sequence includes inline assertions and parameter variants for export/base64/list/error transport, Managed Identity and rejected legacy authentication, Release/Deny preconditions and postconditions, read-only diagnostics/RBAC, and quarantine status filtering. Running one script or only pytest does not replace the sequence.
 
 The [Gitea workflow](../.gitea/workflows/ci.yml) is retained as the original CI definition; GitHub does not execute it. A local check of the GitHub workflow is not evidence of a successful hosted run. Inspect the exact candidate's Actions results before publishing a release.
 

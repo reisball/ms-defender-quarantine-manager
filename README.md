@@ -23,7 +23,7 @@ Azure job access and Exchange permissions are separate prerequisites. See [insta
 The runbook is deployed separately; installing the SOAR app does not update Azure.
 
 1. Follow [installation](docs/installation.md) to configure Azure identity, the runbook and the SOAR asset.
-2. Select `release_requested` or `needs_review`, configure one ingesting asset per tenant, and start with a small active-message limit.
+2. Configure one ingesting asset per tenant and start with a small active-message limit. Intake imports only Microsoft `Requested` messages.
 3. Run the [deployment checklist](docs/validation.md) with controlled test messages before enabling regular intake.
 4. Connect an analysis workflow only after mapping and validating its assets, approver, notification routing and portal URL.
 
@@ -31,7 +31,7 @@ Building from source? See [development and CI](docs/ci.md). Release archives and
 
 ## Analysis workflows
 
-Import quarantined emails with status `Requested` (the app's `release_requested` mode) or `NotReleased` (`needs_review` mode), then hand them over to Splunk SOAR automation.
+Import quarantined emails with a recipient release request (Microsoft status `Requested`), then hand them over to Splunk SOAR automation.
 
 ## Documentation
 

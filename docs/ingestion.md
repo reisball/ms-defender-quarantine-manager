@@ -4,16 +4,13 @@
 
 Configure the schedule and container label in native **Ingest Settings**, or use **Poll Now** for a manual import. Disable the schedule to pause automatic imports. The app has no additional ingestion-enable checkbox. Azure job polling settings monitor individual jobs, not the ingestion schedule.
 
-Use one ingesting asset per tenant. Its state and locks are asset-specific; separate assets can admit the same source message. Select the tenant, Exchange organization, source mode and target before starting. Changing that scope while state exists is rejected. Do not delete state to bypass the check.
+Use one ingesting asset per tenant. Its state and locks are asset-specific; separate assets can admit the same source message. Select the tenant, Exchange organization and target before starting. Changing that scope while state exists is rejected. Do not delete state to bypass the check.
 
 Native email import requires authenticated local SOAR REST access. Automation Broker is unsupported; SOAR Cloud compatibility has not been verified. The optional `es_soar_base_url` overrides the trusted HTTPS endpoint for both SOAR and ES import. Native runtime authentication may supply its own URL. Azure TLS verification remains enforced independently of the SOAR platform's local transport policy.
 
-| Selection | Microsoft source status |
-|---|---|
-| `release_requested` (default) | `Requested` |
-| `needs_review` | `NotReleased` |
+Intake imports only Microsoft `Requested` messages: mail with a recipient release request. There is no source-mode selector; obsolete asset settings are ignored.
 
-`needs_review` includes mail without a recipient release request. Check tenant eligibility before attempting Deny for that status.
+Existing intake scopes containing `needs_review` are normalized to Requested-only intake without deleting records. Pending `NotReleased` messages remain tracked but must not be newly published unless Microsoft now reports `Requested`. Already published messages are not republished; status reconciliation continues.
 
 ## Active-message window
 
@@ -21,7 +18,7 @@ Native email import requires authenticated local SOAR REST access. Automation Br
 
 The app reads tracked Microsoft statuses and frees slots only after observing exact `Released` or `Denied` results. Analysis completion, an import error, a missing identity or an intermediate status does not free a slot. Missing or expired mail therefore needs investigation rather than automatic replay.
 
-Free slots are filled from the first 50 candidates matching the source status. There is no pagination or stable ordering guarantee. An empty import is not proof of an empty backlog. Existing pending work is processed before discovering more mail.
+Free slots are filled from the first 50 candidates with status `Requested`. There is no pagination or stable ordering guarantee. An empty import is not proof of an empty backlog. Existing pending work is processed before discovering more mail.
 
 ## Preparation and automation
 

@@ -56,9 +56,6 @@ def setup(tmp_path, target="soar", mode="release_requested", limit=10,
     c.events = []
     c.artifacts = {}
     c.candidates = [candidate(i) for i in range(1, 31)]
-    if mode == "needs_review":
-        for m in c.candidates:
-            m["ReleaseStatus"] = "NotReleased"
     c.observed = {}
     c.eml = sample_mail()
     c.calls = []
@@ -110,10 +107,6 @@ def setup(tmp_path, target="soar", mode="release_requested", limit=10,
             out["postcondition_trace"] = json.dumps(trace)
         else:
             raise AssertionError("Unexpected Exchange action: " + action)
-        if mode == "needs_review":
-            out["quarantine_selection_contract"] = "quarantine_selection_v1"
-            out["quarantine_selection_mode"] = mode
-            out["selection_release_status"] = "NotReleased"
         c._utils._validate_runbook_result(out, requested_action=action,
                                         requested_identity=identity)
         c._utils._raise_for_runbook_error(out, requested_action=action,
@@ -300,14 +293,12 @@ def test_parallel_poll_is_refused(tmp_path, target):
     assert not c.calls
 
 
-@pytest.mark.parametrize("change", ["tenant", "mode", "target"])
+@pytest.mark.parametrize("change", ["tenant", "target"])
 def test_scope_drift_does_not_refill(tmp_path, change):
     c = setup(tmp_path, limit=1)
     assert poll(c)[0] == t.APP_SUCCESS
     if change == "tenant":
         c._config["azure_tenant_id"] = "other"
-    elif change == "mode":
-        c._utils.quarantine_selection_mode = "needs_review"
     else:
         c._config["ingest"] = dict(ES)
     assert poll(c)[0] == t.APP_ERROR
@@ -461,3 +452,55 @@ def test_platform_poll_runs_without_app_opt_in(tmp_path, target, poll_now, legac
     assert len([e for e in c.events if e[0] in {"publish", "es_publish"}]) == expected
     assert any(action == "list" for action, _, _ in c.calls)
     assert all(c.get_config()[key] == value for key, value in legacy.items())
+
+
+@pytest.mark.parametrize("legacy_mode", ["release_requested", "needs_review"])
+def test_legacy_scope_preserves_published_records_without_republishing(tmp_path, legacy_mode):
+    c = setup(tmp_path, limit=1)
+    assert poll(c)[0] == t.APP_SUCCESS
+    before = c._ingest_records()
+    state = c.load_state()
+    state[INGEST_STATE_KEY]["scope"]["selection_mode"] = legacy_mode
+    c.save_state(state)
+    c.events.clear()
+    assert c._ingest_records() == before
+    assert poll(c)[0] == t.APP_SUCCESS
+    assert set(c._ingest_records()) == set(before)
+    assert len(c._saved_containers) == 1
+    assert not c.events
+    assert "selection_mode" not in c.load_state()[INGEST_STATE_KEY]["scope"]
+
+
+def test_pending_legacy_notreleased_waits_for_requested_before_publication(tmp_path, target):
+    c = setup(tmp_path, target, mode="needs_review", limit=1)
+    c._ingest_settings()
+    message = candidate(1, status="NotReleased")
+    c._ingest_reserve([message], 1, 1)
+    key, row = next(iter(c._ingest_records().items()))
+    state = c.load_state()
+    state[INGEST_STATE_KEY]["scope"]["selection_mode"] = "needs_review"
+    c.save_state(state)
+    c.observed[row["identity"]] = "NotReleased"
+    assert poll(c)[0] == t.APP_SUCCESS
+    assert not c.events
+    assert not c._saved_containers
+    assert c._ingest_records()[key]["phase"] == "reserved"
+    assert not any(action == "export" for action, *_ in c.calls)
+    c.observed[row["identity"]] = "Requested"
+    status, ar = poll(c)
+    assert status == t.APP_SUCCESS, ar.get_message()
+    assert c._ingest_records()[key]["phase"] == "published"
+    assert len(c._saved_containers) == 1
+
+
+def test_native_intake_does_not_import_notreleased_from_backend(tmp_path):
+    c = setup(tmp_path, mode="needs_review", limit=1)
+    c._utils.run_action = Mock(return_value={
+        **t.build_metadata(), "action": "list", "count": 1,
+        "messages": [candidate(1, status="NotReleased")],
+    })
+    status, ar = poll(c)
+    assert status == t.APP_ERROR
+    assert "not Requested" in ar.get_message()
+    assert not c._saved_containers
+    assert not c.events

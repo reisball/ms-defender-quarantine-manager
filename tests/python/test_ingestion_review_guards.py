@@ -97,7 +97,7 @@ def test_malformed_native_record_blocks_intake(tmp_path, row):
 
 
 @pytest.mark.parametrize("field", [
-    "asset_id", "tenant", "organization", "selection_mode", "target",
+    "asset_id", "tenant", "organization", "target",
 ])
 def test_every_persisted_scope_component_is_binding(tmp_path, field):
     c = setup(tmp_path, limit=1)

@@ -69,30 +69,19 @@
             "required": false,
             "order": 7
         },
-        "quarantine_selection_mode": {
-            "description": "Email import: Selection: release_requested or needs_review",
-            "data_type": "string",
-            "required": false,
-            "default": "release_requested",
-            "value_list": [
-                "release_requested",
-                "needs_review"
-            ],
-            "order": 8
-        },
         "on_poll_max_containers": {
             "description": "Email import: Maximum active messages (1-50; default 10)",
             "data_type": "numeric",
             "required": false,
             "default": 10,
-            "order": 9
+            "order": 8
         },
         "worker_terminal_retention_days": {
             "description": "Email import: Completed-entry retention (whole days, 1-365)",
             "data_type": "numeric",
             "required": false,
             "default": 30,
-            "order": 10
+            "order": 9
         },
         "artifact_layout": {
             "description": "Mail fields: Group selected fields: combined or separate",
@@ -103,97 +92,97 @@
                 "combined",
                 "separate"
             ],
-            "order": 11
+            "order": 10
         },
         "artifact_field_from": {
             "description": "Mail fields: From",
             "data_type": "boolean",
             "required": false,
             "default": true,
-            "order": 12
+            "order": 11
         },
         "artifact_field_to": {
             "description": "Mail fields: To",
             "data_type": "boolean",
             "required": false,
             "default": true,
-            "order": 13
+            "order": 12
         },
         "artifact_field_cc": {
             "description": "Mail fields: Cc",
             "data_type": "boolean",
             "required": false,
             "default": false,
-            "order": 14
+            "order": 13
         },
         "artifact_field_reply_to": {
             "description": "Mail fields: Reply-To",
             "data_type": "boolean",
             "required": false,
             "default": false,
-            "order": 15
+            "order": 14
         },
         "artifact_field_subject": {
             "description": "Mail fields: Subject",
             "data_type": "boolean",
             "required": false,
             "default": true,
-            "order": 16
+            "order": 15
         },
         "artifact_field_email_date": {
             "description": "Mail fields: email date",
             "data_type": "boolean",
             "required": false,
             "default": true,
-            "order": 17
+            "order": 16
         },
         "artifact_field_received_date": {
             "description": "Mail fields: received date",
             "data_type": "boolean",
             "required": false,
             "default": false,
-            "order": 18
+            "order": 17
         },
         "artifact_field_message_id": {
             "description": "Mail fields: Message-ID",
             "data_type": "boolean",
             "required": false,
             "default": true,
-            "order": 19
+            "order": 18
         },
         "artifact_field_quarantine_identity": {
             "description": "Mail fields: quarantine identity",
             "data_type": "boolean",
             "required": false,
             "default": false,
-            "order": 20
+            "order": 19
         },
         "poll_interval_seconds": {
             "description": "Advanced: Job status check (whole seconds, 1-60; default 5)",
             "data_type": "numeric",
             "required": false,
             "default": 5,
-            "order": 21
+            "order": 20
         },
         "poll_timeout_seconds": {
             "description": "Advanced: Job timeout (whole seconds, 600-3600; default 600)",
             "data_type": "numeric",
             "required": false,
             "default": 600,
-            "order": 22
+            "order": 21
         },
         "es_soar_base_url": {
             "description": "Advanced: SOAR URL override (optional; SOAR and ES)",
             "data_type": "string",
             "required": false,
-            "order": 23
+            "order": 22
         },
         "include_verbose_action_diagnostics": {
             "description": "Advanced: Verbose diagnostics for successful actions",
             "data_type": "boolean",
             "required": false,
             "default": false,
-            "order": 24
+            "order": 23
         }
     },
     "actions": [
@@ -812,7 +801,7 @@
             "action": "release quarantine message",
             "identifier": "release_quarantine_message",
             "description": "Release a quarantined message to all original recipients",
-            "verbose": "Fires the Azure Automation webhook with action=release. The runbook confirms the exact Identity matches the asset-selected source status (Requested by default, NotReleased for needs_review) and then invokes Release-QuarantineMessage -Identity <id> -ReleaseToAll -Confirm:$false -ErrorAction Stop exactly once, with no synthetic binder or capability gate and no automatic retry. Native cmdlet/binder errors, the exact-identity postcondition and the effective Exchange sign-in (always the Automation Account Managed Identity, plus organization and its source; never secrets) are reported separately; cleanup never overrides them. Before every write a read-only config_check proves that the protocol minimum Runbook 3.4.2+ applies the Managed Identity-only connection and the configured organization. It then performs a bounded postcondition window (default seven exact reads at ten-second intervals). Only Released is success. A deterministic rejection with an unchanged source state is confirmed_failed; ambiguous outcomes remain outcome_unknown and block blind retry. Successful diagnostics are compact unless enabled on the asset. IRREVERSIBLE. Reference: https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/release-quarantinemessage Needs review uses the quarantine_selection_v1 pairing check and requires protocol minimum Runbook 3.4.3 or newer. The recommended pair is App 3.7.4 / Runbook 3.4.5 for bounded/redacted disposition diagnostics. Deny of a message without a release request is tenant-unverified; only confirmed Denied is success.",
+            "verbose": "Fires the Azure Automation webhook with action=release. The runbook confirms the exact Identity matches the Requested source status and then invokes Release-QuarantineMessage -Identity <id> -ReleaseToAll -Confirm:$false -ErrorAction Stop exactly once, with no synthetic binder or capability gate and no automatic retry. Native cmdlet/binder errors, the exact-identity postcondition and the effective Exchange sign-in (always the Automation Account Managed Identity, plus organization and its source; never secrets) are reported separately; cleanup never overrides them. Before every write a read-only config_check proves that the protocol minimum Runbook 3.4.2+ applies the Managed Identity-only connection and the configured organization. It then performs a bounded postcondition window (default seven exact reads at ten-second intervals). Only Released is success. A deterministic rejection with an unchanged source state is confirmed_failed; ambiguous outcomes remain outcome_unknown and block blind retry. Successful diagnostics are compact unless enabled on the asset. IRREVERSIBLE. Reference: https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/release-quarantinemessage The recommended pair is App 3.7.4 / Runbook 3.4.5 for bounded/redacted disposition diagnostics.",
             "type": "correct",
             "read_only": false,
             "parameters": {
@@ -1238,7 +1227,7 @@
             "action": "deny quarantine release",
             "identifier": "deny_quarantine_release",
             "description": "Deny a user's request to release a quarantined message",
-            "verbose": "Fires the Azure Automation webhook with action=deny. The runbook confirms the exact Identity matches the asset-selected source status (Requested by default, NotReleased for needs_review) and then invokes Release-QuarantineMessage -Identities @(<id>) -ActionType Deny -Confirm:$false -ErrorAction Stop exactly once, with no synthetic binder or capability gate and no automatic retry. Native cmdlet/binder errors, the exact-identity postcondition and the effective Exchange sign-in (always the Automation Account Managed Identity, plus organization and its source; never secrets) are reported separately; cleanup never overrides them. Before every write a read-only config_check proves that the protocol minimum Runbook 3.4.2+ applies the Managed Identity-only connection and the configured organization. It then performs a bounded postcondition window (default seven exact reads at ten-second intervals). Only Denied is success. A deterministic rejection with an unchanged source state is confirmed_failed; ambiguous outcomes remain outcome_unknown and block blind retry. Successful diagnostics are compact unless enabled on the asset. Reference: https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/release-quarantinemessage#-actiontype Needs review uses the quarantine_selection_v1 pairing check and requires protocol minimum Runbook 3.4.3 or newer. The recommended pair is App 3.7.4 / Runbook 3.4.5 for bounded/redacted disposition diagnostics. Deny of a message without a release request is tenant-unverified; only confirmed Denied is success.",
+            "verbose": "Fires the Azure Automation webhook with action=deny. The runbook confirms the exact Identity matches the Requested source status and then invokes Release-QuarantineMessage -Identities @(<id>) -ActionType Deny -Confirm:$false -ErrorAction Stop exactly once, with no synthetic binder or capability gate and no automatic retry. Native cmdlet/binder errors, the exact-identity postcondition and the effective Exchange sign-in (always the Automation Account Managed Identity, plus organization and its source; never secrets) are reported separately; cleanup never overrides them. Before every write a read-only config_check proves that the protocol minimum Runbook 3.4.2+ applies the Managed Identity-only connection and the configured organization. It then performs a bounded postcondition window (default seven exact reads at ten-second intervals). Only Denied is success. A deterministic rejection with an unchanged source state is confirmed_failed; ambiguous outcomes remain outcome_unknown and block blind retry. Successful diagnostics are compact unless enabled on the asset. Reference: https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/release-quarantinemessage#-actiontype The recommended pair is App 3.7.4 / Runbook 3.4.5 for bounded/redacted disposition diagnostics.",
             "type": "correct",
             "read_only": false,
             "parameters": {

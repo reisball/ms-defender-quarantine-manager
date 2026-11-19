@@ -67,8 +67,8 @@ Automation Job Operator access on that account for reading Azure job status
 and output. Enter its tenant ID, client ID and client secret value.</li>
 <li>Set the Exchange tenant domain in the asset or in the Automation Variable
 <code>ExchangeOrganization</code>; the asset value takes precedence.</li>
-<li>Use one ingesting asset per tenant. Select the source mode and target before
-starting intake. Configure the container label and schedule in Ingest Settings;
+<li>Use one ingesting asset per tenant. Select the target before starting
+Requested-only intake. Configure the container label and schedule in Ingest Settings;
 disable the schedule to pause automatic imports. Use Poll Now for a manual import. For ES, use the native ES ingest settings
 and register the five additional fields below.</li>
 <li>Configure the analysis playbook's asset bindings, analyst/approver settings,
@@ -83,13 +83,16 @@ SOAR Cloud compatibility has not been verified.</p>
 Microsoft quarantine identities, configurable 1–50 and default 10. It is not a
 per-poll increment. The app checks tracked IDs read-only; exact
 <code>Released</code> or <code>Denied</code> frees slots. It fills free slots from
-the existing first 50 source-status candidates. Missing IDs, errors, other
+the first 50 candidates with status <code>Requested</code>. Missing IDs, errors, other
 statuses and analysis completion do not free slots. An empty import does not
 prove an empty backlog; no pagination or stable ordering is promised.</p>
-<p>Selection <code>release_requested</code> means Microsoft <code>Requested</code>;
-<code>needs_review</code> means <code>NotReleased</code>. Needs review is explicit
-opt-in and may process mail without a recipient request. Check your tenant's Deny eligibility before using it with NotReleased messages. A mail intentionally left unchanged can occupy
-a slot indefinitely.</p>
+<p>Intake imports only Microsoft <code>Requested</code> messages: mail with a
+recipient release request. There is no source-mode selector; obsolete asset
+settings are ignored. Existing intake scopes containing <code>needs_review</code>
+are normalized without deleting records. Pending <code>NotReleased</code> mail
+remains tracked but is not newly published unless Microsoft now reports
+<code>Requested</code>. Already published messages are not republished; status
+reconciliation continues. A mail left unchanged can occupy a slot indefinitely.</p>
 <p>New SOAR events are named after the email subject, without a prefix;
 mail without a subject uses <code>[No subject]</code>.</p>
 <p>Original email and attachments are saved automatically to the container's
@@ -132,8 +135,8 @@ and body to 256000 characters. The 2 MiB metadata check precedes attachment-link
 entries and is not a complete final-request size guarantee. The original EML in
 Vault remains authoritative.</p>
 <h2>Configuration</h2>
-<p>Configure the Azure connection, email selection and active-message limit,
-selected mail fields, and advanced job settings below. The ingest schedule is
+<p>Configure the Azure connection, active-message limit, selected mail fields
+and advanced job settings below. The ingest schedule is
 set in SOAR/ES Ingest Settings; the Azure polling interval and timeout monitor
 individual Azure jobs, not the mail-import schedule.</p>
 <p>The SOAR URL override applies to both SOAR and ES email import. Azure
@@ -186,7 +189,7 @@ policies to jobs, Vault, state and evidence. No credentials are stored in this
 help. Do not include message bodies, tokens or webhook URLs in support reports.</p>
 <h2>Troubleshooting and support</h2>
 <p>If an action fails, record the app and runbook versions, SOAR/ES versions,
-selection mode, action error and Azure job ID. Check the job output and use
+action error and Azure job ID. Check the job output and use
 read-only reconciliation for an uncertain disposition. Do not include client
 secrets, webhook tokens or message contents in support reports.</p>
 </body></html>
