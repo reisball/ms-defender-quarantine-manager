@@ -77,7 +77,7 @@ def setup(tmp_path, target="soar", mode="release_requested", limit=10,
             rows = c._ingest_records()
             row = next(r for r in rows.values() if r["container_id"] == artifact["container_id"])
             assert row["phase"] == "publishing"
-            assert len(row["files"]) == 3
+            assert len(row["files"]) == 1 + len(mail_files(c.eml))
             assert row["vault_id"]
             c.events.append(("publish", artifact["container_id"]))
         else:
@@ -177,7 +177,7 @@ def test_ten_then_three_terminal_refill_without_callbacks(tmp_path, target, mode
     ("   ", "[No subject]"),
     (None, "[No subject]"),
 ])
-def test_container_subject_name_preserves_request_artifact_and_dedup(tmp_path, target, subject, expected):
+def test_container_subject_name_preserves_context_and_dedup(tmp_path, target, subject, expected):
     c = setup(tmp_path, target, limit=1)
     if subject is None:
         c.candidates[0].pop("Subject", None)
@@ -188,12 +188,17 @@ def test_container_subject_name_preserves_request_artifact_and_dedup(tmp_path, t
     assert len(c._saved_containers) == 1
     container = c._saved_containers[0]["container"]
     assert container["name"] == expected
-    request = container["artifacts"][0]
-    assert request["name"] == "Quarantine release request"
-    assert request["cef"]["emailSubject"] == (subject or "").strip()[:240]
-    assert request["cef"]["quarantineIdentity"] == c.candidates[0]["Identity"]
-    assert request["source_data_identifier"] == container["source_data_identifier"] + "-message"
-    assert request["run_automation"] is False
+    assert container["data"]["quarantine_identity"] == c.candidates[0]["Identity"]
+    if target == "soar":
+        assert container["artifacts"] == []
+        assert len(c.artifacts) == 1
+    else:
+        request = container["artifacts"][0]
+        assert request["name"] == "Quarantine release request"
+        assert request["cef"]["emailSubject"] == (subject or "").strip()[:240]
+        assert request["cef"]["quarantineIdentity"] == c.candidates[0]["Identity"]
+        assert request["source_data_identifier"] == container["source_data_identifier"] + "-message"
+        assert request["run_automation"] is False
     assert container["run_automation"] is False
     assert poll(c)[0] == t.APP_SUCCESS
     assert len(c._saved_containers) == 1

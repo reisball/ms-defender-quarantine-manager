@@ -94,7 +94,8 @@ def test_installed_parameter_help_no_longer_directs_removed_action():
     for identifier in ["release_quarantine_message", "deny_quarantine_release"]:
         action = next(a for a in manifest["actions"] if a["identifier"] == identifier)
         assert "list quarantine requests" not in action["parameters"]["identity"]["description"]
-        assert "quarantineIdentity" in action["parameters"]["identity"]["description"]
+        assert "container:data.quarantine_identity" in action["parameters"]["identity"]["description"]
+        assert "ready artifact" not in action["parameters"]["identity"]["description"]
         idempotency = action["parameters"]["operation_id"]["description"].lower()
         assert "never fires" not in idempotency
         assert "retained" in idempotency
@@ -118,7 +119,10 @@ def test_help_explains_automatic_files_and_no_legacy_ui_controls():
     parsed.feed(rendered)
     prose = " ".join(parsed.text)
     assert "Original email and attachments are saved automatically" in prose
-    assert "combined/separate layout" in prose
+    assert "exactly one email artifact" in prose
+    assert "separate-field SOAR layout" in prose
+    assert "These fields have no selection controls" in prose
+    assert "container:data.quarantine_identity" in prose
     assert "Purpose and validation status" not in prose
     assert "artifacts/ms_quarantine_for_splunk_soar-" not in prose
     assert "legacy worker-update callbacks" not in prose

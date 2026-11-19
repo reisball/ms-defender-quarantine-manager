@@ -133,88 +133,67 @@
             "default": false,
             "order": 15
         },
-        "artifact_field_sender_address": {
-            "description": "Mail fields: Sender",
-            "data_type": "boolean",
-            "required": false,
-            "default": false,
-            "order": 16
-        },
-        "artifact_field_recipient_address": {
-            "description": "Mail fields: original recipient",
-            "data_type": "boolean",
-            "required": false,
-            "default": false,
-            "order": 17
-        },
         "artifact_field_subject": {
             "description": "Mail fields: Subject",
             "data_type": "boolean",
             "required": false,
             "default": true,
-            "order": 18
+            "order": 16
         },
         "artifact_field_email_date": {
             "description": "Mail fields: email date",
             "data_type": "boolean",
             "required": false,
             "default": true,
-            "order": 19
+            "order": 17
         },
         "artifact_field_received_date": {
             "description": "Mail fields: received date",
             "data_type": "boolean",
             "required": false,
             "default": false,
-            "order": 20
+            "order": 18
         },
         "artifact_field_message_id": {
             "description": "Mail fields: Message-ID",
             "data_type": "boolean",
             "required": false,
             "default": true,
-            "order": 21
+            "order": 19
         },
         "artifact_field_quarantine_identity": {
             "description": "Mail fields: quarantine identity",
             "data_type": "boolean",
             "required": false,
             "default": false,
-            "order": 22
-        },
-        "artifact_field_vault_id": {
-            "description": "Mail fields: Vault ID",
-            "data_type": "boolean",
-            "required": false,
-            "default": false,
-            "order": 23
+            "order": 20
         },
         "poll_interval_seconds": {
             "description": "Advanced: Job status check (whole seconds, 1-60; default 5)",
             "data_type": "numeric",
             "required": false,
             "default": 5,
-            "order": 24
+            "order": 21
         },
         "poll_timeout_seconds": {
             "description": "Advanced: Job timeout (whole seconds, 600-3600; default 600)",
             "data_type": "numeric",
             "required": false,
             "default": 600,
-            "order": 25
+            "order": 22
         },
         "es_soar_base_url": {
             "description": "Advanced: SOAR URL override (optional; SOAR and ES)",
             "data_type": "string",
             "required": false,
-            "order": 26
+            "order": 23
         },
         "include_verbose_action_diagnostics": {
             "description": "Advanced: Verbose diagnostics for successful actions",
             "data_type": "boolean",
             "required": false,
             "default": false,
-            "order": 27
+            "order": 24
         }
     },
     "actions": [
@@ -838,7 +817,7 @@
             "read_only": false,
             "parameters": {
                 "identity": {
-                    "description": "Quarantine message Identity in the exact format GUID1\\GUID2 (e.g. c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7). Use cef.quarantineIdentity from the ingested SOAR ready artifact or quarantine_identity from the ES finding. The format is validated before the webhook fires - malformed values fail immediately without starting a runbook job.",
+                    "description": "Quarantine message Identity in the exact format GUID1\\GUID2 (e.g. c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7). Use container:data.quarantine_identity from the ingested SOAR event or quarantine_identity from the ES finding. The format is validated before the webhook fires - malformed values fail immediately without starting a runbook job.",
                     "data_type": "string",
                     "required": true,
                     "primary": true,
@@ -1264,7 +1243,7 @@
             "read_only": false,
             "parameters": {
                 "identity": {
-                    "description": "Quarantine message Identity in the exact format GUID1\\GUID2 (e.g. c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7). Use cef.quarantineIdentity from the ingested SOAR ready artifact or quarantine_identity from the ES finding. The format is validated before the webhook fires - malformed values fail immediately without starting a runbook job.",
+                    "description": "Quarantine message Identity in the exact format GUID1\\GUID2 (e.g. c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7). Use container:data.quarantine_identity from the ingested SOAR event or quarantine_identity from the ES finding. The format is validated before the webhook fires - malformed values fail immediately without starting a runbook job.",
                     "data_type": "string",
                     "required": true,
                     "primary": true,

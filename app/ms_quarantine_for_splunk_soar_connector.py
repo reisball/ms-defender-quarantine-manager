@@ -1093,6 +1093,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
         metadata: dict,
         options: dict,
         vault_id=None,
+        required_cef=None,
     ) -> tuple:
         values = dict(metadata["values"])
         values["quarantine_identity"] = [identity]
@@ -1137,6 +1138,9 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                     self._artifact_cef_for_value(field, combined_value)
                 )
 
+            # Native combined ingestion supplies its workflow fields last so
+            # optional RFC headers cannot replace Microsoft quarantine values.
+            cef_data.update(required_cef or {})
             if cef_data:
                 subject = (values.get("subject") or [""])[0]
                 preview = self._bounded_artifact_text(subject, 120)

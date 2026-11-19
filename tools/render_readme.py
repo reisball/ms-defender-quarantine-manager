@@ -73,7 +73,7 @@ disable the schedule to pause automatic imports. Use Poll Now for a manual impor
 and register the five additional fields below.</li>
 <li>Configure the analysis playbook's asset bindings, analyst/approver settings,
 notification recipients, portal links and routing label before activation.
-For SOAR, start analysis from the completed mail's ready artifact.</li>
+For combined-layout SOAR, start analysis from the completed mail's single email artifact.</li>
 </ol>
 <p>Native email import requires authenticated local SOAR REST access, including
 when importing into SOAR rather than ES. Automation Broker is not supported;
@@ -93,14 +93,30 @@ a slot indefinitely.</p>
 <p>New SOAR events are named after the email subject, without a prefix;
 mail without a subject uses <code>[No subject]</code>.</p>
 <p>Original email and attachments are saved automatically to the container's
-Vault. Selected mail fields are always added as artifacts, using the chosen
-combined/separate layout. The combined overview is named after the email subject
-(<code>No subject</code> if absent); field selections control its content, not its name.
-All preparation suppresses automation. SOAR publishes a final
-ready artifact only after preparation; use its <code>ingestionReady=true</code>,
-<code>quarantineIdentity</code> and original-mail <code>vaultId</code>.
-ES uses the configured native threat-analysis and automation settings instead;
-publication acceptance does not prove that an analysis workflow finished.</p>
+Vault. In the combined SOAR layout, exactly one email artifact is saved last,
+after all uploads, with native <code>run_automation=true</code> outside CEF.
+Its <code>vaultId</code> always references the original EML; <code>senderAddress</code>
+and <code>recipientAddress</code> always come from Microsoft's quarantine-list
+values, not RFC Sender or delivery headers. These fields have no selection controls;
+old false settings cannot suppress them. Existing optional selections extend the
+same artifact; unavailable optional headers are omitted. With all optional fields
+off, the three required fields still produce one usable artifact.</p>
+<p>The email artifact is named after the email subject (<code>No subject</code> if
+absent). Read identity from <code>container:data.quarantine_identity</code> and
+subject from <code>container:name</code>. No separate Request, Original-EML,
+Ready, technical or attachment email artifacts are created in this layout,
+and no <code>ingestionReady</code> flag is required. Vault files and platform file
+metadata remain available. Historical events are not rewritten.</p>
+<p>Update existing playbooks that require Ready/Request artifacts together with
+the producer before activation: remove those readiness/correlation gates and map
+analyzers directly to the single artifact's <code>vaultId</code>, Release/Deny to
+the event identity, and prompt context to the fields above. Preserve decisions,
+approvals and other business flow. This app does not update or activate playbooks.</p>
+<p>The separate-field SOAR layout and standalone export actions retain their
+existing behavior. Separate layout still uses a final Ready artifact; legacy
+stored field selections remain readable. ES uses its configured native
+threat-analysis and automation settings unchanged. Publication acceptance does
+not prove that an analysis workflow finished.</p>
 <h2>Native ES prerequisites</h2>
 <p>Register <code>quarantine_identity</code>, <code>work_item_id</code>,
 <code>source_data_identifier</code>, <code>quarantine</code> and
@@ -149,7 +165,7 @@ free a Microsoft-status-controlled slot or dispatch analysis by itself.</p>
 <code>preparing</code> with a bound container, otherwise <code>reserved</code>;
 a later poll resumes preparation. It cannot reset publishing or published items.</li>
 <li><code>confirm_published</code> is allowed only from <code>publishing</code>.
-Verify the existing exact ready artifact or ES finding, linked container and
+Verify the existing exact final email artifact (Ready artifact in separate layout) or ES finding, linked container and
 native automation execution independently, and record evidence in the required
 operator note. This operator assertion marks <code>published</code> without
 sending another submission; the app does not verify that evidence itself.</li></ul>

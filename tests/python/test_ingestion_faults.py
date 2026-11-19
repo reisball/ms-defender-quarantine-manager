@@ -84,8 +84,8 @@ def test_incomplete_attachment_upload_never_publishes(tmp_path, target):
 
 
 @pytest.mark.parametrize("target", ["soar", "es"])
-def test_metadata_artifact_failure_never_publishes(tmp_path, target):
-    c = setup(tmp_path, target, limit=1)
+def test_separate_metadata_artifact_failure_never_publishes(tmp_path, target):
+    c = setup(tmp_path, target, limit=1, config_overrides={"artifact_layout": "separate"})
     original = c.save_artifact
     def save(artifact):
         if "-metadata-" in artifact["source_data_identifier"]:
