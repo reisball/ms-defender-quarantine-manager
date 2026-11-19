@@ -52,11 +52,12 @@ def test_slow_exports_finish_with_failed_marker_not_pending_scheduler_work(
     assert restarted._ingest_records()[failed["key"]]["status"] == "failed"
 
 
-def test_status_read_failure_blocks_new_intake_until_observation_recovers(tmp_path):
+def test_status_read_failure_blocks_scheduled_intake_until_observation_recovers(tmp_path):
     from ms_quarantine_for_splunk_soar_utils import AutomationError
     c = setup(tmp_path, limit=3)
     c._is_poll_now = True
     assert poll(c, container_count=2)[0] == t.APP_SUCCESS
+    c._is_poll_now = False
     identities = [row["identity"] for row in c._ingest_records().values()]
     c.observed[identities[0]] = AutomationError("synthetic failure")
     c.calls.clear()

@@ -409,3 +409,41 @@ def test_manual_retry_survives_slow_failed_status_without_assuming_free_slot(tmp
     assert [(action, ident) for action, ident, _ in c.calls if action == 'export'] == [('export', identity)]
     assert c._ingest_records()[key]['status'] == 'completed'
     assert c._ingest_records()[key]['terminal'] is False
+
+
+@pytest.mark.parametrize("status_issue", ["read_error", "budget"])
+def test_manual_status_problem_keeps_existing_slots_and_fills_free_slot(
+        tmp_path, target, monkeypatch, status_issue):
+    import ms_quarantine_for_splunk_soar_ingestion as ingestion
+    c = setup(tmp_path, target, limit=3)
+    c._is_poll_now = True
+    assert poll(c, container_count=2)[0] == t.APP_SUCCESS
+    original_rows = list(c._ingest_records().values())
+    now = [0]
+    monkeypatch.setattr(ingestion.time, "monotonic", lambda: now[0])
+    run = c._utils.run_action
+    def status_problem(action, **kwargs):
+        result = run(action, **kwargs)
+        if action == "reconcile":
+            if status_issue == "read_error":
+                raise AutomationError("temporary status failure")
+            now[0] += 601
+        return result
+    c._utils.run_action = status_problem
+    c.calls.clear()
+    status, ar = poll(c)
+    assert status == t.APP_ERROR
+    assert ar.get_summary()["terminal_observed"] == 0
+    assert ar.get_summary()["active_messages"] == 3
+    assert ar.get_summary()["messages_published"] == 1
+    assert sum(action == "export" for action, *_ in c.calls) == 1
+    assert all(not c._ingest_records()[r["key"]]["terminal"] for r in original_rows)
+    if status_issue == "budget":
+        assert "phase time budget exhausted" in ar.get_message()
+        assert "no further imports started" not in ar.get_message()
+    else:
+        assert "temporary status failure" in ar.get_message()
+    c._utils.run_action = run
+    c.calls.clear()
+    assert poll(c)[0] == t.APP_SUCCESS
+    assert not any(action == "export" for action, *_ in c.calls)

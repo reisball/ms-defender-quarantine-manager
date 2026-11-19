@@ -365,7 +365,7 @@ class NativeIngestionMixin:
 
     def _ingest_budget_check(self):
         if time.monotonic() >= getattr(self, "_ingest_deadline", float("inf")):
-            raise AutomationError("Poll time budget exhausted; no further imports started.")
+            raise AutomationError("Poll phase time budget exhausted; no further work started in this phase.")
 
     def _ingest_reconcile(self, records):
         errors = []
