@@ -12,6 +12,8 @@ For a fresh repository, export only the reviewed current tree. Do not copy the p
 
 Private deployment evidence belongs in the private project record, not in a public test report. A clean snapshot scan says nothing about the original repository's history.
 
+The [canonical compatibility matrix](compatibility.md) distinguishes the original 3.7.4 source baseline from the unreleased candidate with unchanged labels. Use its source-qualified pairs, evidence scope and upgrade requirements when selecting artifacts; version equality alone is not compatibility evidence.
+
 ## Distribution boundaries
 
 | Artifact | Contents |
@@ -29,7 +31,7 @@ Playbooks, historical playbook fixtures and proprietary platform sources are not
 ## Before creating a public release
 
 1. Review the current tracked tree for secrets, real deployment addresses, private links, personal test data, stale generated receipts and unintended files.
-2. Check versions, generated help, runbook fingerprint, relative documentation links and the intended package allowlist.
+2. Check versions, generated help, runbook fingerprint, relative documentation links and the intended package allowlist. Review and update the [compatibility matrix](compatibility.md#maintaining-the-matrix) for the exact app/runbook pair, including component-only changes; record evidence, restrictions and any required counterpart upgrade.
 3. Run the applicable app/runbook Python and PowerShell checks. Record exact candidate results and unavailable gates separately.
 4. Build twice from the same committed runtime bytes and compare outputs. Verify archive members and checksums.
 5. Select the public repository destination, default branch and license settings explicitly. Configure private vulnerability reporting if offered; do not claim it is enabled before checking.
