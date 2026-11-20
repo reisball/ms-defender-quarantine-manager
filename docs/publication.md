@@ -26,7 +26,7 @@ The app's ten files are the manifest, connector, utilities, SOAR ingestion, ES i
 
 In a source checkout, the runtime files live in `app/`, while `LICENSE` remains at the repository root. The builder places those files directly under `ms-quarantine-for-splunk-soar/` in the TGZ; it does not include an `app/` directory. The separate runbook artifact is built from `runbook/runbook.ps1`. These source paths do not change the downloadable artifact filenames: `ms-quarantine-for-splunk-soar-3.7.4.tgz` and `ms-quarantine-for-splunk-soar-runbook-3.7.4.ps1`.
 
-Playbooks, historical playbook fixtures and proprietary platform sources are not part of this repository. Analysis workflows are configured and validated separately.
+The source tree includes the [inactive native SAA example](../examples/MS_Quarantine_SAA_Example/README.md), packaged separately using its documented JSON/Python export procedure. It is not included in the app TGZ. Historical playbook fixtures and proprietary platform sources remain excluded. Analysis workflows require their own asset mapping and validation.
 
 ## Before creating a public release
 

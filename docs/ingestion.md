@@ -70,7 +70,7 @@ The following native consumer mappings are unchanged from the single-artifact la
 - Read event ID/status/owner, analysis results, prompt answers and action outcomes from their existing native sources. Do not add lookup actions, a replacement readiness flag, or a helper playbook.
 - Preserve the analysis matrix, scores 20/80, existing retry behavior, Yes/No prompt, Send-Mail and success-dependent completion.
 
-Playbooks are maintained separately from this app/runbook repository. Use native VPE mappings and generation; a local app test does not validate a customer's editable graph or execute its nine decision branches. The coordinated consumer update and native save/reload remain a separate deployment acceptance step. Do not deploy the changed producer while its active consumer still depends on removed artifacts.
+Production playbooks are maintained separately from the app/runbook. The repository includes an [inactive native SAA example](../examples/MS_Quarantine_SAA_Example/README.md), not a replacement for an existing customer workflow. Use native VPE mappings and generation; a local app test does not validate a customer's editable graph or decision branches. The coordinated consumer update and native save/reload remain a separate deployment acceptance step. Do not deploy the changed producer while its active consumer still depends on removed artifacts.
 
 ## Enterprise Security setup
 
