@@ -28,6 +28,10 @@ In a source checkout, the runtime files live in `app/`, while `LICENSE` remains 
 
 The source tree includes the [inactive native SAA example](../examples/MS_Quarantine_SAA_Example/README.md), packaged separately using its documented JSON/Python export procedure. It is not included in the app TGZ. Historical playbook fixtures and proprietary platform sources remain excluded. Analysis workflows require their own asset mapping and validation.
 
+## Documentation review before 4.0
+
+Complete the [tracked documentation review](https://github.com/reisball/ms-quarantine-for-splunk-soar/issues/25) against the intended 4.0 candidate, including the compatibility matrix and [example playbook instructions](../examples/README.md), before publishing that release. Record the maintainer's review outcome in the issue; passing CI or landing the individual documentation changes does not replace this review.
+
 ## Before creating a public release
 
 1. Review the current tracked tree for secrets, real deployment addresses, private links, personal test data, stale generated receipts and unintended files.
