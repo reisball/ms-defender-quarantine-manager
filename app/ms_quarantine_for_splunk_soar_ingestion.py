@@ -2,9 +2,9 @@
 # Licensed under the Apache License, Version 2.0.
 """App-owned native intake; never performs an Exchange disposition.
 
-The existing Runbook 3.4.3 list/export/reconcile wire contract is unchanged.
-Definitively rejected publication may retry; uncertain automation delivery
-stays visible and is never blindly repeated.
+Each identity has a small result record, not a resumable workflow. Scheduled
+polls never replay failed/unknown attempts. Native Poll Now starts a fresh
+attempt for failed Requested candidates; ES lost responses remain ambiguous.
 """
 import base64
 from contextlib import contextmanager
@@ -19,7 +19,7 @@ import time
 
 import phantom.app as phantom
 from phantom.action_result import ActionResult
-from ms_quarantine_for_splunk_soar_utils import AutomationError, OversizedExportError, MAX_DECODED_EML_BYTES
+from ms_quarantine_for_splunk_soar_utils import AutomationError, MAX_DECODED_EML_BYTES
 
 INGEST_STATE_KEY = "quarantine_native_ingest_v1"
 MAX_INGEST_RECORDS = 1000
@@ -157,10 +157,6 @@ def _mail_files_from_parsed(mail):
     return files
 
 
-class ImportBlocked(AutomationError):
-    """Deterministic input defect; requires explicit recovery rather than re-export."""
-
-
 class NativeIngestionMixin:
     def _handle_action(self, in_json, *args, **kwargs):
         self._ingest_runtime = json.loads(in_json)
@@ -224,6 +220,7 @@ class NativeIngestionMixin:
         }
 
     def _ingest_load(self, state):
+        """Read current records, conservatively collapsing old pending workflows."""
         if not isinstance(state, dict):
             raise AutomationError("App state is unavailable; intake refused.")
         data = state.get(INGEST_STATE_KEY)
@@ -234,209 +231,169 @@ class NativeIngestionMixin:
             if not isinstance(legacy, dict):
                 raise AutomationError("Legacy intake ledger is malformed.")
             records = {}
-            migration_ranks = {}
-            now = datetime.now(timezone.utc)
+            ranks = {}
             for old in legacy.values():
                 if not isinstance(old, dict):
                     raise AutomationError("Legacy intake record is malformed.")
-                lease = self._parse_state_timestamp(old.get("lease_expires_at"))
-                if (old.get("state") == "creating_container" and not old.get("container_id")
-                        and lease is not None and lease <= now):
-                    continue
-                if old.get("state") not in {"completed", "failed", "oversized"}:
-                    raise AutomationError(
-                        "Legacy intake has unresolved workers. Disable intake and "
-                        "complete legacy worker callbacks on the previous app "
-                        "version before upgrading. This version cannot update "
-                        "legacy workers."
-                    )
                 identity = str(old.get("identity") or "").strip().lower()
                 if not identity:
                     raise AutomationError("Legacy intake identity is missing.")
                 key = self._worker_identity_key(identity, self.get_asset_id())
-                stamp = self._parse_state_timestamp(old.get("updated_at"))
                 row = {
-                    "key": key, "identity": identity, "phase": "terminal",
+                    "key": key, "identity": identity,
+                    "status": "completed" if old.get("state") == "completed" else "failed",
+                    "terminal": old.get("state") in {"completed", "failed", "oversized"},
                     "container_id": old.get("container_id"),
                     "created_at": old.get("created_at"), "updated_at": old.get("updated_at"),
-                    "migration_origin": "legacy_" + old["state"], "last_error": "",
+                    "last_error": "" if old.get("state") == "completed" else
+                        "Previous-version attempt was not confirmed; scheduled replay disabled.",
                 }
-                # Keep the newest terminal record as a unit: mixing an older
-                # timestamp with newer evidence can expire deduplication early.
-                # A stable whole-row tie-break also handles equal/missing times.
-                rank = (stamp is not None,
-                        stamp or datetime.min.replace(tzinfo=timezone.utc),
+                stamp = self._parse_state_timestamp(old.get("updated_at"))
+                rank = (stamp is not None, stamp or datetime.min.replace(tzinfo=timezone.utc),
                         json.dumps(row, sort_keys=True))
-                if key not in records or rank > migration_ranks[key]:
-                    records[key] = row
-                    migration_ranks[key] = rank
-            data = {"scope": self._ingest_scope(), "records": records}
-        # Selection is no longer configurable. Drop only that obsolete scope
-        # key; retain records and the tenant/organization/target boundaries.
-        if isinstance(data, dict) and isinstance(data.get("scope"), dict):
-            data["scope"] = dict(data["scope"])
-            data["scope"].pop("selection_mode", None)
-        if (not isinstance(data, dict) or not isinstance(data.get("records"), dict)
-                or data.get("scope") != self._ingest_scope()):
-            raise AutomationError(
-                "Native intake state/scope mismatch. Restore the original asset pairing."
-            )
-        phases = {"reserved", "preparing", "ready", "publishing", "published", "terminal", "blocked"}
-        for key, row in data["records"].items():
-            if (not isinstance(row, dict) or row.get("phase") not in phases
-                    or not isinstance(row.get("identity"), str)
-                    or row.get("key") != key):
+                if key not in records or rank > ranks[key]:
+                    records[key], ranks[key] = row, rank
+            data = {"scope": self._ingest_scope(), "records": records, "version": 2}
+        if not isinstance(data, dict) or not isinstance(data.get("records"), dict):
+            raise AutomationError("Native intake state is malformed.")
+        scope = dict(data.get("scope") or {})
+        scope.pop("selection_mode", None)
+        if scope != self._ingest_scope():
+            raise AutomationError("Native intake state/scope mismatch. Restore the original asset pairing.")
+        records = {}
+        for key, old in data["records"].items():
+            if (not isinstance(old, dict) or not isinstance(old.get("identity"), str)
+                    or not old["identity"].strip() or old.get("key") != key):
                 raise AutomationError("Native intake record is malformed.")
-        return data
+            row = dict(old)
+            if data.get("version") != 2:
+                phase = row.get("phase")
+                if phase not in {"reserved", "preparing", "ready", "publishing", "published", "terminal", "blocked"}:
+                    raise AutomationError("Native intake record is malformed.")
+                row["status"] = "completed" if (phase == "published" or
+                    phase == "terminal" and row.get("delivery_phase_at_terminal", "published") == "published") else "failed"
+                row["terminal"] = phase == "terminal"
+                if row.get("migration_origin") in {"legacy_failed", "legacy_oversized"}:
+                    # Preserve the previous migrator's retired slot without
+                    # misrepresenting a failed import as successful publication.
+                    row["status"] = "failed"
+                if row["status"] == "failed":
+                    row["last_error"] = "Previous-version attempt was not confirmed; scheduled replay disabled."
+                row["publication_started"] = phase == "publishing"
+            if row.get("status") not in {"running", "failed", "completed"} or type(row.get("terminal")) is not bool:
+                raise AutomationError("Native intake record is malformed.")
+            # Never persist prepared payloads, file checkpoints, leases or history.
+            fields = {"key", "identity", "status", "terminal", "container_id", "created_at", "updated_at",
+                      "last_error", "publication_started", "observed_release_status", "finding_id",
+                      "email_artifact_id", "ready_artifact_id", "missing_artifact_fields"}
+            records[key] = {name: value for name, value in row.items() if name in fields}
+        return {"scope": scope, "records": records, "version": 2}
+
+    def _ingest_save(self, state, data):
+        state[INGEST_STATE_KEY] = data
+        saved = self.save_state(state)
+        if saved is False or phantom.is_fail(saved):
+            raise AutomationError("Native intake state could not be saved.")
 
     def _ingest_records(self):
         with self._operation_state_lock():
-            state = self.load_state()
-            data = self._ingest_load(state)
-            return {key: dict(row) for key, row in data["records"].items()}
+            return self._ingest_load(self.load_state())["records"]
 
     def _ingest_update(self, key, **updates):
         with self._operation_state_lock():
             state = self.load_state()
             data = self._ingest_load(state)
             if key not in data["records"]:
-                raise AutomationError("Native intake reservation disappeared.")
+                raise AutomationError("Native intake attempt disappeared.")
             row = data["records"][key]
             row.update(updates, updated_at=self._utc_now())
-            state[INGEST_STATE_KEY] = data
-            saved = self.save_state(state)
-            if saved is False or phantom.is_fail(saved):
-                raise AutomationError("Native intake state could not be saved.")
+            self._ingest_save(state, data)
             return dict(row)
 
-    def _ingest_reserve(self, messages, capacity, per_poll):
-        """Reserve only free slots while holding the asset state lock."""
+    def _ingest_begin_poll(self):
+        # Only called with the process-held poll lock. A running marker now
+        # belongs to an interrupted process, never to a concurrent live poll.
+        with self._operation_state_lock():
+            state = self.load_state()
+            data = self._ingest_load(state)
+            cutoff = datetime.now(timezone.utc) - timedelta(days=self._worker_terminal_retention_days)
+            for key, row in list(data["records"].items()):
+                stamp = self._parse_state_timestamp(row.get("updated_at"))
+                if row["terminal"] and stamp is not None and stamp < cutoff:
+                    del data["records"][key]
+                elif row["status"] == "running":
+                    row.update(status="failed", updated_at=self._utc_now(),
+                               last_error="Interrupted attempt; publication may have succeeded. Inspect native evidence before Poll Now.")
+            self._ingest_save(state, data)
+            return data["records"]
+
+    def _ingest_claim(self, message, retry_ids):
+        """Count new identities once; explicitly retried failures retain their slot."""
+        identity = message["Identity"].strip().lower()
+        key = self._worker_identity_key(identity, self.get_asset_id())
         with self._operation_state_lock():
             state = self.load_state()
             data = self._ingest_load(state)
             records = data["records"]
-            cutoff = datetime.now(timezone.utc) - timedelta(
-                days=self._worker_terminal_retention_days
-            )
-            for key, row in list(records.items()):
-                stamp = self._parse_state_timestamp(row.get("updated_at"))
-                if row["phase"] == "terminal" and stamp is not None and stamp < cutoff:
-                    del records[key]
-            if len(records) >= MAX_INGEST_RECORDS:
-                self._ingest_ledger_full = True
-            active = sum(r["phase"] != "terminal" for r in records.values())
-            remaining = min(max(0, capacity - active), per_poll)
-            for message in messages:
-                if remaining <= 0:
-                    break
-                identity = message["Identity"].strip().lower()
-                key = self._worker_identity_key(identity, self.get_asset_id())
-                if key in records:
-                    continue
+            old = records.get(key)
+            if old:
+                if key not in retry_ids or old["status"] != "failed" or old["terminal"]:
+                    return None
+            else:
+                if sum(not r["terminal"] for r in records.values()) >= self._on_poll_max_containers:
+                    return None
                 if len(records) >= MAX_INGEST_RECORDS:
-                    self._ingest_ledger_full = True
-                    break
-                records[key] = {
-                    "key": key, "identity": identity, "message": dict(message),
-                    "phase": "reserved", "container_id": None, "files": {},
-                    "created_at": self._utc_now(), "updated_at": self._utc_now(),
-                    "last_error": "",
-                }
-                remaining -= 1
-            state[INGEST_STATE_KEY] = data
-            saved = self.save_state(state)
-            if saved is False or phantom.is_fail(saved):
-                raise AutomationError("Could not persist native intake reservations.")
+                    raise AutomationError("Native intake ledger capacity reached. Reduce terminal retention.")
+            row = {"key": key, "identity": identity, "status": "running", "terminal": False,
+                   "container_id": old.get("container_id") if old else None,
+                   "created_at": old.get("created_at") if old else self._utc_now(),
+                   "updated_at": self._utc_now(), "last_error": "", "publication_started": False}
+            records[key] = row
+            self._ingest_save(state, data)
+            return {**row, "message": dict(message)}
 
     def _ingest_error(self, exc):
         if isinstance(exc, AutomationError):
-            return self._utils.redact_sensitive_text(str(exc), max_chars=400)
-        return type(exc).__name__
+            if getattr(exc, "job_id", None):
+                # Azure failures retain the known job/last-status hint. Native
+                # Vault/ES errors have no Azure job and must not inherit one.
+                return self._map_error(exc, "import")
+            return self._utils.redact_sensitive_text(str(exc), max_chars=2048)
+        return self._utils.redact_sensitive_text(
+            type(exc).__name__ + ": " + str(exc), max_chars=2048
+        )
 
     def _ingest_budget_check(self):
         if time.monotonic() >= getattr(self, "_ingest_deadline", float("inf")):
-            raise AutomationError("Poll time budget exhausted; remaining work retained for next poll.")
+            raise AutomationError("Poll phase time budget exhausted; no further work started in this phase.")
 
-    def _ingest_scheduled(self, records, stage):
-        """Resume after the last attempted identity, including after failures."""
-        with self._operation_state_lock():
-            data = self._ingest_load(self.load_state())
-            scheduler = data.get("scheduler", {})
-            if not isinstance(scheduler, dict):
-                raise AutomationError("Native intake scheduler state is malformed.")
-            cursor = scheduler.get(stage)
-            if cursor is not None and not isinstance(cursor, str):
-                raise AutomationError("Native intake scheduler cursor is malformed.")
-        keys = list(records)
-        if cursor in keys:
-            offset = keys.index(cursor) + 1
-            keys = keys[offset:] + keys[:offset]
-        return [(key, records[key]) for key in keys]
-
-    def _ingest_schedule_attempt(self, stage, key):
-        # Persist before remote effects so restart/failure cannot reset to a prefix.
-        with self._operation_state_lock():
-            state = self.load_state()
-            data = self._ingest_load(state)
-            scheduler = data.setdefault("scheduler", {})
-            scheduler[stage] = key
-            state[INGEST_STATE_KEY] = data
-            saved = self.save_state(state)
-            if saved is False or phantom.is_fail(saved):
-                raise AutomationError("Could not persist native intake scheduling progress.")
-
-    def _ingest_poll_priority(self):
-        """Alternate pending-work classes durably before either starts remote work."""
-        with self._operation_state_lock():
-            state = self.load_state()
-            data = self._ingest_load(state)
-            scheduler = data.setdefault("scheduler", {})
-            if not isinstance(scheduler, dict):
-                raise AutomationError("Native intake scheduler state is malformed.")
-            priority = scheduler.get("next_priority", "prepare")
-            if priority not in ("prepare", "reconcile"):
-                raise AutomationError("Native intake scheduler priority is malformed.")
-            scheduler["next_priority"] = "reconcile" if priority == "prepare" else "prepare"
-            state[INGEST_STATE_KEY] = data
-            saved = self.save_state(state)
-            if saved is False or phantom.is_fail(saved):
-                raise AutomationError("Could not persist native intake scheduling priority.")
-            return priority
-
-    def _ingest_reconcile(self, records, *, advance_cursor=True, exclude=()):
+    def _ingest_reconcile(self, records):
         errors = []
         terminal = 0
-        # Rotate the complete ledger first: an excluded cursor still anchors order.
-        for key, row in self._ingest_scheduled(records, "reconcile"):
-            if key in exclude or row["phase"] == "terminal":
+        # Least-recently checked first: slow jobs must not starve later rows.
+        oldest = datetime.min.replace(tzinfo=timezone.utc)
+        ordered = sorted(records.items(), key=lambda item:
+                         self._parse_state_timestamp(item[1].get("updated_at")) or oldest)
+        for key, row in ordered:
+            if row["terminal"]:
                 continue
-            self.save_progress("Checking tracked quarantine message status.")
             try:
                 self._ingest_budget_check()
-                if time.monotonic() >= getattr(self, "_ingest_reconcile_deadline", float("inf")):
-                    break  # Reserve time for pending imports without discarding observations.
-                if advance_cursor:
-                    self._ingest_schedule_attempt("reconcile", key)
-                result = self._utils.run_action(
-                    "reconcile", identity=row["identity"], operation_action="release"
-                )
-                # Utils validates the complete exact-one-record read-only trace.
-                if result.get("operation_action") != "release":
-                    raise AutomationError("Reconcile comparison action mismatched the request.")
-                observed = result.get("observed_release_status", "").lower()
-                if observed in {"released", "denied"}:
-                    self._ingest_update(
-                        key, phase="terminal", observed_release_status=observed,
-                        delivery_phase_at_terminal=row["phase"],
-                        last_error="", message={}, files={},
-                    )
-                    terminal += 1
-                else:
-                    self._ingest_update(key, observed_release_status=observed)
+            except AutomationError as exc:
+                errors.append(str(exc))
+                break  # This row was not attempted; keep its place next poll.
+            self.save_progress("Checking tracked quarantine message status.")
+            try:
+                result = self._utils.run_action("reconcile", identity=row["identity"])
+                observed = str(result.get("observed_release_status") or "").lower()
+                if not observed:
+                    raise AutomationError("Current quarantine status is unavailable.")
+                is_terminal = observed in {"released", "denied"}
+                self._ingest_update(key, terminal=is_terminal, observed_release_status=observed)
+                terminal += int(is_terminal)
             except Exception as exc:
-                reason = self._ingest_error(exc)
-                self._ingest_update(key, last_error=reason)
-                errors.append(row["identity"] + ": status observation unavailable (" + reason + ")")
+                self._ingest_update(key)  # Rotate failed reads as well as successful ones.
+                errors.append(row["identity"] + ": status observation unavailable (" + self._ingest_error(exc) + ")")
                 break  # Do not multiply remote calls after a read/transport failure.
         return terminal, errors
 
@@ -452,10 +409,7 @@ class NativeIngestionMixin:
         }
         status, _message, artifact_id = self.save_artifact(artifact)
         if phantom.is_fail(status):
-            if publish:
-                from ms_quarantine_for_splunk_soar_es_ingestion import ESSubmissionRejected
-                raise ESSubmissionRejected(400)
-            raise AutomationError("SOAR rejected the ingestion artifact.")
+            raise AutomationError("SOAR rejected the ingestion artifact: " + str(_message))
         if not artifact_id:
             raise AutomationError("SOAR did not confirm the ingestion artifact.")
         return artifact_id
@@ -465,7 +419,7 @@ class NativeIngestionMixin:
                 and self._asset_artifact_options["layout"] == "combined")
 
     def _ingest_prepare(self, key, row):
-        """All preparation writes suppress automation and are safe to retry."""
+        """Prepare this attempt in memory; every file precedes automation."""
         self.save_progress("Importing quarantined EML and attachments.")
         single_artifact = self._ingest_single_email_artifact()
         self._ingest_budget_check()
@@ -478,14 +432,13 @@ class NativeIngestionMixin:
         if eml is None:
             encoded = self._utils.extract_eml(result)
             eml = base64.b64decode("".join((encoded or "").split()), validate=True)
-        try:
-            mail, attachments = parse_mail_files(eml)  # Validate before container side effects.
-        except AutomationError as exc:
-            raise ImportBlocked(str(exc)) from None
-        digest = hashlib.sha256(eml).hexdigest()
-        if row.get("eml_sha256") and row["eml_sha256"] != digest:
-            raise AutomationError("Exported EML changed during import recovery.")
-        row = self._ingest_update(key, phase="preparing", eml_sha256=digest)
+        mail, attachments = parse_mail_files(eml)
+        # Microsoft context, not RFC headers, is required by downstream automation.
+        for field in ("SenderAddress", "RecipientAddress"):
+            if (not isinstance(row["message"].get(field), str)
+                    or not self._bounded_artifact_text(row["message"][field])):
+                raise AutomationError("Missing Microsoft " + field + "; import not published.")
+        row["eml_sha256"] = hashlib.sha256(eml).hexdigest()
         if row["container_id"] is None:
             claim = {"message": row["message"], "identity": row["identity"],
                      "work_item_id": key,
@@ -501,30 +454,24 @@ class NativeIngestionMixin:
             status, _message, container_id = self.save_container(container)
             if (phantom.is_fail(status) or type(container_id) is not int
                     or container_id <= 0):
-                raise AutomationError("SOAR did not confirm the ingestion container.")
-            row = self._ingest_update(key, container_id=container_id)
+                raise AutomationError("SOAR did not confirm the ingestion container: " + str(_message))
+            self._ingest_update(key, container_id=container_id)
+            row["container_id"] = container_id
         original = self._safe_filename(row["identity"])
         files = [(original, eml)] + attachments
-        vaults = dict(row["files"])
+        vaults = {}
         for index, (name, content) in enumerate(files):
             self._ingest_budget_check()
             file_key = str(index)
-            file_hash = hashlib.sha256(content).hexdigest()
-            if file_key not in vaults:
-                ok, stored = self._store_in_vault(
-                    content, row["identity"], container_id=row["container_id"],
-                    file_name=name,
-                )
-                if not ok:
-                    raise AutomationError("SOAR Vault upload was not confirmed.")
-                vaults[file_key] = {
-                    "vault_id": stored["vault_id"], "file_name": name,
-                    "sha256": file_hash, "size": len(content),
-                }
-                row = self._ingest_update(key, files=dict(vaults))
-            entry = vaults[file_key]
-            if entry["sha256"] != file_hash:
-                raise AutomationError("Stored attachment does not match recovery export.")
+            ok, stored = self._store_in_vault(
+                content, row["identity"], container_id=row["container_id"], file_name=name,
+            )
+            if (not ok or not isinstance(stored, dict)
+                    or not isinstance(stored.get("vault_id"), str) or not stored["vault_id"]):
+                detail = str(stored) if not ok else "No Vault ID returned."
+                raise AutomationError("SOAR Vault upload was not confirmed: " + detail)
+            entry = {"vault_id": stored["vault_id"], "sha256": hashlib.sha256(content).hexdigest()}
+            vaults[file_key] = entry
             if not single_artifact:
                 hashes = self._calculate_hashes(content)
                 self._ingest_budget_check()
@@ -561,15 +508,11 @@ class NativeIngestionMixin:
                 self._ingest_save_artifact(
                     row, "metadata-" + str(index), spec["cef_data"], spec["name"]
                 )
-        # Persist the final artifact with the existing ready record. Rejected
-        # publication can then retry without another export or Vault upload.
-        prepared = ({"email_artifact": {"name": specs[0]["name"], "cef": specs[0]["cef_data"]}}
-                    if single_artifact else {})
-        row = self._ingest_update(
-            key, phase="ready", vault_id=vaults["0"]["vault_id"],
-            attachment_count=len(attachments), missing_artifact_fields=missing,
-            last_error="", **prepared,
-        )
+        # The complete artifact/finding exists only during this attempt.
+        if single_artifact:
+            row["email_artifact"] = {"name": specs[0]["name"], "cef": specs[0]["cef_data"]}
+        row.update(vault_id=vaults["0"]["vault_id"], attachment_count=len(attachments))
+        self._ingest_update(key, missing_artifact_fields=missing)
         if getattr(self, "_ingest_target", "soar") == "es":
             from ms_quarantine_for_splunk_soar_es_ingestion import _build_finding_from_parsed
             client = self._ingest_es_client()
@@ -592,13 +535,13 @@ class NativeIngestionMixin:
 
     def _ingest_publish(self, key, row):
         # Persist intent before the first request that may start automation.
-        # If a receipt/state save is lost, never launch analysis a second time.
+        # A lost receipt/state save cannot trigger automatic re-publication.
         payload = row.get("_es_payload")
         is_es = getattr(self, "_ingest_target", "soar") == "es"
         if is_es and not payload:
             raise AutomationError("Native ES finding was not prepared.")
         self._ingest_budget_check()
-        row = self._ingest_update(key, phase="publishing")
+        self._ingest_update(key, publication_started=True)
         if is_es:
             response = self._ingest_es_client().request(
                 "POST", "/rest/enterprise_security/findings/bulk_create", json=payload
@@ -609,8 +552,7 @@ class NativeIngestionMixin:
                     and type(response.get("failed")) is int and response["failed"] == 1
                     and response.get("findings") == []
                     and response.get("container_ids") in ([], [row["container_id"]])):
-                from ms_quarantine_for_splunk_soar_es_ingestion import ESSubmissionRejected
-                raise ESSubmissionRejected(400)
+                raise AutomationError("Native ES rejected the finding: " + json.dumps(response["errors"]))
             if (response.get("status") != "success" or type(response.get("created")) is not int
                     or response["created"] != 1 or type(response.get("failed")) is not int
                     or response["failed"] != 0 or response.get("errors")
@@ -621,7 +563,7 @@ class NativeIngestionMixin:
                     or not response["findings"][0]):
                 raise AutomationError("Native ES did not confirm one linked finding.")
             return self._ingest_update(
-                key, phase="published", finding_id=response["findings"][0], last_error=""
+                key, status="completed", finding_id=response["findings"][0], last_error=""
             )
         email_artifact = row.get("email_artifact")
         if email_artifact:
@@ -629,7 +571,7 @@ class NativeIngestionMixin:
                 row, "email", email_artifact["cef"], email_artifact["name"], publish=True,
             )
             return self._ingest_update(
-                key, phase="published", email_artifact_id=artifact_id, last_error=""
+                key, status="completed", email_artifact_id=artifact_id, last_error=""
             )
         artifact_id = self._ingest_save_artifact(
             row, "ready",
@@ -640,7 +582,7 @@ class NativeIngestionMixin:
             "Quarantine email ready for analysis", publish=True,
         )
         return self._ingest_update(
-            key, phase="published", ready_artifact_id=artifact_id, last_error=""
+            key, status="completed", ready_artifact_id=artifact_id, last_error=""
         )
 
     def _run_native_poll(self, param, *, require_es=False):
@@ -649,144 +591,74 @@ class NativeIngestionMixin:
             self._ingest_settings()
             if require_es and self._ingest_target != "es":
                 raise AutomationError("Enable native ES ingestion before on es poll.")
-        except Exception as exc:
-            return ar.set_status(phantom.APP_ERROR, "Ingest target resolution failed: " + (
-                self._utils.redact_sensitive_text(str(exc), max_chars=500)
-                if isinstance(exc, AutomationError) else type(exc).__name__))
-        try:
             self._ingest_deadline = time.monotonic() + 600
-            self._ingest_ledger_full = False
             with self._ingest_poll_lock():
-                records = self._ingest_records()
-                has_pending = any(r["phase"] in {"reserved", "preparing", "ready"}
-                                  for r in records.values())
-                # Alternate class priority across polls: a slow preparation must
-                # not indefinitely prevent the independent global status sweep.
-                # Both classes share one deadline; running calls are not cancelled.
-                priority = self._ingest_poll_priority() if has_pending else "reconcile"
-                self._ingest_reconcile_deadline = self._ingest_deadline
-                terminal, errors = (self._ingest_reconcile(records)
-                                    if priority == "reconcile" else (0, []))
-                attempted_pending = set()
+                records = self._ingest_begin_poll()
+                # Snapshot once: a failure during this poll is never retried in it.
+                manual_poll = self.is_poll_now()
+                retry_ids = {key for key, row in records.items()
+                             if manual_poll and row["status"] == "failed" and not row["terminal"]}
+                terminal, errors = self._ingest_reconcile(records)
+                if manual_poll:
+                    # Manual intake must work without a later scheduled poll.
+                    # Give imports their own bounded phase after status checks;
+                    # no Azure job deadline is shortened or restarted.
+                    self._ingest_deadline = time.monotonic() + 600
                 limit = self._on_poll_container_limit(param)
-                active = sum(r["phase"] != "terminal" for r in self._ingest_records().values())
-                messages = []
-                if not errors and not has_pending and active < self._on_poll_max_containers:
-                    try:
-                        self._ingest_budget_check()
-                        self.save_progress("Listing first 50 Requested quarantine candidates.")
-                        result = self._utils.run_action("list", page_size=50)
-                        messages = self._normalise_list_result(result)[:50]
-                        valid = []
-                        for message in messages:
-                            if str(message.get("ReleaseStatus", "")).lower() != self._utils.selection_release_status.lower():
-                                errors.append("Candidate ReleaseStatus is not Requested.")
-                            else:
-                                valid.append(message)
-                        self._ingest_reserve(valid, self._on_poll_max_containers, limit)
-                    except Exception as exc:
-                        errors.append("Candidate discovery failed: " + self._ingest_error(exc))
-                else:
-                    self._ingest_reserve([], self._on_poll_max_containers, 0)
-                if self._ingest_ledger_full:
-                    errors.append("Native intake ledger capacity reached; existing work continues. Reduce terminal retention.")
-                created = 0
-                for key, row in self._ingest_scheduled(self._ingest_records(), "prepare"):
-                    if row["phase"] in {"terminal", "published"}:
-                        continue
-                    if row["phase"] in {"publishing", "blocked"}:
-                        errors.append(row["identity"] + ": " + (row.get("last_error") or
-                            "automation delivery unconfirmed; inspect evidence and use recover quarantine ingestion"))
-                        continue
-                    try:
-                        self._ingest_budget_check()
-                        if has_pending:
-                            attempted_pending.add(key)
-                            # Preparation owns this singleton scheduling. Do not
-                            # overwrite the independent remaining-status sweep cursor.
-                            retired, read_errors = self._ingest_reconcile(
-                                {key: row}, advance_cursor=False
-                            )
-                            terminal += retired
-                            errors.extend(read_errors)
-                            row = self._ingest_records()[key]
-                            if (row["phase"] == "terminal" or read_errors
-                                    or row.get("observed_release_status") != "requested"):
-                                self._ingest_schedule_attempt("prepare", key)
-                                continue
-                            if time.monotonic() >= self._ingest_deadline:
-                                break  # No preparation attempt: keep this identity next.
-                        self._ingest_schedule_attempt("prepare", key)
-                        if (row["phase"] != "ready" or self._ingest_target == "es"
-                                or (self._ingest_single_email_artifact() and not row.get("email_artifact"))):
-                            row = self._ingest_prepare(key, row)
-                        self._ingest_publish(key, row)
-                        created += 1
-                    except Exception as exc:
-                        from ms_quarantine_for_splunk_soar_es_ingestion import ESSubmissionRejected
-                        reason = self._ingest_error(exc)
-                        updates = {"last_error": reason}
-                        if isinstance(exc, ESSubmissionRejected):
-                            updates["phase"] = "ready"
-                        elif isinstance(exc, (ImportBlocked, OversizedExportError)):
-                            updates["phase"] = "blocked"
-                        self._ingest_update(key, **updates)
-                        errors.append(row["identity"] + ": import/publication failed (" + reason + ")")
-                if has_pending and priority == "prepare":
-                    retired, read_errors = self._ingest_reconcile(
-                        self._ingest_records(), exclude=attempted_pending
-                    )
-                    terminal += retired
-                    errors.extend(read_errors)
                 records = self._ingest_records()
+                active = sum(not r["terminal"] for r in records.values())
+                messages = []
+                created = attempts = 0
+                if (not errors or manual_poll) and (retry_ids or active < self._on_poll_max_containers):
+                    self._ingest_budget_check()
+                    self.save_progress("Listing first 50 Requested quarantine candidates.")
+                    result = self._utils.run_action("list", page_size=50)
+                    messages = self._normalise_list_result(result)[:50]
+                    # Prefer already-counted explicit retries over new candidates.
+                    messages.sort(key=lambda m: self._worker_identity_key(
+                        m["Identity"].strip().lower(), self.get_asset_id()) not in retry_ids)
+                    for message in messages:
+                        if attempts >= limit:
+                            break
+                        if str(message.get("ReleaseStatus", "")).lower() != "requested":
+                            errors.append("Candidate ReleaseStatus is not Requested.")
+                            continue
+                        self._ingest_budget_check()
+                        row = self._ingest_claim(message, retry_ids)
+                        if row is None:
+                            continue
+                        key = row["key"]
+                        retry_ids.discard(key)
+                        attempts += 1
+                        try:
+                            prepared = self._ingest_prepare(key, row)
+                            self._ingest_publish(key, prepared)
+                            created += 1
+                        except Exception as exc:
+                            reason = self._ingest_error(exc)
+                            current = self._ingest_records()[key]
+                            if current.get("publication_started"):
+                                reason += "; publication may have succeeded. Inspect native evidence before Poll Now; a fresh ES attempt may duplicate a finding."
+                            # If success was saved but its acknowledgement was lost,
+                            # retain completion rather than allowing manual replay.
+                            if current["status"] != "completed":
+                                self._ingest_update(key, status="failed", last_error=reason)
+                            errors.append(row["identity"] + ": import/publication failed (" + reason + ")")
+                records = self._ingest_records()
+                failed = sum(r["status"] == "failed" and not r["terminal"] for r in records.values())
                 ar.update_summary({
                     "candidates": len(messages), "containers_created": created, "messages_published": created,
-                    "ingestion_enabled": True, "active_messages": sum(
-                        r["phase"] != "terminal" for r in records.values()),
+                    "ingestion_enabled": True, "active_messages": sum(not r["terminal"] for r in records.values()),
                     "active_limit": self._on_poll_max_containers, "ingest_target": self._ingest_target,
                     "requested_containers": limit, "terminal_observed": terminal,
-                    "errors": len(errors), "candidate_window": 50,
+                    "failed_imports": failed, "errors": len(errors), "candidate_window": 50,
                     "results_may_be_truncated": len(messages) >= 50,
                 })
                 if errors:
                     return ar.set_status(phantom.APP_ERROR, "; ".join(errors[:10]))
-                return ar.set_status(phantom.APP_SUCCESS, f"Imported {created} mail(s); observed {terminal} terminal disposition(s).")
+                message = f"Imported {created} mail(s); observed {terminal} terminal disposition(s)."
+                if failed:
+                    message += f" {failed} failed import(s) retained; scheduled retries disabled. Inspect native evidence, then use Poll Now for Requested candidates in the first 50."
+                return ar.set_status(phantom.APP_SUCCESS, message)
         except Exception as exc:
             return ar.set_status(phantom.APP_ERROR, self._map_error(exc, "on poll"))
-
-    def _handle_ingest_recovery(self, param):
-        """Audited local recovery only; never retires a message or sends a disposition."""
-        ar = self.add_action_result(ActionResult(dict(param)))
-        try:
-            self._ingest_settings()
-            identity = str(param.get("identity") or "").strip().lower()
-            note = str(param.get("operator_note") or "").strip()
-            resolution = param.get("resolution")
-            if not identity or not note or len(note) > 1000:
-                raise AutomationError("Identity and operator_note (1-1000 characters) are required.")
-            if resolution not in {"retry_preparation", "confirm_published"}:
-                raise AutomationError("Unsupported recovery resolution.")
-            with self._ingest_poll_lock():
-                key = self._worker_identity_key(identity, self.get_asset_id())
-                row = self._ingest_records().get(key)
-                if not row or row["identity"] != identity:
-                    raise AutomationError("Identity has no native ingestion record.")
-                if resolution == "confirm_published":
-                    if row["phase"] != "publishing":
-                        raise AutomationError("Only uncertain publishing can be confirmed; inspect artifact/finding evidence first.")
-                    phase = "published"
-                else:
-                    if row["phase"] not in {"blocked", "reserved", "preparing", "ready"}:
-                        raise AutomationError("Cannot retry uncertain or published delivery. Inspect native execution evidence first.")
-                    phase = "preparing" if row.get("container_id") else "reserved"
-                audit = list(row.get("recovery_audit", []))
-                audit.append({"at": self._utc_now(), "from_phase": row["phase"],
-                              "resolution": resolution,
-                              "action_run_id": getattr(self, "_ingest_runtime", {}).get("action_run_id"),
-                              "user_id": getattr(self, "_ingest_runtime", {}).get("user_id"),
-                              "note": self._utils.redact_sensitive_text(note, max_chars=1000)})
-                self._ingest_update(key, phase=phase, recovery_audit=audit[-50:], last_error="")
-            ar.update_summary({"identity": identity, "phase": phase, "slot_retained": True})
-            return ar.set_status(phantom.APP_SUCCESS, "Local recovery recorded; slot retained. No Exchange action performed.")
-        except Exception as exc:
-            return ar.set_status(phantom.APP_ERROR, self._ingest_error(exc))

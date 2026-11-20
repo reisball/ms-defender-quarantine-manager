@@ -16,7 +16,7 @@ python tools/stamp_runbook.py --check
 python tools/check_mime_parser_compat.py
 ```
 
-The pytest suite in `tests/python/` covers the connector, Requested-only intake, recovery and packaging. It uses synthetic API/SDK inputs. This repository does not include playbooks, playbook fixtures or platform-source-dependent playbook tests.
+The pytest suite in `tests/python/` covers the connector, Requested-only intake, deliberate Poll Now retries and packaging. It uses synthetic API/SDK inputs. This repository does not include playbooks, playbook fixtures or platform-source-dependent playbook tests.
 
 ## GitHub Actions and PowerShell
 

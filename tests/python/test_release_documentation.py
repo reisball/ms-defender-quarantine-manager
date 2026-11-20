@@ -96,10 +96,7 @@ def test_installed_parameter_help_no_longer_directs_removed_action():
         assert "list quarantine requests" not in action["parameters"]["identity"]["description"]
         assert "container:data.quarantine_identity" in action["parameters"]["identity"]["description"]
         assert "ready artifact" not in action["parameters"]["identity"]["description"]
-        idempotency = action["parameters"]["operation_id"]["description"].lower()
-        assert "never fires" not in idempotency
-        assert "retained" in idempotency
-        assert "50-record" in idempotency
+        assert "operation_id" not in action["parameters"]
 
 
 def test_regenerated_help_escapes_manifest_prose():

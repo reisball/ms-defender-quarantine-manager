@@ -10,12 +10,12 @@ The extra files are serialized analysis views using the existing
 `email.policy.default`, not byte-exact slices of the original wire message.
 They share the unchanged 100-attachment and decoded-size limits. A newly included
 container can make a previously incomplete extraction reach those limits; it is
-then rejected before publication rather than silently omitted. Existing SOAR
-`ready` records retain their prepared snapshot without automatic re-export or
-attachment backfill. New extraction applies when preparation runs; ES retains
-its existing re-preparation behavior. Published or uncertain deliveries are not
-replayed to retrofit additional files. A legacy-snapshot migration needs a
-separate decision and is not part of this compatibility-preserving correction.
+then rejected before publication rather than silently omitted. Existing published
+data and native references are preserved. Older pending
+attempts are not replayed or backfilled automatically. A deliberate native
+Poll Now retry of an eligible failed identity performs fresh preparation under
+these limits; it does not resume a saved file checkpoint. See [Email import](ingestion.md)
+for eligibility and the possibility of duplicate ES publication after a lost response.
 
 ## Early structure enforcement
 
@@ -39,10 +39,10 @@ Neither path changes the outer-body selection or duplicate-header projection.
 
 - `tests/python/test_audit_mime_attachments.py`: appended containers, unchanged old files,
   nested RFC822, ordinary bodies, UTF-8 names, shared attachment limit, and
-  old SOAR/ES Vault maps resumed after restart without reuploading old files.
+  native SOAR/ES attachment handling.
 - `tests/python/test_audit_mime_budget.py`: actual node-construction instrumentation,
-  chunk-boundary parity, exact limit cases, single ES tree, blocked input
-  retaining its slot without publication or automatic reexport.
+  chunk-boundary parity, exact limit cases, single ES tree, invalid input
+  retaining its slot without publication or scheduled reexport.
 - `python tools/check_mime_parser_compat.py`: stdlib-only comparison against
   the stock parser on the same runtime. Only unrelated SOAR import dependencies
   are stubbed. This is parser evidence, not native SDK/backend acceptance.

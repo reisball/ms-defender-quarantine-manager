@@ -6,6 +6,8 @@
 
 This source line uses **App 3.7.4 / Runbook 3.7.4** with a newly assigned app UUID and package identity. App and runbook share one release version from 3.7.4 onward. This is a separate SOAR app, not an in-place replacement identified by an earlier app UUID. Action names, wire fields, persisted state schemas and opaque deduplication IDs remain data contracts; changing the app identity does not migrate assets or state.
 
+The current simplification does not increment those version labels or establish a new published release. Select a unique release version before customer package handover; do not distribute different runtime bytes as though they were the existing release. Local verification is not evidence of a customer installation. Handover order is: publish and confirm the matching runbook, install the matching app, then activate its compatible playbook.
+
 For a fresh repository, export only the reviewed current tree. Do not copy the private repository's `.git` directory, remotes, hidden credentials, local artifacts or history. Keep the original repository as a separate private archive. Initialize and commit the new tree before building release artifacts so the build metadata names the new public source commit.
 
 Private deployment evidence belongs in the private project record, not in a public test report. A clean snapshot scan says nothing about the original repository's history.

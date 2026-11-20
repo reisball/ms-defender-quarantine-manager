@@ -74,27 +74,28 @@ def test_broker_install_or_token_fails_before_network(platform, runtime):
 
 
 @pytest.mark.parametrize("status", [400, 401, 403, 404, 409, 413, 422])
-def test_definitive_http_rejection_contract(platform, status):
+def test_http_rejection_is_reported_without_automatic_repost(platform, status):
     with requests_mock.Mocker() as m:
         login(m)
         m.post(BASE + "/rest/enterprise_security/findings/bulk_create",
                status_code=status, text="DO NOT EXPOSE BODY OR COOKIE")
         client = es.NativeESClient({"user_session_token": "native"}, BASE)
-        with pytest.raises(es.ESSubmissionRejected) as caught:
+        with pytest.raises(AutomationError) as caught:
             client.request("POST", "/rest/enterprise_security/findings/bulk_create", json={})
-        assert caught.value.status_code == status
+        assert f"HTTP {status}" in str(caught.value)
+        assert sum(r.method == "POST" for r in m.request_history) == 1
         assert "DO NOT EXPOSE" not in str(caught.value)
 
 
 @pytest.mark.parametrize("status", [408, 425, 429, 499, 500, 502, 503, 504])
-def test_uncertain_http_outcomes_are_not_safe_rejections(platform, status):
+def test_uncertain_http_outcomes_are_reported_without_automatic_repost(platform, status):
     with requests_mock.Mocker() as m:
         login(m)
         m.post(BASE + "/rest/enterprise_security/findings/bulk_create", status_code=status)
         client = es.NativeESClient({"user_session_token": "native"}, BASE)
         with pytest.raises(AutomationError) as caught:
             client.request("POST", "/rest/enterprise_security/findings/bulk_create", json={})
-        assert not isinstance(caught.value, es.ESSubmissionRejected)
+        assert sum(r.method == "POST" for r in m.request_history) == 1
 
 
 @pytest.mark.parametrize("failure", [requests.Timeout("secret"), requests.ConnectionError("secret")])
@@ -105,7 +106,8 @@ def test_network_outcomes_are_uncertain_and_sanitized(platform, failure):
         client = es.NativeESClient({"user_session_token": "native"}, BASE)
         with pytest.raises(AutomationError) as caught:
             client.request("POST", "/rest/enterprise_security/findings/bulk_create", json={})
-        assert not isinstance(caught.value, es.ESSubmissionRejected)
+        assert type(failure).__name__ in str(caught.value)
+        assert sum(r.method == "POST" for r in m.request_history) == 1
         assert "secret" not in str(caught.value)
 
 

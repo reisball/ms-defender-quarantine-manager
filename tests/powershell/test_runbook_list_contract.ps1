@@ -159,19 +159,15 @@ if ($ExpectOversizedItem.IsPresent) {
         $errorResult.action -ne "list" -or
         $errorResult.error -ne $true -or
         $errorResult.error_code -ne "list_record_oversized" -or
-        $errorResult.details.handling -ne "fail_closed" -or
-        $errorResult.details.item_index -ne $OversizedMessageIndex -or
-        $errorResult.details.chunk_index -lt 0 -or
-        $errorResult.details.utf8_bytes -le $errorResult.details.max_record_bytes
+        -not $errorResult.message -or
+        $errorResult.mode -or
+        [System.Text.Encoding]::UTF8.GetByteCount($jsonLines[0]) -gt 64KB
     ) {
         throw "Unexpected oversized-list result: $($jsonLines[0])"
     }
     Write-Output (@{
         status = "list_record_oversized"
-        item_index = $errorResult.details.item_index
-        chunk_index = $errorResult.details.chunk_index
-        utf8_bytes = $errorResult.details.utf8_bytes
-        max_record_bytes = $errorResult.details.max_record_bytes
+        utf8_bytes = [System.Text.Encoding]::UTF8.GetByteCount($jsonLines[0])
     } | ConvertTo-Json -Compress)
     exit 0
 }

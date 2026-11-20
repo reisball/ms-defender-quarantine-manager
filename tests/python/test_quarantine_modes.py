@@ -37,10 +37,11 @@ def test_obsolete_asset_setting_cannot_change_requested_intake(value):
                 {"Identity": IDENTITY, "ReleaseStatus": "Requested"},
             ], **build_metadata()},
         })
-        assert c._handle_list_quarantine_requests({}) == APP_SUCCESS, ar.get_message()
+        result = c._utils.run_action("list")
+        rows = c._normalise_list_result(result)
     assert [b["action"] for b in bodies] == ["list"]
     assert all("quarantine_selection_mode" not in b for b in bodies)
-    assert ar.get_data()[0]["ReleaseStatus"] == "Requested"
+    assert rows[0]["ReleaseStatus"] == "Requested"
 
 
 @pytest.mark.parametrize("action,handler", [
@@ -57,9 +58,9 @@ def test_disposition_does_not_require_or_send_selection_handshake(action, handle
             "config_check": config_check_output(), action: released_output(action),
         })
         assert getattr(c, handler)({
-            "identity": IDENTITY, "operation_id": "requested-only-" + action,
+            "identity": IDENTITY,
         }) == APP_SUCCESS, ar.get_message()
-    assert [b["action"] for b in bodies] == ["config_check", action]
+    assert [b["action"] for b in bodies] == [action]
     assert all("quarantine_selection_mode" not in b for b in bodies)
 
 
@@ -84,9 +85,8 @@ def test_requested_disposition_validates_without_selection_echo(action, terminal
     utils = make_utils()
     utils._validate_runbook_result(output, action, IDENTITY)
     utils._raise_for_runbook_error(output, action, IDENTITY)
-    assert output["cmdlet_invocation_attempted"] is True
+    assert output["status"] == terminal.lower()
     assert output["observed_release_status"] == terminal
-    assert json.loads(output["precondition_trace"])[0]["observed_release_status"] == "Requested"
     assert "quarantine_selection_mode" not in output
 
 
@@ -101,7 +101,6 @@ def test_legacy_needs_review_cannot_invoke_disposition_for_notreleased(action):
     utils._validate_runbook_result(output, action, IDENTITY)
     with pytest.raises(RunbookActionError):
         utils._raise_for_runbook_error(output, action, IDENTITY)
-    assert output["details"]["cmdlet_invocation_attempted"] is False
 
 
 @pytest.mark.parametrize("count", [0, 1, 1000])
@@ -116,15 +115,3 @@ def test_runbook_lists_requested_only_despite_legacy_webhook_setting(count):
     assert "quarantine_selection_mode" not in output
     if count == 1000:
         assert '"list_complete"' in raw
-
-
-def test_config_check_ignores_obsolete_selection_field():
-    raw = run_ps("test_runbook_connection_contract.ps1", "-RequestJson", json.dumps({
-        "action": "config_check", "organization": ORG,
-        "auth_method": "ManagedIdentity", "quarantine_selection_mode": "needs_review",
-    }))
-    output = [json.loads(line) for line in raw.splitlines() if line.startswith("{")][-1]
-    make_utils(exchange_organization=ORG)._validate_runbook_result(output["result"], "config_check")
-    assert "quarantine_selection_contract" not in output["result"]
-    assert output["connect_calls"] == []
-    assert output["release_calls"] == output["quarantine_reads"] == 0

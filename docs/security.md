@@ -18,11 +18,11 @@ Original mail and attachments may contain malware or private data. Restrict acce
 
 Parsing is bounded but not an antivirus boundary. Review [MIME limits](mime-limits.md) and your sandbox's submission/privacy policy before handing a message to an analyzer.
 
-## Irreversible actions and recovery
+## Disposition and failed imports
 
-Import is separate from Release/Deny. A new disposition write requires Microsoft `Requested`; success requires the matching `Released` or `Denied` postcondition. If a write's outcome is uncertain, reconcile the original operation before another write. Do not clear app state to force a retry.
+Import is separate from Release/Deny. A new disposition write requires Microsoft `Requested`; success requires the matching `Released` or `Denied` postcondition. If a write's outcome is uncertain, inspect the known Azure job and current Microsoft status before consciously starting another action. A timeout does not cancel Azure, and the writing webhook is not automatically retried. Do not clear app state to force a retry.
 
-Use one ingesting asset per tenant. Its ledger is scoped to that asset and retained history, not a global or permanent exactly-once guarantee. Follow [operations](operations.md) for blocked preparation and uncertain publication.
+Use one ingesting asset per tenant. Its identity/result records are scoped to that asset and retained history, not a global or permanent exactly-once guarantee. Scheduled polling skips failed imports; native Poll Now is the explicit fresh retry path. Native API calls are not one transaction, and ES may already have accepted a finding when its response is lost. Follow [operations](operations.md) for failed preparation and uncertain publication.
 
 ## Vulnerabilities
 

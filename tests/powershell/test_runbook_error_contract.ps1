@@ -161,34 +161,18 @@ $largeEnvelope = @{
     error_code = "fixture_large_error"
     message = $largeMessage
 }
-Add-RunbookEnvelopeMetadata -Data $largeEnvelope
-$records = @(
-    Write-ErrorEnvelope -Data $largeEnvelope |
-        ForEach-Object { $_ | ConvertFrom-Json -Depth 20 }
-)
-$chunks = @(
-    $records |
-        Where-Object { $_.mode -eq "error_chunk" } |
-        Sort-Object -Property chunk_index
-)
-$trailer = @(
-    $records | Where-Object { $_.mode -eq "error_complete" }
-)
-if ($chunks.Count -lt 2 -or $trailer.Count -ne 1) {
-    throw "Large error did not use the complete chunked-error protocol."
+$records = @(Write-ErrorEnvelope -Data $largeEnvelope)
+if ($records.Count -ne 1) { throw "Error must be a single JSON record." }
+$bounded = $records[0] | ConvertFrom-Json
+if ($bounded.message.Length -gt 8192 -or -not $bounded.message.EndsWith(" [truncated]")) {
+    throw "Large native error was not bounded explicitly."
 }
-$encoded = $chunks.payload_chunk -join ""
-$bytes = [System.Convert]::FromBase64String($encoded)
-$restoredJson = [System.Text.Encoding]::UTF8.GetString($bytes)
-$restored = $restoredJson | ConvertFrom-Json -Depth 20
-if ($restored.message -cne $largeMessage) {
-    throw "Chunked error transport did not preserve the exact message."
+if ($bounded.mode -or (Get-Utf8ByteCount $records[0]) -gt 64KB) {
+    throw "Error unexpectedly used chunking or exceeded its transport budget."
 }
-if ($bytes.Length -ne [long] $trailer[0].payload_utf8_bytes) {
-    throw "Chunked error UTF-8 byte length did not match its trailer."
+$secretEnvelope = @{ action = "release"; error = $true; message = ("password=hidden-value " + ("x" * 9000)) }
+$safeEnvelope = Write-ErrorEnvelope $secretEnvelope
+if ($safeEnvelope.Contains("hidden-value") -or -not $safeEnvelope.Contains("[redacted]")) {
+    throw "Error was not redacted before truncation."
 }
-if ((Get-Sha256Hex -Bytes $bytes) -cne $trailer[0].payload_sha256) {
-    throw "Chunked error SHA-256 did not match its trailer."
-}
-
-Write-Output "Runbook exact error contract passed."
+Write-Output "Runbook bounded error contract passed."

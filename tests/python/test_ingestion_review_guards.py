@@ -1,6 +1,5 @@
 """Review guards using synthetic intake state/mail only; no production endpoints."""
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 
 import pytest
@@ -24,31 +23,41 @@ def publications(c):
 @pytest.mark.parametrize("worker_state", [
     "claimed", "running", "creating_container", "pending", "unknown",
 ])
-def test_unresolved_legacy_workers_block_migration_without_mutation(tmp_path, worker_state):
+def test_unresolved_legacy_workers_migrate_as_failed_without_replay(tmp_path, worker_state):
     c = setup(tmp_path, limit=1)
-    state = {t.WORKER_STATE_KEY: {"old": {
+    state = {"quarantine_worker_ledger": {"old": {
         "state": worker_state, "identity": candidate(1)["Identity"],
-        "container_id": 77,
-        "lease_expires_at": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(),
+        "container_id": 77, "lease_expires_at": "2020-01-01T00:00:00+00:00",
     }}}
     before = deepcopy(state)
-    with pytest.raises(AutomationError, match="unresolved workers") as error:
-        c._ingest_load(state)
-    assert "Disable intake" in str(error.value)
-    assert "previous app version before upgrading" in str(error.value)
-    assert "This version cannot update legacy workers" in str(error.value)
+    row = next(iter(c._ingest_load(state)["records"].values()))
+    assert row["status"] == "failed" and row["terminal"] is False
+    assert row["container_id"] == 77
+    assert "lease_expires_at" not in row
     assert state == before
-    assert not c.calls and not c.events
+    c.save_state(state)
+    status, ar = poll(c)
+    assert status == t.APP_SUCCESS, ar.get_message()
+    assert ar.get_summary()["failed_imports"] == 1
+    assert [call[0] for call in c.calls] == ["reconcile"]
+    assert not c.events
 
 
 @pytest.mark.parametrize("lease", [None, "not-a-time", "2099-01-01T00:00:00+00:00"])
-def test_unproven_legacy_precontainer_claim_is_not_silently_dropped(tmp_path, lease):
+def test_legacy_precontainer_claim_is_failed_regardless_of_old_lease(tmp_path, lease):
     c = setup(tmp_path, limit=1)
-    with pytest.raises(AutomationError, match="unresolved workers|invalid timestamp"):
-        c._ingest_load({t.WORKER_STATE_KEY: {"old": {
-            "state": "creating_container", "container_id": None,
-            "lease_expires_at": lease,
-        }}})
+    state = {"quarantine_worker_ledger": {"old": {
+        "identity": candidate(1)["Identity"],
+        "state": "creating_container", "container_id": None,
+        "lease_expires_at": lease,
+    }}}
+    c.save_state(state)
+    assert poll(c)[0] == t.APP_SUCCESS
+    row = next(iter(c._ingest_records().values()))
+    assert row["status"] == "failed"
+    assert row["container_id"] is None
+    assert not c.events
+    assert not any(call[0] == "export" for call in c.calls)
 
 
 def test_legacy_es_delivery_state_requires_migration_before_any_intake(tmp_path):
@@ -65,9 +74,9 @@ def test_legacy_es_delivery_state_requires_migration_before_any_intake(tmp_path)
 
 @pytest.mark.parametrize("state", [
     None, [], "unavailable",
-    {t.WORKER_STATE_KEY: []},
-    {t.WORKER_STATE_KEY: {"old": None}},
-    {t.WORKER_STATE_KEY: {"old": {"state": "completed"}}},
+    {"quarantine_worker_ledger": []},
+    {"quarantine_worker_ledger": {"old": None}},
+    {"quarantine_worker_ledger": {"old": {"state": "completed"}}},
     {INGEST_STATE_KEY: []},
     {INGEST_STATE_KEY: {"scope": {}, "records": []}},
 ])
@@ -213,54 +222,47 @@ def test_es_poll_requires_es_target(tmp_path):
 
 
 @pytest.mark.parametrize("target", ["soar", "es"])
-def test_ledger_cap_preserves_active_and_fresh_terminal_and_processes_pending(
-    tmp_path, monkeypatch, target
-):
+def test_ledger_cap_preserves_active_and_fresh_terminal_without_republication(tmp_path, monkeypatch, target):
     c = setup(tmp_path, target, limit=3)
-    c._ingest_settings()
-    c._ingest_reserve([c.candidates[0]], 3, 1)
+    c._is_poll_now = True
+    assert poll(c, container_count=1)[0] == t.APP_SUCCESS
     state = c.load_state()
     records = state[INGEST_STATE_KEY]["records"]
-    pending_key = next(iter(records))
+    completed_key = next(iter(records))
     terminal_identity = candidate(999)["Identity"].lower()
     terminal_key = c._worker_identity_key(terminal_identity, c.get_asset_id())
-    terminal = {"key": terminal_key, "identity": terminal_identity, "phase": "terminal",
-                "updated_at": c._utc_now()}
+    terminal = {"key": terminal_key, "identity": terminal_identity,
+                "status": "completed", "terminal": True, "updated_at": c._utc_now()}
     records[terminal_key] = dict(terminal)
     c.save_state(state)
     monkeypatch.setattr(ingestion, "MAX_INGEST_RECORDS", 2)
 
-    status, ar = poll(c)
-    assert status == t.APP_ERROR
-    assert "ledger capacity reached" in ar.get_message()
-    rows = c._ingest_records()
-    assert set(rows) == {pending_key, terminal_key}
-    assert rows[terminal_key] == terminal
-    assert rows[pending_key]["phase"] == "published"
-    assert rows[pending_key]["identity"] == c.candidates[0]["Identity"].lower()
-    assert ar.get_summary()["active_messages"] == 1
+    for _ in range(2):
+        status, ar = poll(c)
+        assert status == t.APP_ERROR
+        assert "ledger capacity reached" in ar.get_message()
+        rows = c._ingest_records()
+        assert set(rows) == {completed_key, terminal_key}
+        assert rows[terminal_key] == terminal
+        assert rows[completed_key]["status"] == "completed"
     assert len(c._saved_containers) == 1 and len(publications(c)) == 1
     assert sum(call[0] == "export" for call in c.calls) == 1
-    assert poll(c)[0] == t.APP_ERROR
-    assert len(publications(c)) == 1
-    assert set(c._ingest_records()) == {pending_key, terminal_key}
 
 
-# An intent saved before the request, or an unknown final receipt, cannot be
-# retried automatically. All earlier boundaries must finish exactly once.
-@pytest.mark.parametrize("phase,when,first_phase,recovered_phase,expected_count", [
-    ("preparing", "before", "reserved", "published", 1),
-    ("preparing", "after", "preparing", "published", 1),
-    ("ready", "before", "preparing", "published", 1),
-    ("ready", "after", "ready", "published", 1),
-    ("publishing", "before", "ready", "published", 1),
-    ("publishing", "after", "publishing", "publishing", 0),
-    ("published", "before", "publishing", "publishing", 1),
-    ("published", "after", "published", "published", 1),
+# Durable attempt faults never cause scheduled resume or repeated publication.
+@pytest.mark.parametrize("boundary,when,expected_status,expected_count", [
+    ("container_id", "before", "failed", 0),
+    ("container_id", "after", "failed", 0),
+    ("missing_artifact_fields", "before", "failed", 0),
+    ("missing_artifact_fields", "after", "failed", 0),
+    ("publication_started", "before", "failed", 0),
+    ("publication_started", "after", "failed", 0),
+    ("status", "before", "failed", 1),
+    ("status", "after", "completed", 1),
 ])
 @pytest.mark.parametrize("target", ["soar", "es"])
-def test_fault_recovery_requires_complete_publication_or_explicit_uncertainty(
-    tmp_path, target, phase, when, first_phase, recovered_phase, expected_count
+def test_durable_attempt_fault_does_not_automatically_resume(
+    tmp_path, target, boundary, when, expected_status, expected_count
 ):
     c = setup(tmp_path, target, limit=1)
     original = c._ingest_update
@@ -268,28 +270,31 @@ def test_fault_recovery_requires_complete_publication_or_explicit_uncertainty(
 
     def interrupt(key, **changes):
         nonlocal fired
-        if not fired and changes.get("phase") == phase:
+        if not fired and boundary in changes:
             fired = True
             if when == "after":
                 original(key, **changes)
-            raise AutomationError("synthetic durable phase interruption")
+            raise AutomationError("synthetic durable attempt interruption")
         return original(key, **changes)
 
     c._ingest_update = interrupt
     assert poll(c)[0] == t.APP_ERROR
     assert fired
-    assert next(iter(c._ingest_records().values()))["phase"] == first_phase
+    row = next(iter(c._ingest_records().values()))
+    assert row["status"] == expected_status
     c._ingest_update = original
     for _ in range(2):
         status, ar = poll(c)
-        assert status == (t.APP_ERROR if recovered_phase == "publishing" else t.APP_SUCCESS), ar.get_message()
+        assert status == t.APP_SUCCESS, ar.get_message()
         rows = c._ingest_records()
         assert len(rows) == 1
         row = next(iter(rows.values()))
-        assert row["phase"] == recovered_phase
-        assert row["phase"] != "terminal"
+        assert row["status"] == expected_status
+        assert row["terminal"] is False
         assert len(publications(c)) == expected_count
         assert len(c._saved_containers) == 1
         assert ar.get_summary()["active_messages"] == 1
-        if recovered_phase == "publishing":
+        if expected_status == "failed":
             assert row["last_error"]
+        assert not {"files", "phase", "message"} & row.keys()
+    assert sum(call[0] == "export" for call in c.calls) == 1

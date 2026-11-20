@@ -42,8 +42,8 @@ For every run, record:
   the runbook or the platform's supported metrics;
 - whether the job produced one complete structured result;
 - original/attachment Vault downloads, byte counts and matching hashes;
-- native poll status, exact container/artifact IDs and bounded ledger reason
-  for blocked mail; internal export envelope evidence where tested directly.
+- native poll status, exact container/artifact IDs and the reported error
+  for failed imports; internal export envelope evidence where tested directly.
 
 Email import always uses Vault and selected metadata; legacy `export_mode` and
 `create_email_artifacts` settings do not disable them. Submission acceptance in
@@ -85,7 +85,7 @@ Expected:
 - `handling=fail_closed`;
 - `max_decoded_size=25165824`;
 - no Vault import;
-- native identity remains blocked and holds its slot; no downstream analysis,
+- native identity remains failed and holds its slot; no downstream analysis,
   release/deny, or automatic preparation retry.
 
 ### 4. Failure controls

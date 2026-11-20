@@ -14,7 +14,7 @@ POLL_ACTIONS = [("on_poll", "soar"), ("on_poll", "es"), ("on_es_poll", "es")]
 POLL_KEYS = {
     "candidates", "containers_created", "messages_published", "ingestion_enabled",
     "active_messages", "active_limit", "ingest_target", "requested_containers",
-    "terminal_observed", "errors", "candidate_window", "results_may_be_truncated",
+    "terminal_observed", "errors", "candidate_window", "results_may_be_truncated", "failed_imports",
 }
 
 
@@ -116,40 +116,3 @@ def test_lock_rejection_has_no_measured_zeroes(tmp_path, identifier, target):
         status, ar = invoke(c, identifier)
     assert status == t.APP_ERROR
     check_summary(identifier, ar, set())
-
-
-@pytest.mark.parametrize("target", ["soar", "es"])
-@pytest.mark.parametrize("resolution,initial,has_container,expected", [
-    ("retry_preparation", "blocked", False, "reserved"),
-    ("retry_preparation", "blocked", True, "preparing"),
-    ("confirm_published", "publishing", True, "published"),
-])
-def test_recovery_actual_summary(tmp_path, target, resolution, initial,
-                                 has_container, expected):
-    c = native.setup(tmp_path, target, limit=1)
-    assert invoke(c, "on_poll")[0] == t.APP_SUCCESS
-    key, row = next(iter(c._ingest_records().items()))
-    c._ingest_update(key, phase=initial,
-                     container_id=row["container_id"] if has_container else None)
-    c.calls.clear()
-    status, ar = invoke(c, "recover_quarantine_ingestion", {
-        "identity": row["identity"].upper(), "resolution": resolution,
-        "operator_note": "Synthetic existing publication/preparation evidence",
-    })
-    assert status == t.APP_SUCCESS, ar.get_message()
-    summary = check_summary("recover_quarantine_ingestion", ar,
-                            {"identity", "phase", "slot_retained"})
-    assert summary == {"identity": row["identity"], "phase": expected,
-                       "slot_retained": True}
-    assert c._ingest_records()[key]["phase"] == expected
-    assert not c.calls, "Recovery must not call Exchange"
-
-
-def test_rejected_recovery_has_no_success_summary(tmp_path):
-    c = native.setup(tmp_path)
-    status, ar = invoke(c, "recover_quarantine_ingestion", {
-        "identity": t.IDENTITY, "resolution": "confirm_published",
-        "operator_note": "No matching local record",
-    })
-    assert status == t.APP_ERROR
-    check_summary("recover_quarantine_ingestion", ar, set())

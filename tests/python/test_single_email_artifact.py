@@ -46,7 +46,7 @@ def test_combined_import_publishes_one_artifact_after_vault(
     artifact = next(iter(c.artifacts.values()))
     row = next(iter(c._ingest_records().values()))
     assert artifact["cef"] == {
-        "vaultId": row["files"]["0"]["vault_id"],
+        "vaultId": t.VAULT_ADDS[0]["vault_id"],
         "senderAddress": "microsoft-sender@example.test",
         "recipientAddress": "microsoft-recipient@example.test",
     }
@@ -109,23 +109,29 @@ def test_partial_vault_failure_never_creates_email_artifact_or_starts_automation
     assert not any(event[0] == "publish" for event in c.events)
     c._store_in_vault = store
     assert poll(c)[0] == t.APP_SUCCESS
+    assert not c.artifacts
+    c._is_poll_now = True
+    assert poll(c)[0] == t.APP_SUCCESS
     assert len(c._saved_containers) == len(c.artifacts) == 1
 
 
-def test_definite_publication_rejection_reuses_persisted_email_payload(tmp_path):
+def test_definite_publication_rejection_requires_fresh_explicit_attempt(tmp_path):
     c = setup(tmp_path, limit=1)
     original = c.save_artifact
     c.save_artifact = lambda artifact: (t.APP_ERROR, "Synthetic rejection", None)
     assert poll(c)[0] == t.APP_ERROR
     row = next(iter(c._ingest_records().values()))
-    assert row["phase"] == "ready"
-    assert row["email_artifact"]["cef"]["vaultId"] == row["files"]["0"]["vault_id"]
+    assert row["status"] == "failed"
+    assert "email_artifact" not in row
+    assert "files" not in row
     c.save_artifact = original
     exports = sum(action == "export" for action, _, _ in c.calls)
     assert poll(c)[0] == t.APP_SUCCESS
-    assert sum(action == "export" for action, _, _ in c.calls) == exports
+    assert not c.artifacts
+    c._is_poll_now = True
+    assert poll(c)[0] == t.APP_SUCCESS
+    assert sum(action == "export" for action, _, _ in c.calls) == exports + 1
     assert len(c.artifacts) == 1
-    assert next(iter(c.artifacts.values()))["cef"] == row["email_artifact"]["cef"]
 
 
 def test_separate_layout_retains_existing_artifact_contract(tmp_path):

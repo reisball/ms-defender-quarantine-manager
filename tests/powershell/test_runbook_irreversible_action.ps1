@@ -44,7 +44,11 @@ param(
 
     [switch] $MissingRbacCmdlets,
 
-    [switch] $CaseVariantObservedIdentity
+    [switch] $CaseVariantObservedIdentity,
+
+    [switch] $ReportCalls,
+
+    [switch] $StreamSecrets
 )
 
 $ErrorActionPreference = "Stop"
@@ -74,6 +78,7 @@ $global:IrreversibleTestNonTerminatingError = (
     $NonTerminatingError.IsPresent
 )
 $global:IrreversibleTestForbidCmdlet = $ForbidCmdlet.IsPresent
+$global:IrreversibleTestMetadataCalls = 0
 $global:IrreversibleTestCmdletCalls = 0
 $global:IrreversibleTestLastParameterSet = ""
 $global:IrreversibleTestAppId = "11111111-2222-3333-4444-555555555555"
@@ -99,6 +104,7 @@ function Get-Command {
         [string] $Name,
         [object] $ErrorAction
     )
+    $global:IrreversibleTestMetadataCalls++
     if (
         $MissingRbacCmdlets.IsPresent -and
         $Name -eq "Get-ManagementRole"
@@ -247,6 +253,11 @@ function Release-QuarantineMessage {
         }
     }
 
+    if ($StreamSecrets.IsPresent) {
+        Write-Warning "password=must-never-leave-runbook"
+        Write-Verbose "Authorization: Bearer must-never-leave-runbook"
+        Write-Information "token=must-never-leave-runbook" -InformationAction Continue
+    }
     Write-Warning "mock warning"
     Write-Information "mock information"
     Write-Verbose "mock verbose"
@@ -596,11 +607,23 @@ $requestBody = @{
     quarantine_selection_mode = $SelectionMode
     identity = $global:IrreversibleTestIdentity
 }
-if ($Action -eq "reconcile") {
-    $requestBody.operation_action = $OperationAction
-}
 $webhookData = [pscustomobject]@{
     RequestBody = ($requestBody | ConvertTo-Json -Compress)
 }
 
-& $runbookPath -WebhookData $webhookData
+if ($StreamSecrets.IsPresent) { $VerbosePreference = "Continue" }
+if ($ReportCalls.IsPresent) {
+    $allStreams = @(& $runbookPath -WebhookData $webhookData *>&1)
+    $output = @($allStreams | Where-Object { $_ -is [string] })
+    $allText = ($allStreams | Out-String)
+    @{
+        result = (($output -join "`n") | ConvertFrom-Json)
+        reads = $global:IrreversibleTestStatusIndex
+        writes = $global:IrreversibleTestCmdletCalls
+        metadata_calls = $global:IrreversibleTestMetadataCalls
+        disconnects = $global:IrreversibleTestDisconnectCalls
+        leaked_secret = $allText.Contains("must-never-leave-runbook")
+    } | ConvertTo-Json -Depth 20 -Compress
+} else {
+    & $runbookPath -WebhookData $webhookData
+}

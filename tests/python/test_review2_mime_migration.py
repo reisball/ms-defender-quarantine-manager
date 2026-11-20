@@ -63,22 +63,25 @@ def test_malformed_mime_never_reaches_either_publication_target(tmp_path, target
     c = setup(tmp_path, target, limit=1)
     c.candidates = c.candidates[:1]
     c.eml = malformed_mail(kind)
-    for _ in range(2):
-        status, ar = poll(c)
-        assert status == t.APP_ERROR
-        assert "Malformed MIME" in ar.get_message()
+    status, ar = poll(c)
+    assert status == t.APP_ERROR
+    assert "Malformed MIME" in ar.get_message()
+    status, ar = poll(c)
+    assert status == t.APP_SUCCESS
+    assert ar.get_summary()["failed_imports"] == 1
     assert not c.events  # No container, artifact, Vault or publication writes.
     assert not c._saved_containers
     c._ingest_es_client_instance.request.assert_not_called()
     assert sum(action == "export" for action, _, _ in c.calls) == 1
     row = next(iter(c._ingest_records().values()))
-    assert row["phase"] == "blocked"
+    assert row["status"] == "failed"
+    assert "Malformed MIME" in row["last_error"]
     assert row["container_id"] is None
 
 
 @pytest.mark.parametrize("target", ["soar", "es"])
 @pytest.mark.parametrize("reverse", [False, True])
-def test_canonical_migration_preserves_newest_terminal_evidence(tmp_path, target, reverse):
+def test_canonical_migration_preserves_newest_completed_import(tmp_path, target, reverse):
     c = setup(tmp_path, target, limit=1)
     c._ingest_settings()
     c.candidates = c.candidates[:1]
@@ -93,7 +96,7 @@ def test_canonical_migration_preserves_newest_terminal_evidence(tmp_path, target
     entries = [("new", newest), ("old", oldest)]
     if reverse:
         entries.reverse()
-    state = {t.WORKER_STATE_KEY: dict(entries)}
+    state = {"quarantine_worker_ledger": dict(entries)}
     before = deepcopy(state)
     row = next(iter(c._ingest_load(state)["records"].values()))
     assert state == before
@@ -101,13 +104,18 @@ def test_canonical_migration_preserves_newest_terminal_evidence(tmp_path, target
     assert row["updated_at"] == fresh
     assert row["created_at"] == fresh
     assert row["container_id"] == 77
-    assert row["migration_origin"] == "legacy_completed"
+    assert row["status"] == "completed"
+    assert row["terminal"] is True
     c.save_state(state)
     status, ar = poll(c)
     assert status == t.APP_SUCCESS, ar.get_message()
     assert not c.events
     assert all(action != "export" for action, _, _ in c.calls)
-    assert next(iter(c._ingest_records().values())) == row
+    # Retired legacy rows neither need reconciliation nor reimport.
+    persisted = next(iter(c._ingest_records().values()))
+    for field in ("identity", "created_at", "container_id", "status", "terminal"):
+        assert persisted[field] == row[field]
+
 
 
 @pytest.mark.parametrize("timestamps", [
@@ -121,7 +129,7 @@ def test_migration_ties_offsets_and_missing_times_are_order_independent(tmp_path
     entries = [(str(i), {"state": state, "identity": identity,
                         "container_id": i + 1, "updated_at": stamp})
                for i, (state, stamp) in enumerate(zip(("failed", "completed"), timestamps))]
-    rows = [c._ingest_load({t.WORKER_STATE_KEY: dict(order)})["records"]
+    rows = [c._ingest_load({"quarantine_worker_ledger": dict(order)})["records"]
             for order in (entries, list(reversed(entries)))]
     assert rows[0] == rows[1]
     if timestamps[1] is None and timestamps[0] is not None:
@@ -137,7 +145,7 @@ def test_invalid_terminal_timestamp_refuses_migration_without_mutating_source(tm
                for i, stamp in enumerate(("2026-11-07T10:00:00Z", "not-a-time"))]
     if reverse:
         entries.reverse()
-    state = {t.WORKER_STATE_KEY: dict(entries)}
+    state = {"quarantine_worker_ledger": dict(entries)}
     before = deepcopy(state)
     with pytest.raises(AutomationError, match="invalid timestamp"):
         c._ingest_load(state)

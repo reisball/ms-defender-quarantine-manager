@@ -176,13 +176,6 @@
             "data_type": "string",
             "required": false,
             "order": 22
-        },
-        "include_verbose_action_diagnostics": {
-            "description": "Advanced: Verbose diagnostics for successful actions",
-            "data_type": "boolean",
-            "required": false,
-            "default": false,
-            "order": 23
         }
     },
     "actions": [
@@ -296,57 +289,11 @@
                     "data_path": "action_result.summary.results_may_be_truncated",
                     "data_type": "boolean",
                     "description": "Whether the returned candidate list filled the discovery window; false does not prove full backlog coverage."
-                }
-            ],
-            "versions": "EQ(*)"
-        },
-        {
-            "action": "recover quarantine ingestion",
-            "identifier": "recover_quarantine_ingestion",
-            "description": "Import recovery: retry blocked preparation or confirm an uncertain publication.",
-            "verbose": "Operator recovery for one exact quarantine identity. retry_preparation retries only blocked, preparing, ready, or reserved ingestion. confirm_published acknowledges only uncertain publishing after external verification. The required operator note is persisted. Recovery never retires an identity or frees an active window slot; only Microsoft Released or Denied does.",
-            "type": "generic",
-            "read_only": false,
-            "parameters": {
-                "identity": {
-                    "description": "Quarantine message Identity.",
-                    "data_type": "string",
-                    "required": true,
-                    "primary": true,
-                    "order": 0
-                },
-                "resolution": {
-                    "description": "Explicit ingestion recovery resolution.",
-                    "data_type": "string",
-                    "required": true,
-                    "value_list": [
-                        "retry_preparation",
-                        "confirm_published"
-                    ],
-                    "order": 1
-                },
-                "operator_note": {
-                    "description": "Operator recovery rationale and publication verification evidence.",
-                    "data_type": "string",
-                    "required": true,
-                    "order": 2
-                }
-            },
-            "output": [
-                {
-                    "data_path": "action_result.summary.identity",
-                    "data_type": "string",
-                    "description": "Normalized quarantine identity whose local recovery was recorded."
                 },
                 {
-                    "data_path": "action_result.summary.phase",
-                    "data_type": "string",
-                    "description": "Persisted phase after recovery: reserved, preparing, or published."
-                },
-                {
-                    "data_path": "action_result.summary.slot_retained",
-                    "data_type": "boolean",
-                    "description": "True after successful recovery; recovery itself never frees an active slot."
+                    "data_path": "action_result.summary.failed_imports",
+                    "data_type": "numeric",
+                    "description": "Retained failed imports, not automatically replayed by scheduled polling."
                 }
             ],
             "versions": "EQ(*)"
@@ -813,7 +760,7 @@
             "action": "release quarantine message",
             "identifier": "release_quarantine_message",
             "description": "Release a quarantined message to all original recipients",
-            "verbose": "Fires the Azure Automation webhook with action=release. The runbook confirms the exact Identity matches the Requested source status and then invokes Release-QuarantineMessage -Identity <id> -ReleaseToAll -Confirm:$false -ErrorAction Stop exactly once, with no synthetic binder or capability gate and no automatic retry. Native cmdlet/binder errors, the exact-identity postcondition and the effective Exchange sign-in (always the Automation Account Managed Identity, plus organization and its source; never secrets) are reported separately; cleanup never overrides them. Before every write a read-only config_check proves that the protocol minimum Runbook 3.4.2+ applies the Managed Identity-only connection and the configured organization. It then performs a bounded postcondition window (default seven exact reads at ten-second intervals). Only Released is success. A deterministic rejection with an unchanged source state is confirmed_failed; ambiguous outcomes remain outcome_unknown and block blind retry. Successful diagnostics are compact unless enabled on the asset. IRREVERSIBLE. Reference: https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/release-quarantinemessage The recommended pair is App 3.7.4 / Runbook 3.4.5 for bounded/redacted disposition diagnostics.",
+            "verbose": "Runs one Azure Automation job for release. The runbook checks the exact identity is Requested, then executes Release-QuarantineMessage -Identity <id> -ReleaseToAll -Confirm:$false -ErrorAction Stop once. After a successful command it waits for Released using bounded status reads (default seven checks, ten seconds apart). The app waits for the same Azure job within the configured budget (default 600 seconds, status polling every five seconds). Errors include the known job ID and original cause. A timeout does not cancel the Azure job or prove that Exchange performed no action. No automatic writing retry, later recovery or operation ID is required. A deliberately started new action is a new request. Use inspect release environment only when manual diagnosis is wanted.",
             "type": "correct",
             "read_only": false,
             "parameters": {
@@ -823,12 +770,6 @@
                     "required": true,
                     "primary": true,
                     "order": 0
-                },
-                "operation_id": {
-                    "description": "Stable idempotency key for this logical release. Reusing the same value suppresses another webhook while its operation record is retained. Terminal records may be evicted at the 50-record registry limit; this is not permanent idempotency protection. If omitted, the connector derives a stable key from the SOAR container, action, and identity.",
-                    "data_type": "string",
-                    "required": false,
-                    "order": 1
                 }
             },
             "output": [
@@ -840,13 +781,6 @@
                     ],
                     "column_name": "Identity",
                     "column_order": 0
-                },
-                {
-                    "data_path": "action_result.parameter.operation_id",
-                    "data_type": "string",
-                    "example_values": [
-                        "deny-case-2026-00042"
-                    ]
                 },
                 {
                     "data_path": "action_result.data.*.status",
@@ -888,32 +822,7 @@
                     "example_values": [
                         "3.4.2"
                     ],
-                    "description": "Validated semantic version of the paired Azure Automation runbook."
-                },
-                {
-                    "data_path": "action_result.data.*.operation_id",
-                    "data_type": "string",
-                    "example_values": [
-                        "deny-case-2026-00042"
-                    ]
-                },
-                {
-                    "data_path": "action_result.data.*.state",
-                    "data_type": "string",
-                    "example_values": [
-                        "pending",
-                        "outcome_unknown",
-                        "confirmed_success",
-                        "confirmed_failed"
-                    ]
-                },
-                {
-                    "data_path": "action_result.data.*.handling",
-                    "data_type": "string",
-                    "example_values": [
-                        "reconcile_before_retry",
-                        "manual_review"
-                    ]
+                    "description": "Reported runbook version; informational, not an execution gate."
                 },
                 {
                     "data_path": "action_result.data.*.azure_job_id",
@@ -931,35 +840,11 @@
                     ]
                 },
                 {
-                    "data_path": "action_result.data.*.verification_method",
-                    "data_type": "string",
-                    "example_values": [
-                        "Get-QuarantineMessage"
-                    ]
-                },
-                {
-                    "data_path": "action_result.data.*.expected_release_status",
-                    "data_type": "string",
-                    "example_values": [
-                        "Requested",
-                        "Released"
-                    ]
-                },
-                {
                     "data_path": "action_result.data.*.observed_release_status",
                     "data_type": "string",
                     "example_values": [
                         "Requested",
                         "Released"
-                    ]
-                },
-                {
-                    "data_path": "action_result.data.*.verification_attempts",
-                    "data_type": "numeric",
-                    "example_values": [
-                        1,
-                        3,
-                        7
                     ]
                 },
                 {
@@ -971,193 +856,12 @@
                     "description": "Identity returned by the final Get-QuarantineMessage verification attempt. Success requires an exact match."
                 },
                 {
-                    "data_path": "action_result.data.*.observed_release_status_history",
-                    "data_type": "string",
-                    "example_values": [
-                        "Requested -> Approved -> PreparingToRelease -> Released"
-                    ],
-                    "description": "Ordered, de-duplicated status transitions observed for the exact requested identity."
-                },
-                {
-                    "data_path": "action_result.data.*.last_verification_error",
-                    "data_type": "string",
-                    "example_values": [
-                        "",
-                        "Get-QuarantineMessage returned a different identity."
-                    ]
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_online_management_version",
-                    "data_type": "string",
-                    "example_values": [
-                        "3.5.0"
-                    ]
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_warning",
-                    "data_type": "string",
-                    "example_values": [
-                        ""
-                    ],
-                    "description": "Bounded Release-QuarantineMessage Warning stream evidence."
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_information",
-                    "data_type": "string",
-                    "example_values": [
-                        ""
-                    ],
-                    "description": "Bounded Release-QuarantineMessage Information stream evidence."
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_verbose",
-                    "data_type": "string",
-                    "example_values": [
-                        ""
-                    ],
-                    "description": "Bounded Release-QuarantineMessage Verbose stream evidence."
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_error",
-                    "data_type": "string",
-                    "example_values": [
-                        ""
-                    ],
-                    "description": "Bounded Release-QuarantineMessage Error stream evidence."
-                },
-                {
-                    "data_path": "action_result.data.*.runbook_source_revision",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.runbook_build_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.powershell_version",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_contract_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_invocation_attempted",
-                    "data_type": "boolean"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_invocation_form",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_error_position",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_auth_method",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_auth_method_source",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_organization",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_organization_source",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_disconnect_status",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_disconnect_error",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_executed",
-                    "data_type": "boolean"
-                },
-                {
-                    "data_path": "action_result.data.*.idempotent",
-                    "data_type": "boolean"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_duration_ms",
-                    "data_type": "numeric"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_fully_qualified_error_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_error_category",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_http_status_code",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_request_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_correlation_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.diagnostic_bundle",
-                    "data_type": "string",
-                    "description": "JSON containing supplemental non-secret runtime, cmdlet metadata, exact redacted error/stream text, timing, and verification-trace evidence not duplicated in declared top-level fields."
-                },
-                {
-                    "data_path": "action_result.summary.operation_id",
-                    "data_type": "string",
-                    "example_values": [
-                        "deny-case-2026-00042"
-                    ]
-                },
-                {
-                    "data_path": "action_result.summary.action",
-                    "data_type": "string",
-                    "example_values": [
-                        "deny"
-                    ]
-                },
-                {
-                    "data_path": "action_result.summary.state",
-                    "data_type": "string",
-                    "example_values": [
-                        "pending",
-                        "outcome_unknown",
-                        "confirmed_success",
-                        "confirmed_failed"
-                    ]
-                },
-                {
                     "data_path": "action_result.summary.status",
                     "data_type": "string",
                     "example_values": [
-                        "outcome_unknown"
-                    ]
-                },
-                {
-                    "data_path": "action_result.summary.handling",
-                    "data_type": "string",
-                    "example_values": [
-                        "reconcile_before_retry",
-                        "manual_review"
-                    ]
-                },
-                {
-                    "data_path": "action_result.summary.identity",
-                    "data_type": "string",
-                    "example_values": [
-                        "c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"
+                        "released",
+                        "already_released",
+                        "error"
                     ]
                 },
                 {
@@ -1180,22 +884,8 @@
                     "data_type": "string",
                     "example_values": [
                         "3.4.2"
-                    ]
-                },
-                {
-                    "data_path": "action_result.summary.verification_method",
-                    "data_type": "string",
-                    "example_values": [
-                        "Get-QuarantineMessage"
-                    ]
-                },
-                {
-                    "data_path": "action_result.summary.expected_release_status",
-                    "data_type": "string",
-                    "example_values": [
-                        "Requested",
-                        "Released"
-                    ]
+                    ],
+                    "description": "Reported runbook version; informational, not an execution gate."
                 },
                 {
                     "data_path": "action_result.summary.observed_release_status",
@@ -1203,14 +893,6 @@
                     "example_values": [
                         "Requested",
                         "Released"
-                    ]
-                },
-                {
-                    "data_path": "action_result.summary.verification_attempts",
-                    "data_type": "numeric",
-                    "example_values": [
-                        1,
-                        3
                     ]
                 },
                 {
@@ -1227,6 +909,14 @@
                     "example_values": [
                         "Message released successfully"
                     ]
+                },
+                {
+                    "data_path": "action_result.data.*.error",
+                    "data_type": "boolean"
+                },
+                {
+                    "data_path": "action_result.data.*.error_code",
+                    "data_type": "string"
                 }
             ],
             "render": {
@@ -1239,7 +929,7 @@
             "action": "deny quarantine release",
             "identifier": "deny_quarantine_release",
             "description": "Deny a user's request to release a quarantined message",
-            "verbose": "Fires the Azure Automation webhook with action=deny. The runbook confirms the exact Identity matches the Requested source status and then invokes Release-QuarantineMessage -Identity <id> -ReleaseToAll -ActionType Deny -Confirm:$false -ErrorAction Stop exactly once, with no synthetic binder or capability gate and no automatic retry. Native cmdlet/binder errors, the exact-identity postcondition and the effective Exchange sign-in (always the Automation Account Managed Identity, plus organization and its source; never secrets) are reported separately; cleanup never overrides them. Before every write a read-only config_check proves that the protocol minimum Runbook 3.4.2+ applies the Managed Identity-only connection and the configured organization. It then performs a bounded postcondition window (default seven exact reads at ten-second intervals). Only Denied is success. A deterministic rejection with an unchanged source state is confirmed_failed; ambiguous outcomes remain outcome_unknown and block blind retry. Successful diagnostics are compact unless enabled on the asset. Reference: https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/release-quarantinemessage#-actiontype The recommended pair is App 3.7.4 / Runbook 3.4.5 for bounded/redacted disposition diagnostics.",
+            "verbose": "Runs one Azure Automation job for deny. The runbook checks the exact identity is Requested, then executes Release-QuarantineMessage -Identity <id> -ReleaseToAll -ActionType Deny -Confirm:$false -ErrorAction Stop once. After a successful command it waits for Denied using bounded status reads (default seven checks, ten seconds apart). The app waits for the same Azure job within the configured budget (default 600 seconds, status polling every five seconds). Errors include the known job ID and original cause. A timeout does not cancel the Azure job or prove that Exchange performed no action. No automatic writing retry, later recovery or operation ID is required. A deliberately started new action is a new request. Use inspect release environment only when manual diagnosis is wanted.",
             "type": "correct",
             "read_only": false,
             "parameters": {
@@ -1249,12 +939,6 @@
                     "required": true,
                     "primary": true,
                     "order": 0
-                },
-                "operation_id": {
-                    "description": "Stable idempotency key for this logical deny. Reusing the same value suppresses another webhook while its operation record is retained. Terminal records may be evicted at the 50-record registry limit; this is not permanent idempotency protection. If omitted, the connector derives a stable key from the SOAR container, action, and identity.",
-                    "data_type": "string",
-                    "required": false,
-                    "order": 1
                 }
             },
             "output": [
@@ -1266,13 +950,6 @@
                     ],
                     "column_name": "Identity",
                     "column_order": 0
-                },
-                {
-                    "data_path": "action_result.parameter.operation_id",
-                    "data_type": "string",
-                    "example_values": [
-                        "deny-case-2026-00042"
-                    ]
                 },
                 {
                     "data_path": "action_result.data.*.status",
@@ -1314,31 +991,7 @@
                     "example_values": [
                         "3.4.2"
                     ],
-                    "description": "Validated semantic version of the paired Azure Automation runbook."
-                },
-                {
-                    "data_path": "action_result.data.*.operation_id",
-                    "data_type": "string",
-                    "example_values": [
-                        "deny-case-2026-00042"
-                    ]
-                },
-                {
-                    "data_path": "action_result.data.*.state",
-                    "data_type": "string",
-                    "example_values": [
-                        "pending",
-                        "outcome_unknown",
-                        "confirmed_success",
-                        "confirmed_failed"
-                    ]
-                },
-                {
-                    "data_path": "action_result.data.*.handling",
-                    "data_type": "string",
-                    "example_values": [
-                        "reconcile_before_retry"
-                    ]
+                    "description": "Reported runbook version; informational, not an execution gate."
                 },
                 {
                     "data_path": "action_result.data.*.azure_job_id",
@@ -1356,33 +1009,11 @@
                     ]
                 },
                 {
-                    "data_path": "action_result.data.*.verification_method",
-                    "data_type": "string",
-                    "example_values": [
-                        "Get-QuarantineMessage"
-                    ]
-                },
-                {
-                    "data_path": "action_result.data.*.expected_release_status",
-                    "data_type": "string",
-                    "example_values": [
-                        "Denied"
-                    ]
-                },
-                {
                     "data_path": "action_result.data.*.observed_release_status",
                     "data_type": "string",
                     "example_values": [
                         "Requested",
                         "Denied"
-                    ]
-                },
-                {
-                    "data_path": "action_result.data.*.verification_attempts",
-                    "data_type": "numeric",
-                    "example_values": [
-                        1,
-                        3
                     ]
                 },
                 {
@@ -1394,192 +1025,12 @@
                     "description": "Identity returned by the final Get-QuarantineMessage verification attempt. Success requires an exact match."
                 },
                 {
-                    "data_path": "action_result.data.*.observed_release_status_history",
-                    "data_type": "string",
-                    "example_values": [
-                        "Requested -> Denied"
-                    ],
-                    "description": "Ordered, de-duplicated status transitions observed for the exact requested identity."
-                },
-                {
-                    "data_path": "action_result.data.*.last_verification_error",
-                    "data_type": "string",
-                    "example_values": [
-                        "",
-                        "Get-QuarantineMessage returned a different identity."
-                    ]
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_online_management_version",
-                    "data_type": "string",
-                    "example_values": [
-                        "3.5.0"
-                    ]
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_warning",
-                    "data_type": "string",
-                    "example_values": [
-                        ""
-                    ],
-                    "description": "Bounded Release-QuarantineMessage Warning stream evidence."
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_information",
-                    "data_type": "string",
-                    "example_values": [
-                        ""
-                    ],
-                    "description": "Bounded Release-QuarantineMessage Information stream evidence."
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_verbose",
-                    "data_type": "string",
-                    "example_values": [
-                        ""
-                    ],
-                    "description": "Bounded Release-QuarantineMessage Verbose stream evidence."
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_error",
-                    "data_type": "string",
-                    "example_values": [
-                        ""
-                    ],
-                    "description": "Bounded Release-QuarantineMessage Error stream evidence."
-                },
-                {
-                    "data_path": "action_result.data.*.runbook_source_revision",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.runbook_build_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.powershell_version",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_contract_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_invocation_attempted",
-                    "data_type": "boolean"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_invocation_form",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_error_position",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_auth_method",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_auth_method_source",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_organization",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_organization_source",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_disconnect_status",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_disconnect_error",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_executed",
-                    "data_type": "boolean"
-                },
-                {
-                    "data_path": "action_result.data.*.idempotent",
-                    "data_type": "boolean"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_duration_ms",
-                    "data_type": "numeric"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_fully_qualified_error_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_error_category",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_http_status_code",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_request_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_correlation_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.diagnostic_bundle",
-                    "data_type": "string",
-                    "description": "JSON containing supplemental non-secret runtime, cmdlet metadata, exact redacted error/stream text, timing, and verification-trace evidence not duplicated in declared top-level fields."
-                },
-                {
-                    "data_path": "action_result.summary.operation_id",
-                    "data_type": "string",
-                    "example_values": [
-                        "deny-case-2026-00042"
-                    ]
-                },
-                {
-                    "data_path": "action_result.summary.action",
-                    "data_type": "string",
-                    "example_values": [
-                        "deny"
-                    ]
-                },
-                {
-                    "data_path": "action_result.summary.state",
-                    "data_type": "string",
-                    "example_values": [
-                        "pending",
-                        "outcome_unknown",
-                        "confirmed_success",
-                        "confirmed_failed"
-                    ]
-                },
-                {
                     "data_path": "action_result.summary.status",
                     "data_type": "string",
                     "example_values": [
-                        "outcome_unknown"
-                    ]
-                },
-                {
-                    "data_path": "action_result.summary.handling",
-                    "data_type": "string",
-                    "example_values": [
-                        "reconcile_before_retry"
-                    ]
-                },
-                {
-                    "data_path": "action_result.summary.identity",
-                    "data_type": "string",
-                    "example_values": [
-                        "c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"
+                        "denied",
+                        "already_denied",
+                        "error"
                     ]
                 },
                 {
@@ -1602,21 +1053,8 @@
                     "data_type": "string",
                     "example_values": [
                         "3.4.2"
-                    ]
-                },
-                {
-                    "data_path": "action_result.summary.verification_method",
-                    "data_type": "string",
-                    "example_values": [
-                        "Get-QuarantineMessage"
-                    ]
-                },
-                {
-                    "data_path": "action_result.summary.expected_release_status",
-                    "data_type": "string",
-                    "example_values": [
-                        "Denied"
-                    ]
+                    ],
+                    "description": "Reported runbook version; informational, not an execution gate."
                 },
                 {
                     "data_path": "action_result.summary.observed_release_status",
@@ -1624,14 +1062,6 @@
                     "example_values": [
                         "Requested",
                         "Denied"
-                    ]
-                },
-                {
-                    "data_path": "action_result.summary.verification_attempts",
-                    "data_type": "numeric",
-                    "example_values": [
-                        1,
-                        3
                     ]
                 },
                 {
@@ -1648,335 +1078,19 @@
                     "example_values": [
                         "Release request denied"
                     ]
+                },
+                {
+                    "data_path": "action_result.data.*.error",
+                    "data_type": "boolean"
+                },
+                {
+                    "data_path": "action_result.data.*.error_code",
+                    "data_type": "string"
                 }
             ],
             "render": {
                 "type": "table",
                 "title": "Quarantine Deny Result"
-            },
-            "versions": "EQ(*)"
-        },
-        {
-            "action": "reconcile quarantine operation",
-            "identifier": "reconcile_quarantine_operation",
-            "description": "Read an existing Azure job and optionally refresh the exact Exchange status without a disposition call",
-            "verbose": "READ-ONLY. By default, queries only the supplied Azure Automation job/output and never invokes the webhook. If refresh_exchange_status is explicitly enabled for a completed outcome_unknown job, it starts the paired runbook's action=reconcile path, which performs exactly one Get-QuarantineMessage read and cannot invoke Release-QuarantineMessage. The durable operation is updated only after action, identity, version, and postcondition evidence validate.",
-            "type": "investigate",
-            "read_only": true,
-            "parameters": {
-                "azure_job_id": {
-                    "description": "Existing Azure Automation job UUID recorded by the original release or deny action.",
-                    "data_type": "string",
-                    "required": true,
-                    "primary": true,
-                    "order": 0
-                },
-                "expected_action": {
-                    "description": "Irreversible action the existing job was expected to execute.",
-                    "data_type": "string",
-                    "required": true,
-                    "value_list": [
-                        "release",
-                        "deny"
-                    ],
-                    "order": 1
-                },
-                "expected_identity": {
-                    "description": "Exact quarantine identity expected in the validated runbook result.",
-                    "data_type": "string",
-                    "required": true,
-                    "order": 2
-                },
-                "operation_id": {
-                    "description": "Optional stable operation ID from the original action. When omitted, the connector resolves it from the Azure job ID or creates a durable read-only observation.",
-                    "data_type": "string",
-                    "required": false,
-                    "order": 3
-                },
-                "refresh_exchange_status": {
-                    "description": "Explicitly start one read-only runbook reconciliation to obtain a fresh exact Exchange ReleaseStatus. No release or deny cmdlet is permitted.",
-                    "data_type": "boolean",
-                    "required": false,
-                    "default": false,
-                    "order": 4
-                }
-            },
-            "output": [
-                {
-                    "data_path": "action_result.parameter.azure_job_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.parameter.expected_action",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.parameter.expected_identity",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.parameter.operation_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.parameter.refresh_exchange_status",
-                    "data_type": "boolean"
-                },
-                {
-                    "data_path": "action_result.data.*.operation_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.action",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.identity",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.state",
-                    "data_type": "string",
-                    "example_values": [
-                        "pending",
-                        "outcome_unknown",
-                        "confirmed_success",
-                        "confirmed_failed"
-                    ]
-                },
-                {
-                    "data_path": "action_result.data.*.status",
-                    "data_type": "string",
-                    "example_values": [
-                        "pending",
-                        "outcome_unknown",
-                        "released",
-                        "denied",
-                        "confirmed_failed"
-                    ]
-                },
-                {
-                    "data_path": "action_result.data.*.handling",
-                    "data_type": "string",
-                    "example_values": [
-                        "wait",
-                        "manual_review",
-                        "no_retry_needed",
-                        "retry_requires_new_operation"
-                    ]
-                },
-                {
-                    "data_path": "action_result.data.*.azure_job_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.last_job_status",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.runbook_version",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.verification_method",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.expected_release_status",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.observed_release_status",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.verification_attempts",
-                    "data_type": "numeric"
-                },
-                {
-                    "data_path": "action_result.data.*.observed_identity",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.observed_release_status_history",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.last_verification_error",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_online_management_version",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_warning",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_information",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_verbose",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_error",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.runbook_source_revision",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.runbook_build_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.powershell_version",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_contract_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_invocation_attempted",
-                    "data_type": "boolean"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_invocation_form",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_error_position",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_auth_method",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_auth_method_source",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_organization",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_organization_source",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_disconnect_status",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.exchange_disconnect_error",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_executed",
-                    "data_type": "boolean"
-                },
-                {
-                    "data_path": "action_result.data.*.idempotent",
-                    "data_type": "boolean"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_duration_ms",
-                    "data_type": "numeric"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_fully_qualified_error_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_error_category",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_http_status_code",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_request_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.cmdlet_correlation_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.data.*.diagnostic_bundle",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.summary.operation_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.summary.action",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.summary.identity",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.summary.state",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.summary.status",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.summary.handling",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.summary.azure_job_id",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.summary.last_job_status",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.summary.runbook_version",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.summary.verification_method",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.summary.expected_release_status",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.summary.observed_release_status",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.summary.verification_attempts",
-                    "data_type": "numeric"
-                },
-                {
-                    "data_path": "action_result.status",
-                    "data_type": "string"
-                },
-                {
-                    "data_path": "action_result.message",
-                    "data_type": "string"
-                }
-            ],
-            "render": {
-                "type": "table",
-                "title": "Quarantine Operation Reconciliation"
             },
             "versions": "EQ(*)"
         },
@@ -2079,6 +1193,11 @@
                     "data_path": "action_result.summary.results_may_be_truncated",
                     "data_type": "boolean",
                     "description": "Whether the returned candidate list filled the discovery window; false does not prove full backlog coverage."
+                },
+                {
+                    "data_path": "action_result.summary.failed_imports",
+                    "data_type": "numeric",
+                    "description": "Retained failed imports, not automatically replayed by scheduled polling."
                 }
             ],
             "versions": "EQ(*)"
