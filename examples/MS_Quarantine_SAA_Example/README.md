@@ -27,7 +27,7 @@ Every omitted/error branch leaves the event status unchanged. There is no automa
 
 ## Input and assets
 
-Use the app's **combined** SOAR layout: one fresh event per quarantined email and one final email artifact that triggers automation. This example is not an ES finding/input-spec playbook and does not consume the retired Ready/Request artifact layout. Do not manually replay an event or attach multiple email artifacts to it.
+Use the app's **combined** SOAR layout: one fresh event per quarantined email and one final email artifact that triggers automation. This example is not an ES finding/input-spec playbook and does not consume the retired Ready/Request artifact layout. Exactly one artifact in the event may contain `cef.vaultId`: the original EML. The wildcard datapath otherwise selects every Vault-bearing artifact; this example does not aggregate multiple emails or attachments. Do not manually replay an event or attach multiple email artifacts to it.
 
 | Input | Datapath |
 |---|---|
@@ -64,8 +64,8 @@ The example threshold is a workflow demonstration, not a universal security poli
 
 Source contract: app/runbook `3.7.4` labels at main commit `1832021e6a52af9f95e7db5e94b331c7957e5b04`; these are unreleased source changes, not an assigned Version 4 release. See the [source-qualified compatibility matrix](../../docs/compatibility.md).
 
-A locally mapped copy was generated using the installed **SOAR 8.8.0.282** native VPE generator and imported with **SAA connector 2.2.6** and the new MS Quarantine app identity. The quarantine Release/Deny action contracts were compared with current main. The native server validator accepted the generated Python/graph pair; the saved copy remained inactive and retained modern VPE format. Existing playbooks and assets were unchanged.
+A locally mapped copy was generated using the installed **SOAR 8.8.0.282** native VPE generator and imported with **SAA connector 2.2.6** and the new MS Quarantine app identity. The quarantine Release/Deny action contracts were compared with current main. The native server validator accepted the generated Python/graph pair. In the actual Visual Playbook Editor, all 13 block panels opened without invalid-datapath warnings or page errors. Action timeout, both score thresholds, Prompt deadline and event-status settings were edited, saved and reopened, then restored to the documented values. The final saved copy remained inactive and retained modern VPE format. Its executable Python, graph connections, joins and block configuration matched the reviewed workflow; the UI added only generated comments. Existing playbooks and assets were unchanged.
 
-The distributed copy replaces local asset and approver bindings with the placeholders above. It is a template requiring mapping, not a ready-to-run deployment. No SAA, Azure or Exchange action was executed. Native runtime behavior, actual VPE panel editing/save round-trip and end-to-end app/runbook compatibility remain unverified; API import/validation is not evidence of those checks.
+The distributed copy replaces local asset and approver bindings with the placeholders above. It is a template requiring mapping, not a ready-to-run deployment. No SAA, Azure or Exchange action was executed. Native runtime behavior and end-to-end app/runbook compatibility remain unverified. The completed UI editing/save/reopen check proves editor usability, not action execution or backend compatibility.
 
 Before activation, verify at least: scores 0, 29, 30 and 100; missing/invalid score; submission/analysis failure; Yes, No, timeout and failed Prompt; failed/unconfirmed Release/Deny; successful Release/Deny followed by closure. Failures must leave the event available for investigation.

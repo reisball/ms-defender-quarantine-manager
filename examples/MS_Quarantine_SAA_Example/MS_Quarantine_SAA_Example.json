@@ -24,8 +24,8 @@
       "clean": false,
       "nodes": {
         "0": {
-          "x": 0,
-          "y": 0,
+          "x": -1.4210854715202004e-14,
+          "y": -3.197442310920451e-13,
           "id": "0",
           "data": {
             "id": "0",
@@ -57,7 +57,8 @@
           },
           "type": "end",
           "errors": {},
-          "warnings": {}
+          "warnings": {},
+          "userCode": "\n    # This function is called after all actions are completed.\n    # summary of all the action and/or all details of actions\n    # can be collected here.\n\n    # summary_json = phantom.get_summary()\n    # if 'result' in summary_json:\n        # for action_result in summary_json['result']:\n            # if 'action_run_id' in action_result:\n                # action_results = phantom.get_action_results(action_run_id=action_result['action_run_id'], result_data=False, flatten=False)\n                # phantom.debug(action_results)\n\n"
         },
         "2": {
           "x": 0,
@@ -95,7 +96,8 @@
             "action": "detonate file",
             "advanced": {
               "join": [],
-              "customNameId": 0
+              "customNameId": 0,
+              "customName": "submit_email"
             },
             "connector": "Splunk Attack Analyzer Connector for Splunk SOAR",
             "actionType": "generic",
@@ -133,7 +135,8 @@
               "join": [],
               "customNameId": 0,
               "delimiter": ",",
-              "delimiter_enabled": true
+              "delimiter_enabled": true,
+              "customName": "submission_succeeded"
             },
             "conditions": [
               {
@@ -220,7 +223,8 @@
             "action": "get job summary",
             "advanced": {
               "join": [],
-              "customNameId": 0
+              "customNameId": 0,
+              "customName": "get_summary"
             },
             "connector": "Splunk Attack Analyzer Connector for Splunk SOAR",
             "actionType": "investigate",
@@ -261,7 +265,8 @@
               "join": [],
               "customNameId": 0,
               "delimiter": ",",
-              "delimiter_enabled": true
+              "delimiter_enabled": true,
+              "customName": "score_policy"
             },
             "conditions": [
               {
@@ -395,7 +400,8 @@
             "message": "Review this quarantined email.\n\nFrom: {0}\nTo: {1}\nSubject: {2}\nQuarantine identity: {3}\nSAA score: {4}\nSAA report: {5}\n\nRelease the email? Yes releases it; No denies the release request.",
             "advanced": {
               "join": [],
-              "customNameId": 0
+              "customNameId": 0,
+              "customName": "review_email"
             },
             "approver": {
               "type": "user",
@@ -442,7 +448,8 @@
               "join": [],
               "customNameId": 0,
               "delimiter": ",",
-              "delimiter_enabled": true
+              "delimiter_enabled": true,
+              "customName": "analyst_choice"
             },
             "conditions": [
               {
@@ -549,7 +556,8 @@
               "customNameId": 0,
               "notRequiredJoins": [
                 "6"
-              ]
+              ],
+              "customName": "release_email"
             },
             "connector": "MS Quarantine for Splunk SOAR",
             "actionType": "correct",
@@ -610,7 +618,8 @@
             "action": "deny quarantine release",
             "advanced": {
               "join": [],
-              "customNameId": 0
+              "customNameId": 0,
+              "customName": "deny_email"
             },
             "connector": "MS Quarantine for Splunk SOAR",
             "actionType": "correct",
@@ -646,7 +655,8 @@
               "join": [],
               "customNameId": 0,
               "delimiter": ",",
-              "delimiter_enabled": true
+              "delimiter_enabled": true,
+              "customName": "release_succeeded"
             },
             "conditions": [
               {
@@ -694,7 +704,8 @@
               "join": [],
               "customNameId": 0,
               "delimiter": ",",
-              "delimiter_enabled": true
+              "delimiter_enabled": true,
+              "customName": "deny_succeeded"
             },
             "conditions": [
               {
@@ -780,7 +791,8 @@
                 "8",
                 "9"
               ],
-              "refreshNotableData": false
+              "refreshNotableData": false,
+              "customName": "close_event"
             },
             "utilities": {
               "set_status": {
