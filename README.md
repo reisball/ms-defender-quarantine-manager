@@ -37,6 +37,8 @@ Building from source? See [development and CI](docs/ci.md). Release archives and
 
 Import quarantined emails with a recipient release request (Microsoft status `Requested`), then hand them over to Splunk SOAR automation.
 
+The [native SAA example](examples/MS_Quarantine_SAA_Example/README.md) analyzes the original EML, uses an example score threshold of 30, and asks an analyst when needed. It ships inactive with placeholder bindings; map and validate it before activation.
+
 ## Documentation
 
 | Task | Guide |

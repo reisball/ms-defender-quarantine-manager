@@ -12,6 +12,8 @@ For a fresh repository, export only the reviewed current tree. Do not copy the p
 
 Private deployment evidence belongs in the private project record, not in a public test report. A clean snapshot scan says nothing about the original repository's history.
 
+The [canonical compatibility matrix](compatibility.md) distinguishes the original 3.7.4 source baseline from the unreleased candidate with unchanged labels. Use its source-qualified pairs, evidence scope and upgrade requirements when selecting artifacts; version equality alone is not compatibility evidence.
+
 ## Distribution boundaries
 
 | Artifact | Contents |
@@ -24,12 +26,16 @@ The app's ten files are the manifest, connector, utilities, SOAR ingestion, ES i
 
 In a source checkout, the runtime files live in `app/`, while `LICENSE` remains at the repository root. The builder places those files directly under `ms-quarantine-for-splunk-soar/` in the TGZ; it does not include an `app/` directory. The separate runbook artifact is built from `runbook/runbook.ps1`. These source paths do not change the downloadable artifact filenames: `ms-quarantine-for-splunk-soar-3.7.4.tgz` and `ms-quarantine-for-splunk-soar-runbook-3.7.4.ps1`.
 
-Playbooks, historical playbook fixtures and proprietary platform sources are not part of this repository. Analysis workflows are configured and validated separately.
+The source tree includes the [inactive native SAA example](../examples/MS_Quarantine_SAA_Example/README.md), packaged separately using its documented JSON/Python export procedure. It is not included in the app TGZ. Historical playbook fixtures and proprietary platform sources remain excluded. Analysis workflows require their own asset mapping and validation.
+
+## Documentation review before 4.0
+
+Complete the [tracked documentation review](https://github.com/reisball/ms-quarantine-for-splunk-soar/issues/25) against the intended 4.0 candidate, including the compatibility matrix and [example playbook instructions](../examples/README.md), before publishing that release. Record the maintainer's review outcome in the issue; passing CI or landing the individual documentation changes does not replace this review.
 
 ## Before creating a public release
 
 1. Review the current tracked tree for secrets, real deployment addresses, private links, personal test data, stale generated receipts and unintended files.
-2. Check versions, generated help, runbook fingerprint, relative documentation links and the intended package allowlist.
+2. Check versions, generated help, runbook fingerprint, relative documentation links and the intended package allowlist. Review and update the [compatibility matrix](compatibility.md#maintaining-the-matrix) for the exact app/runbook pair, including component-only changes; record evidence, restrictions and any required counterpart upgrade.
 3. Run the applicable app/runbook Python and PowerShell checks. Record exact candidate results and unavailable gates separately.
 4. Build twice from the same committed runtime bytes and compare outputs. Verify archive members and checksums.
 5. Select the public repository destination, default branch and license settings explicitly. Configure private vulnerability reporting if offered; do not claim it is enabled before checking.

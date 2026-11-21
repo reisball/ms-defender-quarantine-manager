@@ -6,10 +6,12 @@ Start with [installation](installation.md), then validate the configured workflo
 
 | Need | Read |
 |---|---|
+| App/runbook pairing, evidence and upgrade requirements | [Compatibility matrix](compatibility.md) |
 | Prerequisites, identities, runbook and asset setup | [Installation](installation.md) |
 | Import window, actions, limits and deliberate retries | [Operations](operations.md) |
 | SOAR/ES ingestion contracts and migration | [Email ingestion](ingestion.md) |
 | Azure job and Exchange diagnostics | [Troubleshooting](troubleshooting.md) |
+| Native analysis workflows, import and configuration | [Example playbooks](../examples/README.md) |
 | Environment acceptance | [Deployment checklist](validation.md) |
 | Controlled Azure-only validation | [Azure validation](azure-validation.md) |
 | TLS, credentials and quarantined content | [Security](security.md) |

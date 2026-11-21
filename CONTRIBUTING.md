@@ -47,6 +47,8 @@ Build each release's notes from the merged pull requests included since the prec
 
 Collect changes through issues and pull requests while preparing a release. Update both component versions together when preparing the agreed release; merging a pull request does not itself publish a release.
 
+Whenever either component changes, review the [canonical compatibility matrix](docs/compatibility.md), and update it with every shared release/version change, even when only one component's behavior changes. Record the exact pair, validation scope, restrictions and required counterpart upgrades. Keep unverified pairs explicit; matching versions or an unchanged runbook are not evidence for a broader compatibility range. Follow the [matrix maintenance rules](docs/compatibility.md#maintaining-the-matrix), and keep component change summaries in release notes rather than duplicating a changelog.
+
 ## Change expectations
 
 - Cover changed behavior and relevant failure paths. Keep runtime code, tests and operating documentation consistent.
