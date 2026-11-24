@@ -1,133 +1,111 @@
 # Email import
 
-## Configure intake
+[Back to README](../README.md)
 
-Configure the schedule and container label in native **Ingest Settings**, or use **Poll Now** for a manual import. Disable the schedule to pause automatic imports. The app has no additional ingestion-enable checkbox. Azure job polling settings monitor individual jobs, not the ingestion schedule.
+## How import works
 
-Use one ingesting asset per tenant. Its state and locks are asset-specific; separate assets can admit the same source message. Select the tenant, Exchange organization and target before starting. Changing that scope while state exists is rejected. Do not delete state to bypass the check.
-
-Native email import requires authenticated local SOAR REST access. Automation Broker is unsupported; SOAR Cloud compatibility has not been verified. The optional `es_soar_base_url` overrides the trusted HTTPS endpoint for both SOAR and ES import. Native runtime authentication may supply its own URL. Azure TLS verification remains enforced independently of the SOAR platform's local transport policy.
-
-Intake imports only Microsoft `Requested` messages: mail with a recipient release request. There is no source-mode selector; obsolete asset settings are ignored.
-
-Existing intake scopes containing `needs_review` are normalized to Requested-only intake without deleting records or changing the tenant/organization/target pairing. Published references are retained and successful imports are not republished. Older pending or unconfirmed attempts are retained as failed, without automatic replay after upgrade. A failed identity is eligible for a deliberate Poll Now retry only if it appears as `Requested` in the candidate window. `NotReleased` mail is not newly published. Microsoft-status checks continue for tracked identities. Already retired legacy worker records (completed, failed or oversized) remain outside the active window after upgrade; a failed import is not relabelled as a successful publication.
-
-## Active-message window
-
-`on_poll_max_containers` sets the maximum number of unresolved Microsoft identities: default 10, range 1–50. In-progress, failed and successfully published identities all count while their Microsoft status remains unresolved. Retrying an already counted failed identity does not consume another slot. Poll Now's `container_count` bounds attempts in that poll, including retries, and cannot exceed the asset ceiling.
-
-The app reads tracked Microsoft statuses and frees slots only after observing exact `Released` or `Denied` results. Analysis completion, an import error, a missing identity or an intermediate status does not free a slot. Missing or expired mail therefore needs investigation rather than automatic replay.
-
-Status sweeps check the least-recently observed identities first, including after failed reads, so slow Azure jobs do not permanently starve later records. A budget-exhausted, unattempted record keeps its place for the next poll.
-
-Free slots are filled from the first 50 candidates with status `Requested`. There is no pagination or stable ordering guarantee. An empty import is not proof of an empty backlog. A scheduled poll skips failed identities. Native Poll Now considers eligible failed identities before new candidates, within the same window and poll count. Poll Now always checks tracked statuses first, including when the schedule is paused. Confirmed Released/Denied results free slots before intake. Status checks and listing/import each have a separate 600-second between-call work budget, so slow status reads do not consume the import phase. Individual Azure job deadlines are unchanged. A status-read error stays visible and does not free that slot; manual intake may still retry an eligible failed identity in its existing slot or use confirmed free capacity. No scheduled follow-up is required for this flow.
-
-## Preparation and automation
+The app imports only messages with Microsoft status `Requested`, meaning a recipient has requested release. There is no source-mode setting; obsolete settings from older versions are ignored. `NotReleased` mail is not imported.
 
 For each admitted message, the app:
 
-1. Exports and validates the original EML.
-2. Creates a dedicated container with automation disabled.
-3. Saves the original EML, attachments and selected mail metadata.
-4. Publishes the completed message to the configured target.
+1. exports and validates the original EML;
+2. creates a container with automation disabled;
+3. saves the original EML, attachments and selected metadata to the container and Vault;
+4. publishes the completed message to the configured target (SOAR or ES).
 
-The attempt runs synchronously and records its result with the identity and available native references. A MIME or size defect fails the import instead of publishing incomplete mail. Tracked outcomes survive connector restarts; an interrupted attempt is not automatically resumed. Poll Now can start a fresh attempt for an eligible failed identity, reusing its recorded container where available, rather than resuming a saved preparation workflow.
+A MIME or size problem fails the import instead of publishing incomplete mail. Automation starts only after step 4.
 
-For SOAR's **combined** layout, saving the single complete email artifact with native `run_automation=true` enables automation. The parameter belongs to the artifact save, outside `cef`. Configure the intended active playbook and container routing label. The app saves the container with automation disabled and completes every Vault upload before this final save. It does not publish a separate readiness marker or repeat import checks in the playbook.
+Use **one ingesting asset per tenant**. Each asset has its own state, so two assets can import the same message. Changing an asset's tenant, organization or target while it has tracked messages is rejected. Do not delete app state to get around this.
 
-For ES, native ES threat-analysis and automation settings control downstream processing. Publication acceptance is not evidence that analysis or a playbook completed.
+Schedule and container label are set in the asset's **Ingest Settings**. Disabling the schedule pauses automatic imports.
 
-### Data available to SOAR playbooks (combined layout)
+On upgrade, existing state is kept. Earlier `needs_review` scopes become Requested-only, published messages are not republished, and unfinished attempts are marked failed rather than replayed.
 
-Each new message has **one event and one email artifact**, even when all optional fields are disabled or missing. The artifact is named after the email subject (`No subject` if absent); the event uses the subject with `[No subject]` as its fallback. Field selections control artifact content, not its name.
+## Active-message limit
 
-| Required input | Native data path | Source |
-|---|---|---|
-| Original email for SAA/ANY.RUN | `artifact:*.cef.vaultId` | Vault reference to the original EML, never an attachment |
-| Sender for the approval prompt | `artifact:*.cef.senderAddress` | Microsoft's quarantine-list `SenderAddress` |
-| Recipient for the approval prompt | `artifact:*.cef.recipientAddress` | Microsoft's quarantine-list `RecipientAddress` |
-| Release/Deny identity and prompt context | `container:data.quarantine_identity` | Microsoft quarantine identity |
-| Prompt subject | `container:name` | Event subject |
+`on_poll_max_containers` (default 10, range 1–50) is the maximum number of messages whose Microsoft status is still unresolved. It is a total ceiling, not a per-poll increment.
 
-The three artifact fields are always populated by the app and have no selection controls. Old false checkbox values do not suppress them. RFC Sender or delivery headers do not replace Microsoft's sender/recipient values. Optional From/To and other header fields retain their existing meanings and selections. An unavailable optional header is omitted, without preventing the required artifact from being saved.
+- Imported, in-progress and failed messages all occupy a slot.
+- A slot is freed only when the app observes Microsoft status `Released` or `Denied`. Completed analysis, a failed import or a missing message does not free it.
+- Each poll first re-checks tracked statuses, then fills free slots from the first 50 `Requested` messages. There is no pagination or ordering guarantee, so an empty import does not prove the backlog is empty.
+- Poll Now's `container_count` limits attempts in that poll and cannot exceed the asset limit.
 
-There are no separate Request, Original-EML, Ready, technical, or per-attachment email artifacts in this layout. Internal work-item state and `ingestionReady` are not added as CEF fields. Identity and subject remain available from the event regardless of optional display settings.
+## Playbook input (combined layout)
 
-The original EML and attachments remain in the event's Vault. Platform-generated file metadata is not an extra app email artifact. Inline attachments and attached EML messages are included. Duplicate filenames receive stable prefixes; path components and control characters are removed. The original Vault EML is authoritative.
+With `artifact_layout` = `combined`, each message produces **one event and one email artifact**. The artifact is saved last, with `run_automation=true`, after every Vault upload has finished. That save is what triggers playbooks. There are no Ready, Request or per-attachment artifacts.
 
-### Other paths and existing events
-
-The separate-field SOAR layout and ES ingestion retain their existing publication layouts. Internal EML export and its chunked transport are unchanged. The separate-field layout still uses its Request, file, selected-field and final Ready artifacts. Legacy field selections stored on an asset remain readable by those paths; the three removed selection controls are not reintroduced in asset settings. This change does not delete or rewrite historical artifacts or reprocess published messages.
-
-### Updating an existing playbook consumer
-
-The following native consumer mappings are unchanged from the single-artifact layout update. This import/disposition simplification does not edit customer playbooks. Coordinate the producer and consumer before activating the new import on an environment. An existing playbook that requires the old Ready or Request artifacts cannot consume the new combined layout unchanged.
-
-- Remove the sequential `filter_1` readiness and `filter_2` Request-presence/correlation gates; connect Start to the existing first business-flow block.
-- Map both analyzers directly to the single email artifact's original-mail `vaultId`.
-- Map Release/Deny identity to the event, not optional display fields or artifact iteration. Do not multiply actions based on optional metadata.
-- Map prompt sender/recipient and original-mail link from the email artifact, and subject/identity from the event as shown above.
-- Read event ID/status/owner, analysis results, prompt answers and action outcomes from their existing native sources. Do not add lookup actions, a replacement readiness flag, or a helper playbook.
-- Preserve the analysis matrix, scores 20/80, existing retry behavior, Yes/No prompt, Send-Mail and success-dependent completion.
-
-Production playbooks are maintained separately from the app/runbook. The repository includes an [inactive native SAA example](../examples/MS_Quarantine_SAA_Example/README.md), not a replacement for an existing customer workflow. Use native VPE mappings and generation; a local app test does not validate a customer's editable graph or decision branches. The coordinated consumer update and native save/reload remain a separate deployment acceptance step. Do not deploy the changed producer while its active consumer still depends on removed artifacts.
-
-## Enterprise Security setup
-
-Before enabling ES intake, register these additional fields in the target ES environment:
-
-- `quarantine_identity`
-- `work_item_id`
-- `source_data_identifier`
-- `quarantine`
-- `eml_sha256`
-
-The app does not register them automatically. Configure the native ES target and security domain. Urgency and investigation type are optional. **on es poll** requires an ES target; **on poll** respects the asset's native target selection.
-
-The external SOAR URL must be a valid HTTPS address reachable by analysts. ES original-mail and attachment links use that URL, not an internal loopback endpoint. Verify downloads and permissions from the analyst interface.
-
-ES receives the email headers/body, original-email link, attachment links and registered correlation fields. Header values are limited to 8,192 characters; body text to 256,000 characters. The outer plain-text body is preferred, then HTML; attachment content and attached-message descendants are excluded. A 2 MiB metadata check runs before attachment-link entries are added. The original Vault EML remains the complete source.
-
-Configured drilldown searches require `name`, `search`, `earliest` and `latest`. Dashboard drilldowns require `app`, `dashboard_id` and `name`; token entries require a name and string value.
-
-## Reading poll results
-
-A poll reaching its summary step returns these fields, including on a partial failure:
-
-| Fields | Meaning |
+| Playbook input | Data path |
 |---|---|
-| `candidates`, `candidate_window`, `results_may_be_truncated` | Discovery count/window and whether the first-page window was full |
-| `containers_created`, `messages_published` | Successful publications in this poll; both counters have the same meaning |
-| `active_messages`, `active_limit` | Current unresolved identities and configured ceiling |
-| `requested_containers`, `terminal_observed` | Attempt limit for this poll (including retries) and confirmed terminal observations |
-| `errors` | Error count for this poll, not an array |
-| `failed_imports` | Retained nonterminal failed identities; these are not successful imports |
-| `ingestion_enabled`, `ingest_target` | `true` for executed intake and target `soar` or `es` |
+| Original EML (for SAA, ANY.RUN and similar) | `artifact:*.cef.vaultId` |
+| Sender / recipient (from Microsoft's quarantine list) | `artifact:*.cef.senderAddress` / `artifact:*.cef.recipientAddress` |
+| Quarantine identity for Release/Deny | `container:data.quarantine_identity` |
+| Subject | `container:name` |
 
-Inspect the action status and message as well as its counts. Target-resolution failures, an invalid ES target or a lock failure can return an error before any summary exists. Missing counters are not measured zeroes. Prepared containers from a failed import are not necessarily counted as successful publications.
+`vaultId`, `senderAddress` and `recipientAddress` are always populated, whatever the field selections. The artifact is named after the subject (`No subject` if empty). Optional header fields are omitted when unavailable.
+
+The Vault holds the original EML and all attachments, including inline parts and attached messages. Duplicate filenames get stable prefixes, and path components and control characters are removed. The original EML is always the authoritative copy.
+
+The `separate` layout and ES keep their existing layouts. The separate layout still uses Request, file, field and final Ready artifacts. Historical artifacts are not rewritten.
+
+### Updating an existing playbook
+
+A playbook built for the Ready/Request artifacts cannot consume the combined layout unchanged. Update it before activating the new app version:
+
+- Remove the readiness (`filter_1`) and Request-presence (`filter_2`) gates and connect Start to the first business block.
+- Map analyzers to the email artifact's `vaultId`.
+- Map Release/Deny to `container:data.quarantine_identity`, not to optional fields or per-artifact iteration.
+- Map prompt sender/recipient from the artifact and subject/identity from the event.
+
+The app does not edit or activate playbooks. See the [SAA example](../examples/MS_Quarantine_SAA_Example/README.md) for a complete consumer.
+
+## Enterprise Security
+
+Before enabling ES intake, register these additional fields in ES (the app does not register them):
+
+`quarantine_identity`, `work_item_id`, `source_data_identifier`, `quarantine`, `eml_sha256`
+
+- Configure the ES target and security domain. Urgency and investigation type are optional.
+- **on es poll** requires an ES target. **on poll** uses the asset's target selection.
+- Original-mail and attachment links use the external SOAR URL (`es_soar_base_url` or the platform URL). It must be HTTPS and reachable by analysts; check downloads from the analyst interface.
+- ES receives headers (max 8,192 characters each), body text (max 256,000 characters, plain text preferred over HTML), attachment links and the correlation fields. Attachment content is not sent.
+- Drilldown searches need `name`, `search`, `earliest` and `latest`. Dashboard drilldowns need `app`, `dashboard_id` and `name`. Tokens need a name and a string value.
+
+Native ES threat-analysis and automation settings control what happens next. ES accepting a finding does not mean analysis completed.
+
+## Poll results
+
+| Field | Meaning |
+|---|---|
+| `candidates`, `candidate_window`, `results_may_be_truncated` | Messages found, window size, and whether the window was full |
+| `containers_created`, `messages_published` | Successful publications in this poll (same value) |
+| `active_messages`, `active_limit` | Unresolved messages and the configured limit |
+| `requested_containers`, `terminal_observed` | Attempt limit for this poll and confirmed `Released`/`Denied` observations |
+| `errors` | Error count for this poll |
+| `failed_imports` | Failed messages still holding a slot |
+| `ingestion_enabled`, `ingest_target` | `true` when intake ran, and target `soar` or `es` |
+
+Check the action status and message too. Some errors, such as an invalid target or lock failure, occur before any summary exists.
 
 ## Failed imports and Poll Now
 
-Any preparation or publication failure is retained as a failed outcome. Scheduled polls skip it: there is no automatic preparation retry, publication retry or background recovery. An interrupted attempt is also treated as unconfirmed and is not replayed after restart or upgrade. A failed record does not mean the native target rejected every call or that partial files/artifacts are absent.
+Failed or interrupted imports are kept as failed and are never retried automatically. Scheduled polls skip them. To retry deliberately:
 
-To retry deliberately:
+1. Read the action message and inspect any existing container, Vault files, email artifact or ES finding.
+2. Fix the cause, for example invalid input or missing target permissions.
+3. Run **Poll Now**. Failed messages that are still `Requested` within the first 50 candidates get a fresh attempt in their existing slot. New messages can also be admitted within the limit.
+4. Verify the publication and downstream workflow.
 
-1. Inspect the action message and the recorded native container, Vault files, final email artifact (Ready artifact in the separate layout) or ES finding. If publication may have succeeded, check that evidence before making another submission.
-2. Correct the reported cause, such as invalid input or missing target permissions.
-3. Start native **Poll Now**. Failed identities still present in the first 50 Microsoft `Requested` candidates receive a fresh attempt; there is no special retry action or parameter. Poll Now can also import new candidates within its normal count and active-window limit.
-4. Check publication and downstream execution separately. A failure arising during this poll is not retried again in the same poll.
-
-Previously successful identities remain deduplicated in the retained scope. Retrying a failed identity uses its existing active-window slot, including when the window is full. Only a confirmed Microsoft `Released` or `Denied` observation frees that slot.
-
-The native container, Vault, artifact and ES calls are not one exactly-once transaction. In particular, after a lost ES response a fresh attempt may duplicate an already-created finding; an opaque source identifier is not a guarantee of ES-side deduplication. Do not clear state or create a replacement asset to hide uncertainty. Existing published data is not rewritten or replayed during migration.
-
-For uncertain Release/Deny outcomes, inspect the known Azure job and use optional **inspect release environment** for the current status before consciously starting a new action. See [Runbook troubleshooting](troubleshooting.md).
+Successful imports are never imported again while their record is retained. SOAR and ES calls are not a single transaction. In particular, if an ES response was lost, a retry can create a duplicate finding, so check ES first. Never clear app state or create a replacement asset to force a retry.
 
 ## Limits
 
-- EML: 24 MiB; MIME: 200 parts, depth 30, 100 attachments and 48 MiB combined decoded attachment data.
-- Ingestion state: 1,000 records. Active records are never evicted; capacity errors prevent new admissions.
-- Terminal retention: 1–365 days, default 30. After expiry, a reappearing source identity may be admitted again.
-- Scheduled-poll work budget: 600 seconds between calls. Poll Now has a 600-second status phase followed by a separate 600-second import phase; these are not a ten-minute total action timeout. An in-flight operation may exceed its phase budget; unattempted candidates can be considered on later polls, but failed attempts need Poll Now. Individual Azure job timeout settings are separate.
+| Limit | Value |
+|---|---|
+| Original EML | 24 MiB (transferred in chunks) |
+| MIME structure | 200 parts, nesting depth 30 |
+| Attachments | 100, with 48 MiB combined decoded size |
+| Tracked messages | 1,000. Active records are never evicted; when full, new admissions fail. |
+| Retention of resolved records | `worker_terminal_retention_days`, 1–365 days, default 30. After that, a reappearing message can be imported again. |
+| Work budget | Scheduled poll: 600 s. Poll Now: 600 s for status checks plus 600 s for import. A running operation can exceed its budget, and unattempted messages wait for the next poll. |
 
-These limits apply independently of the analyzer's queue capacity. Intake does not serialize analysis across separate containers.
+Messages over a limit are rejected before publication rather than partially imported. The MIME parser bounds message structure, but it is not a malware filter.

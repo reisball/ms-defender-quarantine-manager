@@ -1,29 +1,23 @@
 # Security and data handling
 
-[Documentation index](README.md).
+[Back to README](../README.md)
 
-## Separate the identities
+## Identities and credentials
 
-The asset's App Registration reads Azure Automation job status/output. The Automation Account's Managed Identity connects to Exchange Online and needs the applicable quarantine permissions. A successful job lookup does not prove Exchange authorization. Do not use an Exchange password or client secret as a substitute for the Managed Identity.
+The asset's App Registration only reads Azure Automation jobs. The Automation Account's Managed Identity connects to Exchange and needs the quarantine permissions. A successful job read does not prove Exchange authorization. Exchange sign-in is Managed Identity only; passwords and client secrets are not accepted for Exchange.
 
-Store credentials and token-bearing webhook URLs in the appropriate protected asset/automation settings, not in playbook examples, logs, issues or Git.
+Keep credentials and the token-bearing webhook URL in the protected asset and Automation settings. Never put them in playbooks, logs, issues or Git.
 
 ## Transport
 
-Azure webhook requests require HTTPS and do not follow redirects. Use trusted certificate chains. Native SOAR transport follows the platform TLS policy and its fixed native loopback exception; no asset option disables validation for an arbitrary host. See [ingestion](ingestion.md) for the exact endpoint contract.
+Azure webhook calls require HTTPS, verify certificates and do not follow redirects. No asset option disables certificate validation. Native SOAR calls follow the platform TLS policy.
 
 ## Quarantined content
 
-Original mail and attachments may contain malware or private data. Restrict access to SOAR containers, Vault, app state and Azure job output. Apply retention and backup policies to each location. Use synthetic messages in public test reports.
+Original mail and attachments can contain malware or personal data. Restrict access to SOAR containers, the Vault, app state and Azure job output, and apply retention and backup policies to each. The MIME parser is bounded ([limits](ingestion.md#limits)) but is not an antivirus boundary. Check your sandbox's submission and privacy policy before sending mail to an analyzer.
 
-Parsing is bounded but not an antivirus boundary. Review [MIME limits](mime-limits.md) and your sandbox's submission/privacy policy before handing a message to an analyzer.
+## Disposition safety
 
-## Disposition and failed imports
+Release and Deny run only for `Requested` messages and succeed only when the matching status is confirmed. Writes are never retried automatically. Follow [uncertain outcomes](operations.md#timeouts-and-uncertain-outcomes) before starting another action, and never clear app state to force processing.
 
-Import is separate from Release/Deny. A new disposition write requires Microsoft `Requested`; success requires the matching `Released` or `Denied` postcondition. If a write's outcome is uncertain, inspect the known Azure job and current Microsoft status before consciously starting another action. A timeout does not cancel Azure, and the writing webhook is not automatically retried. Do not clear app state to force a retry.
-
-Use one ingesting asset per tenant. Its identity/result records are scoped to that asset and retained history, not a global or permanent exactly-once guarantee. Scheduled polling skips failed imports; native Poll Now is the explicit fresh retry path. Native API calls are not one transaction, and ES may already have accepted a finding when its response is lost. Follow [operations](operations.md) for failed preparation and uncertain publication.
-
-## Vulnerabilities
-
-Follow [SECURITY.md](../SECURITY.md) for private reporting. Tests use synthetic data and reserved example domains. They do not provision assets or establish acceptance for a real environment.
+Report vulnerabilities as described in [SECURITY.md](../SECURITY.md).
