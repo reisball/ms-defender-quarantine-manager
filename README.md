@@ -1,65 +1,46 @@
 # MS Quarantine for Splunk SOAR
 
-**Bring Microsoft Defender quarantine mail into Splunk SOAR for investigation and controlled disposition.**
+Bring Microsoft Defender quarantine mail into Splunk SOAR for investigation, then release or deny it.
 
-MS Quarantine for Splunk SOAR imports quarantined email through an Azure Automation runbook, preserves the original EML and attachments in the SOAR Vault, and prepares one container per message.
-
-[Documentation](docs/README.md) · [Installation](docs/installation.md) · [Operation](docs/operations.md) · [Releases](https://github.com/reisball/ms-quarantine-for-splunk-soar/releases)
-
-## Why MS Quarantine for Splunk SOAR?
-
-Automate your Microsoft Defender quarantine workflow in Splunk SOAR—from collecting quarantined messages to investigation, approval and release or denial. Bring email evidence and response actions together so your team can focus on decisions instead of manual handoffs.
-
-Use Splunk SOAR for additional analysis—for example, with Splunk Attack Analyzer or Automated Threat Analysis (a feature of Splunk Enterprise Security). A workflow could analyze suspicious URLs and attachments, enrich sender domains with threat intelligence, and present the results to an analyst before a release or denial decision.
-
-## Is it for you?
-
-This project is for teams operating Microsoft Defender quarantine, Azure Automation and native Splunk SOAR, with optional native ES ingestion.
-
-Azure job access and Exchange permissions are separate prerequisites. See [installation and configuration](docs/installation.md).
-
-## Source status
-
-The current source documents the simplified import and disposition workflow. App/runbook version labels remain **3.7.4**; these source changes are not a new published release or a verified customer deployment. Select a unique release version before package handover.
-
-## Get started
-
-The runbook is deployed separately; installing the SOAR app does not update Azure.
-
-1. Follow [installation](docs/installation.md) to configure Azure identity, the runbook and the SOAR asset.
-2. Configure one ingesting asset per tenant and start with a small active-message limit. Intake imports only Microsoft `Requested` messages.
-3. Run the [deployment checklist](docs/validation.md) with controlled test messages before enabling regular intake.
-4. Connect an analysis workflow only after mapping and validating its assets, approver, notification routing and portal URL.
-
-Building from source? See [development and CI](docs/ci.md). Release archives and source checkouts have different contents; the [publication guide](docs/publication.md) explains the packaging contract.
-
-## Analysis workflows
-
-Import quarantined emails with a recipient release request (Microsoft status `Requested`), then hand them over to Splunk SOAR automation.
-
-The [native SAA example](examples/MS_Quarantine_SAA_Example/README.md) analyzes the original EML, uses an example score threshold of 30, and asks an analyst when needed. It ships inactive with placeholder bindings; map and validate it before activation.
-
-## Documentation
-
-| Task | Guide |
-|---|---|
-| Install and configure | [Installation](docs/installation.md) |
-| Operate and handle failures | [Operations](docs/operations.md) |
-| Understand native SOAR and ES intake | [Email ingestion](docs/ingestion.md) |
-| Diagnose Azure and Exchange failures | [Troubleshooting](docs/troubleshooting.md) |
-| Validate a deployment | [Deployment checklist](docs/validation.md) |
-| Develop and package changes | [CI and build checks](docs/ci.md) |
-| Review security and data handling | [Security guide](docs/security.md) |
-
-The installed app includes a self-contained [HTML help page](app/readme.html).
-
-## Contributing and support
+The app imports quarantined messages that have a recipient release request (Microsoft status `Requested`) through an Azure Automation runbook. Each message becomes one SOAR event with the original EML and attachments in the Vault. Playbooks or analysts can then release or deny the message. Native Splunk Enterprise Security (ES) ingestion is optional.
 
 This is a community-maintained connector, not a Splunk or Microsoft support offering.
 
-Use the repository's issue tracker for bugs, questions and feature proposals. Include versions, expected behavior, a minimal reproduction and sanitized errors. Do not attach credentials or original quarantined mail.
+## Components
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing code and [SECURITY.md](SECURITY.md) before reporting a vulnerability.
+| Component | Where it runs |
+|---|---|
+| SOAR app (`ms-quarantine-for-splunk-soar-<version>.tgz`) | Splunk SOAR (native execution, 8.5.0 or later) |
+| Runbook (`ms-quarantine-for-splunk-soar-runbook-<version>.ps1`) | Azure Automation, deployed separately; installing the app does not update Azure |
+| [Native SAA example playbook](examples/MS_Quarantine_SAA_Example/README.md) (optional) | Splunk SOAR, imported separately |
+
+App and runbook share one version. Deploy them as a matching pair; see the [compatibility matrix](docs/compatibility.md).
+
+## Quick start
+
+1. [Install](docs/installation.md): set up the Azure Automation Account and Exchange permissions, publish the runbook, then install the app and create one asset per tenant.
+2. Start with a small active-message limit and run **test connectivity**.
+3. Work through the [deployment checklist](docs/validation.md) with controlled test messages.
+4. Optionally connect an analysis playbook such as the [SAA example](examples/MS_Quarantine_SAA_Example/README.md).
+
+## Documentation
+
+| Topic | Guide |
+|---|---|
+| Prerequisites, permissions and asset setup | [Installation](docs/installation.md) |
+| App/runbook pairing and upgrade order | [Compatibility](docs/compatibility.md) |
+| Intake, playbook input data, ES, limits and retries | [Email import](docs/ingestion.md) |
+| Release, Deny and timeouts | [Operation](docs/operations.md) |
+| Errors and diagnostics | [Troubleshooting](docs/troubleshooting.md) |
+| Acceptance testing | [Deployment checklist](docs/validation.md) |
+| Identities, TLS and quarantined content | [Security](docs/security.md) |
+| Building, testing and releasing | [Development and release](docs/development.md) |
+
+The installed app also includes a field and action reference on its **Documentation** page ([HTML help](app/readme.html)). Release notes are published in [GitHub Releases](https://github.com/reisball/ms-quarantine-for-splunk-soar/releases).
+
+## Support and contributing
+
+Use the issue tracker for bugs and questions. Include app/runbook and SOAR versions, sanitized errors and known Azure job IDs. Never attach credentials, webhook URLs or original quarantined mail. See [CONTRIBUTING.md](CONTRIBUTING.md) and, for vulnerabilities, [SECURITY.md](SECURITY.md).
 
 ## License
 
