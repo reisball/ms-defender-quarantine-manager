@@ -191,17 +191,18 @@ def test_zero_created_receipt_never_retries_without_poll_now(tmp_path, malformed
     assert client.request.call_count == 2
 
 
-def test_poll_budget_stops_further_azure_jobs(tmp_path, monkeypatch):
+def test_exhausted_status_budget_starts_no_exact_reads(tmp_path, monkeypatch):
     import ms_quarantine_for_splunk_soar_ingestion as ingestion
     c = setup(tmp_path, limit=2)
     assert poll(c)[0] == t.APP_SUCCESS
+    c.candidates = []  # The tracked identities need exact reads.
     c.calls.clear()
     ticks = iter([0, 601])
     monkeypatch.setattr(ingestion.time, "monotonic", lambda: next(ticks, 601))
     status, ar = poll(c)
     assert status == t.APP_ERROR
     assert "budget" in ar.get_message()
-    assert not c.calls
+    assert c.calls == [("list", None, {"page_size": 50})]
     assert len(c._ingest_records()) == 2
 
 
