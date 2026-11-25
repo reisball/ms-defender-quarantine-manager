@@ -5,17 +5,23 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
+import zipfile
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 APP = "ms-quarantine-for-splunk-soar"
+WHEEL_LOCK = "tools/wheel-lock.json"
+WHEEL_INPUTS = json.loads((ROOT / WHEEL_LOCK).read_text())["wheels"]
+WHEEL_DIRS = {"wheels", "wheels/py3", "wheels/py39", "wheels/py313"}
 APP_INPUTS = (
     "__init__.py", "LICENSE", "readme.html", "ms_quarantine_for_splunk_soar.json",
     "ms_quarantine_for_splunk_soar_connector.py", "ms_quarantine_for_splunk_soar_utils.py",
     "ms_quarantine_for_splunk_soar_ingestion.py", "ms_quarantine_for_splunk_soar_es_ingestion.py",
     "ms_quarantine_for_splunk_soar.svg", "ms_quarantine_for_splunk_soar_dark.svg",
+    *WHEEL_INPUTS,
 )
 # Source layout differs from the intentionally flat installable package.
 APP_SOURCES = {name: name if name == "LICENSE" else f"app/{name}" for name in APP_INPUTS}
@@ -53,7 +59,7 @@ def source(tmp_path):
     repo = tmp_path / "source"
     repo.mkdir()
     for name in (*APP_SOURCES.values(), RUNBOOK_SOURCE, "tools/build_release.sh",
-                 "tools/render_readme.py", "tools/stamp_runbook.py"):
+                 "tools/render_readme.py", "tools/stamp_runbook.py", WHEEL_LOCK):
         dest = repo / name
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / name, dest)
@@ -173,13 +179,102 @@ def test_valid_override_resolves_commit_and_keeps_unrelated_changes_allowed(sour
     assert metadata["source_date_epoch"] == int(EPOCH)
     assert (output / "user-note").read_text() == "Not a package member\n"
     with tarfile.open(next(output.glob("*.tgz"))) as archive:
-        assert set(archive.getnames()) == {APP, *(f"{APP}/{name}" for name in APP_INPUTS)}
+        assert set(archive.getnames()) == {APP, *(f"{APP}/{name}" for name in (*APP_INPUTS, *WHEEL_DIRS))}
+        assert all(archive.getmember(f"{APP}/{name}").isdir() for name in WHEEL_DIRS)
         for name in APP_INPUTS:
             expected = git_bytes(source, "show", f"{original}:{APP_SOURCES[name]}")
             assert archive.extractfile(f"{APP}/{name}").read() == expected
     expected_runbook = git_bytes(source, "show", f"{original}:{RUNBOOK_SOURCE}")
     assert next(output.glob("*.ps1")).read_bytes() == expected_runbook
     assert_success(run(output, "sha256sum", "-c", "SHA256SUMS"))
+
+
+def test_wheel_hash_mismatch_rejected_even_when_committed(source, tmp_path):
+    output = tmp_path / "release"
+    previous = successful_release(source, output)
+    wheel = next(iter(WHEEL_INPUTS))
+    with (source / APP_SOURCES[wheel]).open("ab") as stream:
+        stream.write(b"corrupted wheel")
+    git(source, "add", APP_SOURCES[wheel])
+    git(source, "commit", "-qm", "Mismatching wheel")
+    result = assert_rejected_unchanged(source, output, previous)
+    assert f"Wheel SHA-256 mismatch: app/{wheel}" in result.stderr
+
+
+def test_uncommitted_lock_change_preserves_previous_release(source, tmp_path):
+    output = tmp_path / "release"
+    previous = successful_release(source, output)
+    with (source / WHEEL_LOCK).open("ab") as stream:
+        stream.write(b"\n")
+    result = assert_rejected_unchanged(source, output, previous)
+    assert f"Source provenance mismatch: {WHEEL_LOCK}" in result.stderr
+
+
+def test_unreferenced_wheel_rejected_by_lock_contract(source, tmp_path):
+    output = tmp_path / "release"
+    previous = successful_release(source, output)
+    manifest_path = source / APP_SOURCES["ms_quarantine_for_splunk_soar.json"]
+    manifest = json.loads(manifest_path.read_text())
+    entries = manifest["pip39_dependencies"]["wheel"]
+    entries[:] = [entry for entry in entries if entry["module"] != "typing_extensions"]
+    manifest_path.write_text(json.dumps(manifest, indent=4) + "\n")
+    git(source, "add", str(manifest_path.relative_to(source)))
+    git(source, "commit", "-qm", "Incomplete wheel manifest")
+    result = assert_rejected_unchanged(source, output, previous)
+    assert "Manifest dependency wheels do not match" in result.stderr
+
+
+def test_bundled_dependencies_match_supported_runtimes(source, tmp_path):
+    output = tmp_path / "release"
+    assert_success(build(source, output))
+    with tarfile.open(next(output.glob("*.tgz"))) as archive:
+        manifest = json.load(archive.extractfile(f"{APP}/ms_quarantine_for_splunk_soar.json"))
+        assert manifest["python_version"] == "3.9, 3.13"
+        use = {}
+        for minor, expected_modules in (
+            (9, {"cffi", "cryptography", "pycparser", "typing_extensions"}),
+            (13, {"cffi", "cryptography", "pycparser"}),
+        ):
+            entries = manifest[f"pip3{minor}_dependencies"]["wheel"]
+            use[minor] = {entry["module"]: entry["input_file"] for entry in entries}
+            assert len(entries) == len(expected_modules)
+            assert use[minor].keys() == expected_modules
+            assert f"-cp3{minor}-cp3{minor}-manylinux" in use[minor]["cffi"]
+            assert "-cp39-abi3-manylinux_2_28_x86_64.whl" in use[minor]["cryptography"]
+            for rel in use[minor].values():
+                data = archive.extractfile(f"{APP}/{rel}").read()
+                assert hashlib.sha256(data).hexdigest() == WHEEL_INPUTS[rel]["sha256"]
+        assert set(WHEEL_INPUTS) == set(use[9].values()) | set(use[13].values())
+        assert use[9]["cryptography"] == use[13]["cryptography"]
+        assert use[9]["pycparser"] != use[13]["pycparser"]
+        crypto_version = Path(use[9]["cryptography"]).name.split("-")[1]
+        assert f"cryptography=={crypto_version}" in (ROOT / "requirements-dev.txt").read_text().splitlines()
+        if sys.platform == "linux" and os.uname().machine == "x86_64" and sys.version_info[:2] in ((3, 9), (3, 13)):
+            # Use the actual archived wheels in a scratch directory, not installed
+            # host dependencies; no pip, network, or SOAR instance is needed.
+            extracted = tmp_path / "wheel-runtime"
+            for rel in use[sys.version_info.minor].values():
+                with zipfile.ZipFile(archive.extractfile(f"{APP}/{rel}")) as wheel:
+                    wheel.extractall(extracted)
+            result = run(source, sys.executable, "-I", "-S", "-c", """
+import sys
+sys.path.insert(0, sys.argv[1])
+import cffi, pycparser, cryptography
+if sys.version_info.minor == 9:
+    import typing_extensions
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+assert cryptography.__version__ == sys.argv[2]
+private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+oaep = padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
+key = AESGCM.generate_key(bit_length=256)
+wrapped = private.public_key().encrypt(key, oaep)
+cipher = AESGCM(private.decrypt(wrapped, oaep))
+nonce, message, aad = bytes(12), b"packaging smoke test", b"synthetic"
+assert cipher.decrypt(nonce, cipher.encrypt(nonce, message, aad), aad) == message
+""", str(extracted), crypto_version)
+            assert_success(result)
 
 
 def test_default_epoch_still_uses_head_with_an_older_identical_input_commit(source, tmp_path):

@@ -18,7 +18,11 @@ param(
 
     [switch] $EnableVerbose,
 
-    [switch] $OrganizationVariableReadFailure
+    [switch] $OrganizationVariableReadFailure,
+
+    [switch] $LiteralRequest,
+
+    [string] $SyntheticExportBase64Path
 )
 
 $ErrorActionPreference = "Stop"
@@ -185,7 +189,11 @@ function Get-QuarantineMessage {
 function Export-QuarantineMessage {
     param([string] $Identity, [object] $ErrorAction)
     return [pscustomobject]@{
-        Eml = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("Subject: s"))
+        Eml = if ($SyntheticExportBase64Path) {
+            [IO.File]::ReadAllText($SyntheticExportBase64Path)
+        } else {
+            [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("Subject: s"))
+        }
     }
 }
 
@@ -199,6 +207,15 @@ if (
     $requestBody.identity -eq "__IDENTITY__"
 ) {
     $requestBody.identity = $global:ConnTestIdentity
+}
+$rsa = $null
+if (-not $LiteralRequest -and $requestBody.action -eq "list") {
+    . (Join-Path $PSScriptRoot "protected_output_fixture.ps1")
+    $rsa = New-FixtureRsa
+    $requestBody.action = "protected_list_v1"
+    $requestBody | Add-Member -NotePropertyName output_public_key -NotePropertyValue (
+        [Convert]::ToBase64String($rsa.ExportSubjectPublicKeyInfo())
+    )
 }
 $webhookData = [pscustomobject]@{
     RequestBody = ($requestBody | ConvertTo-Json -Compress)
@@ -224,6 +241,20 @@ $verboseRecords = @(
 )
 $raw = ($successStream | Out-String).Trim()
 $allText = (@($allStreams | ForEach-Object { [string] $_ }) -join "`n")
+if ($rsa) {
+    $lines = @(ConvertFrom-FixtureProtectedOutput -Lines $successStream -Action "list" -Rsa $rsa)
+    $rsa.Dispose()
+    $raw = $lines[-1]
+}
+if ($SyntheticExportBase64Path) {
+    # This path must emit exactly one encrypted result and no other stream
+    # records. Inspect the merged capture, not the filtered success stream.
+    if ($allStreams.Count -ne 1 -or $allStreams[0] -isnot [string]) {
+        throw "Expected exactly one protected result and no diagnostic output"
+    }
+    Write-Output $allStreams[0]
+    exit 0
+}
 $parsed = $raw | ConvertFrom-Json
 $envelope = [ordered]@{
     result = $parsed

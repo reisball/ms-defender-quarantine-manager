@@ -39,7 +39,7 @@ def test_unresolved_legacy_workers_migrate_as_failed_without_replay(tmp_path, wo
     status, ar = poll(c)
     assert status == t.APP_SUCCESS, ar.get_message()
     assert ar.get_summary()["failed_imports"] == 1
-    assert [call[0] for call in c.calls] == ["reconcile"]
+    assert [call[0] for call in c.calls] == ["list"]
     assert not c.events
 
 

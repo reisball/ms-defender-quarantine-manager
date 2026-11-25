@@ -26,7 +26,7 @@ python tools/stamp_runbook.py --check
 python tools/check_mime_parser_compat.py
 ```
 
-The [GitHub workflow](../.github/workflows/ci.yml) runs this on both Python versions and, on 3.13, the full PowerShell contract sequence in `tests/powershell/`. Running a single PowerShell script does not replace the sequence. The [Gitea workflow](../.gitea/workflows/ci.yml) is the original CI definition and is not run by GitHub.
+The [GitHub workflow](../.github/workflows/ci.yml) runs this on both Python versions and, on 3.13, the full PowerShell contract sequence in `tests/powershell/`. Running a single PowerShell script does not replace the sequence.
 
 The MIME parser overrides CPython's private `BytesFeedParser._new_message` hook and reads `_msgstack` to enforce the node and depth limits before allocation. Re-run `tools/check_mime_parser_compat.py` and the MIME tests when adding a Python runtime.
 
@@ -70,7 +70,7 @@ Tests, Markdown, the runbook and example playbooks are not in the app archive. T
 2. Check versions, generated help, runbook fingerprint, documentation links and the compatibility matrix.
 3. Run all Python and PowerShell checks and inspect the hosted Actions run for the exact commit.
 4. Build twice, compare checksums and check the archive contents.
-5. For 4.0, record the documentation review in [#25](https://github.com/reisball/ms-quarantine-for-splunk-soar/issues/25) before publishing.
+5. Review the user documentation against the exact release candidate before publishing.
 
 Offline tests and a clean build do not prove that a live SOAR, Azure or Exchange deployment works. That requires the [deployment checklist](validation.md) on the exact pair.
 
@@ -81,8 +81,10 @@ The 24 MiB EML cap is conservative because local tests cannot measure memory in 
 | Fixture (decoded bytes) | Expected |
 |---|---|
 | 24,602,271 (known production case) | Job `Completed`; 129 chunks of 256,000 base64 characters; matching SHA-256 and Vault download |
-| 25,165,824 (exactly 24 MiB) | Job `Completed`; 132 chunks; matching SHA-256; peak memory leaves a documented reserve below 400 MB, repeated with cold and warm module starts |
+| 25,165,824 (exactly 24 MiB) | Job `Completed`; 132 encrypted chunks plus the final record; matching SHA-256 after SOAR decryption; peak memory leaves a documented reserve below 400 MB, repeated with cold and warm module starts |
 | 25,165,825 (cap + 1) | `error_code=export_oversized`, `handling=fail_closed`, `max_decoded_size=25165824`; no Vault import; message stays failed and holds its slot |
 | Failed or suspended job | Reported as a transport/job failure, not as oversized |
+
+Verify all Azure job streams contain no readable EML, the aggregate Job Output API returns the full encrypted stream, and the installed SOAR package decrypts it on the supported interpreter. Use synthetic mail.
 
 For each run, record the app/runbook versions and commit, the PowerShell runtime and module versions, the job ID and timestamps, the size, chunk count and SHA-256, and peak memory if available. Never record webhook URLs, tokens or mail content. Keep 24 MiB only if the exact-boundary runs stay below the limit with a reserve. Otherwise, propose a lower cap or a Hybrid Runbook Worker approach. Attach sanitized evidence to [#18](https://github.com/reisball/ms-quarantine-for-splunk-soar/issues/18).

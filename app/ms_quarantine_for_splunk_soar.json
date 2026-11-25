@@ -6,12 +6,48 @@
     "package_name": "phantom_ms_quarantine_for_splunk_soar",
     "type": "generic",
     "license": "Apache-2.0",
-    "app_version": "3.7.4",
+    "app_version": "1.0.0",
     "product_vendor": "Microsoft",
     "product_name": "Exchange Online Quarantine",
     "product_version_regex": ".*",
     "min_phantom_version": "8.5.0",
     "python_version": "3.9, 3.13",
+    "pip39_dependencies": {
+        "wheel": [
+            {
+                "module": "cffi",
+                "input_file": "wheels/py39/cffi-2.0.0-cp39-cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"
+            },
+            {
+                "module": "cryptography",
+                "input_file": "wheels/py3/cryptography-50.0.0-cp39-abi3-manylinux_2_28_x86_64.whl"
+            },
+            {
+                "module": "pycparser",
+                "input_file": "wheels/py3/pycparser-2.23-py3-none-any.whl"
+            },
+            {
+                "module": "typing_extensions",
+                "input_file": "wheels/py3/typing_extensions-4.16.0-py3-none-any.whl"
+            }
+        ]
+    },
+    "pip313_dependencies": {
+        "wheel": [
+            {
+                "module": "cffi",
+                "input_file": "wheels/py313/cffi-2.1.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"
+            },
+            {
+                "module": "cryptography",
+                "input_file": "wheels/py3/cryptography-50.0.0-cp39-abi3-manylinux_2_28_x86_64.whl"
+            },
+            {
+                "module": "pycparser",
+                "input_file": "wheels/py3/pycparser-3.12-py3-none-any.whl"
+            }
+        ]
+    },
     "main_module": "ms_quarantine_for_splunk_soar_connector.py",
     "logo": "ms_quarantine_for_splunk_soar.svg",
     "logo_dark": "ms_quarantine_for_splunk_soar_dark.svg",
@@ -183,11 +219,32 @@
             "action": "test connectivity",
             "identifier": "test_connectivity",
             "description": "Validates webhook reachability and Azure AD token acquisition",
-            "verbose": "Fires the webhook with action=list and waits for job completion. Confirms that the webhook URL, Azure AD credentials, and job polling all work end-to-end.",
+            "verbose": "Fires the webhook with action=list and waits for job completion. Confirms that the webhook URL, Azure AD credentials, and job polling all work end-to-end. Reports installed app and runbook versions separately from the runbook build ID. A version mismatch warns without changing the connectivity result.",
             "type": "test",
             "read_only": true,
             "parameters": {},
-            "output": [],
+            "output": [
+                {
+                    "data_path": "action_result.summary.app_version",
+                    "data_type": "string",
+                    "description": "Version of the installed app manifest, when available."
+                },
+                {
+                    "data_path": "action_result.summary.runbook_version",
+                    "data_type": "string",
+                    "description": "Release version reported by the connected runbook, when available."
+                },
+                {
+                    "data_path": "action_result.summary.runbook_build_id",
+                    "data_type": "string",
+                    "description": "Self-reported runbook build fingerprint; not proof that the two builds match."
+                },
+                {
+                    "data_path": "action_result.summary.version_warning",
+                    "data_type": "string",
+                    "description": "Present when the versions differ or cannot be compared."
+                }
+            ],
             "versions": "EQ(*)"
         },
         {
@@ -760,12 +817,12 @@
             "action": "release quarantine message",
             "identifier": "release_quarantine_message",
             "description": "Release a quarantined message to all original recipients",
-            "verbose": "Runs one Azure Automation job for release. The runbook checks the exact identity is Requested, then executes Release-QuarantineMessage -Identity <id> -ReleaseToAll -Confirm:$false -ErrorAction Stop once. After a successful command it waits for Released using bounded status reads (default seven checks, ten seconds apart). The app waits for the same Azure job within the configured budget (default 600 seconds, status polling every five seconds). Errors include the known job ID and original cause. A timeout does not cancel the Azure job or prove that Exchange performed no action. No automatic writing retry, later recovery or operation ID is required. A deliberately started new action is a new request. Use inspect release environment only when manual diagnosis is wanted.",
+            "verbose": "Runs one Azure Automation job for release. The runbook checks the exact identity is Requested, then executes Release-QuarantineMessage -Identity <id> -ReleaseToAll -Confirm:$false -ErrorAction Stop once. After a successful command it waits for Released using bounded status reads (default seven checks, ten seconds apart). The app waits for the same Azure job within the configured budget (default 600 seconds, status polling every five seconds). Errors include the known job ID and original cause. A timeout does not cancel the Azure job or prove that Exchange performed no action. No automatic writing retry, later recovery or operation ID is required. A deliberately started new action is a new request. Use inspect release environment only when manual diagnosis is wanted. A same-identity conflict on the shared SOAR execution host submits no job. Consult summary.outcome and data.error_code; never retry pending or unknown results before inspection.",
             "type": "correct",
             "read_only": false,
             "parameters": {
                 "identity": {
-                    "description": "Quarantine message Identity in the exact format GUID1\\GUID2 (e.g. c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7). Use container:data.quarantine_identity from the ingested SOAR event or quarantine_identity from the ES finding. The format is validated before the webhook fires - malformed values fail immediately without starting a runbook job.",
+                    "description": "Quarantine message Identity in the exact format GUID1\\GUID2 (e.g. c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7). Use container:data.quarantine_identity from the ingested SOAR event (the linked SOAR container for an ES finding). The format is validated before the webhook fires - malformed values fail immediately without starting a runbook job.",
                     "data_type": "string",
                     "required": true,
                     "primary": true,
@@ -789,14 +846,13 @@
                         "released",
                         "already_released"
                     ],
-                    "column_name": "Status",
-                    "column_order": 1
+                    "description": "Present on confirmed dispositions; distinguishes a new confirmation from an already-matching status."
                 },
                 {
                     "data_path": "action_result.data.*.message",
                     "data_type": "string",
                     "example_values": [
-                        "Release request approval confirmed by Exchange quarantine status."
+                        "Quarantine release confirmed by Exchange."
                     ],
                     "column_name": "Message",
                     "column_order": 2
@@ -820,32 +876,36 @@
                     "data_path": "action_result.data.*.runbook_version",
                     "data_type": "string",
                     "example_values": [
-                        "3.4.2"
+                        "1.0.0"
                     ],
-                    "description": "Reported runbook version; informational, not an execution gate."
+                    "description": "Release version reported by the runbook, when available; not a build fingerprint."
                 },
                 {
                     "data_path": "action_result.data.*.azure_job_id",
                     "data_type": "string",
                     "example_values": [
                         "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-                    ]
+                    ],
+                    "description": "Azure job ID when submission returned one."
                 },
                 {
                     "data_path": "action_result.data.*.last_job_status",
                     "data_type": "string",
                     "example_values": [
                         "Running",
-                        "unknown"
-                    ]
+                        "Stopped",
+                        "Completed"
+                    ],
+                    "description": "Last observed Azure job status on an error, when available."
                 },
                 {
                     "data_path": "action_result.data.*.observed_release_status",
                     "data_type": "string",
                     "example_values": [
-                        "Requested",
-                        "Released"
-                    ]
+                        "Released",
+                        "PreparingToRelease"
+                    ],
+                    "description": "Matched terminal status on confirmation, or PreparingToRelease on a pending result."
                 },
                 {
                     "data_path": "action_result.data.*.observed_identity",
@@ -854,6 +914,29 @@
                         "c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"
                     ],
                     "description": "Identity returned by the final Get-QuarantineMessage verification attempt. Success requires an exact match."
+                },
+                {
+                    "data_path": "action_result.summary.outcome",
+                    "data_type": "string",
+                    "example_values": [
+                        "confirmed",
+                        "not_executed",
+                        "failed",
+                        "pending",
+                        "unknown"
+                    ]
+                },
+                {
+                    "data_path": "action_result.data.*.outcome",
+                    "data_type": "string",
+                    "description": "Same disposition outcome as the summary.",
+                    "column_name": "Outcome",
+                    "column_order": 1
+                },
+                {
+                    "data_path": "action_result.data.*.error_code",
+                    "data_type": "string",
+                    "description": "Present when SOAR reports an error, including pending or unknown results."
                 },
                 {
                     "data_path": "action_result.summary.status",
@@ -869,31 +952,35 @@
                     "data_type": "string",
                     "example_values": [
                         "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-                    ]
+                    ],
+                    "description": "Azure job ID when submission returned one."
                 },
                 {
                     "data_path": "action_result.summary.last_job_status",
                     "data_type": "string",
                     "example_values": [
                         "Running",
-                        "unknown"
-                    ]
+                        "Stopped",
+                        "Completed"
+                    ],
+                    "description": "Last observed Azure job status on an error, when available."
                 },
                 {
                     "data_path": "action_result.summary.runbook_version",
                     "data_type": "string",
                     "example_values": [
-                        "3.4.2"
+                        "1.0.0"
                     ],
-                    "description": "Reported runbook version; informational, not an execution gate."
+                    "description": "Release version reported by the runbook, when available; not a build fingerprint."
                 },
                 {
                     "data_path": "action_result.summary.observed_release_status",
                     "data_type": "string",
                     "example_values": [
-                        "Requested",
-                        "Released"
-                    ]
+                        "Released",
+                        "PreparingToRelease"
+                    ],
+                    "description": "Matched terminal status on confirmation, or PreparingToRelease on a pending result."
                 },
                 {
                     "data_path": "action_result.status",
@@ -907,7 +994,7 @@
                     "data_path": "action_result.message",
                     "data_type": "string",
                     "example_values": [
-                        "Message released successfully"
+                        "Quarantine release confirmed by Exchange."
                     ]
                 },
                 {
@@ -915,8 +1002,9 @@
                     "data_type": "boolean"
                 },
                 {
-                    "data_path": "action_result.data.*.error_code",
-                    "data_type": "string"
+                    "data_path": "action_result.data.*.runbook_build_id",
+                    "data_type": "string",
+                    "description": "Self-reported build fingerprint from the runbook, when available."
                 }
             ],
             "render": {
@@ -929,12 +1017,12 @@
             "action": "deny quarantine release",
             "identifier": "deny_quarantine_release",
             "description": "Deny a user's request to release a quarantined message",
-            "verbose": "Runs one Azure Automation job for deny. The runbook checks the exact identity is Requested, then executes Release-QuarantineMessage -Identity <id> -ReleaseToAll -ActionType Deny -Confirm:$false -ErrorAction Stop once. After a successful command it waits for Denied using bounded status reads (default seven checks, ten seconds apart). The app waits for the same Azure job within the configured budget (default 600 seconds, status polling every five seconds). Errors include the known job ID and original cause. A timeout does not cancel the Azure job or prove that Exchange performed no action. No automatic writing retry, later recovery or operation ID is required. A deliberately started new action is a new request. Use inspect release environment only when manual diagnosis is wanted.",
+            "verbose": "Runs one Azure Automation job for deny. The runbook checks the exact identity is Requested, then executes Release-QuarantineMessage -Identity <id> -ReleaseToAll -ActionType Deny -Confirm:$false -ErrorAction Stop once. After a successful command it waits for Denied using bounded status reads (default seven checks, ten seconds apart). The app waits for the same Azure job within the configured budget (default 600 seconds, status polling every five seconds). Errors include the known job ID and original cause. A timeout does not cancel the Azure job or prove that Exchange performed no action. No automatic writing retry, later recovery or operation ID is required. A deliberately started new action is a new request. Use inspect release environment only when manual diagnosis is wanted. A same-identity conflict on the shared SOAR execution host submits no job. Consult summary.outcome and data.error_code; never retry pending or unknown results before inspection.",
             "type": "correct",
             "read_only": false,
             "parameters": {
                 "identity": {
-                    "description": "Quarantine message Identity in the exact format GUID1\\GUID2 (e.g. c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7). Use container:data.quarantine_identity from the ingested SOAR event or quarantine_identity from the ES finding. The format is validated before the webhook fires - malformed values fail immediately without starting a runbook job.",
+                    "description": "Quarantine message Identity in the exact format GUID1\\GUID2 (e.g. c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7). Use container:data.quarantine_identity from the ingested SOAR event (the linked SOAR container for an ES finding). The format is validated before the webhook fires - malformed values fail immediately without starting a runbook job.",
                     "data_type": "string",
                     "required": true,
                     "primary": true,
@@ -958,14 +1046,13 @@
                         "denied",
                         "already_denied"
                     ],
-                    "column_name": "Status",
-                    "column_order": 1
+                    "description": "Present on confirmed dispositions; distinguishes a new confirmation from an already-matching status."
                 },
                 {
                     "data_path": "action_result.data.*.message",
                     "data_type": "string",
                     "example_values": [
-                        "Release request denied. Message remains in quarantine."
+                        "Quarantine deny confirmed by Exchange."
                     ],
                     "column_name": "Message",
                     "column_order": 2
@@ -989,32 +1076,36 @@
                     "data_path": "action_result.data.*.runbook_version",
                     "data_type": "string",
                     "example_values": [
-                        "3.4.2"
+                        "1.0.0"
                     ],
-                    "description": "Reported runbook version; informational, not an execution gate."
+                    "description": "Release version reported by the runbook, when available; not a build fingerprint."
                 },
                 {
                     "data_path": "action_result.data.*.azure_job_id",
                     "data_type": "string",
                     "example_values": [
                         "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-                    ]
+                    ],
+                    "description": "Azure job ID when submission returned one."
                 },
                 {
                     "data_path": "action_result.data.*.last_job_status",
                     "data_type": "string",
                     "example_values": [
                         "Running",
-                        "unknown"
-                    ]
+                        "Stopped",
+                        "Completed"
+                    ],
+                    "description": "Last observed Azure job status on an error, when available."
                 },
                 {
                     "data_path": "action_result.data.*.observed_release_status",
                     "data_type": "string",
                     "example_values": [
-                        "Requested",
-                        "Denied"
-                    ]
+                        "Denied",
+                        "PreparingToRelease"
+                    ],
+                    "description": "Matched terminal status on confirmation, or PreparingToRelease on a pending result."
                 },
                 {
                     "data_path": "action_result.data.*.observed_identity",
@@ -1023,6 +1114,29 @@
                         "c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"
                     ],
                     "description": "Identity returned by the final Get-QuarantineMessage verification attempt. Success requires an exact match."
+                },
+                {
+                    "data_path": "action_result.summary.outcome",
+                    "data_type": "string",
+                    "example_values": [
+                        "confirmed",
+                        "not_executed",
+                        "failed",
+                        "pending",
+                        "unknown"
+                    ]
+                },
+                {
+                    "data_path": "action_result.data.*.outcome",
+                    "data_type": "string",
+                    "description": "Same disposition outcome as the summary.",
+                    "column_name": "Outcome",
+                    "column_order": 1
+                },
+                {
+                    "data_path": "action_result.data.*.error_code",
+                    "data_type": "string",
+                    "description": "Present when SOAR reports an error, including pending or unknown results."
                 },
                 {
                     "data_path": "action_result.summary.status",
@@ -1038,31 +1152,35 @@
                     "data_type": "string",
                     "example_values": [
                         "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-                    ]
+                    ],
+                    "description": "Azure job ID when submission returned one."
                 },
                 {
                     "data_path": "action_result.summary.last_job_status",
                     "data_type": "string",
                     "example_values": [
                         "Running",
-                        "unknown"
-                    ]
+                        "Stopped",
+                        "Completed"
+                    ],
+                    "description": "Last observed Azure job status on an error, when available."
                 },
                 {
                     "data_path": "action_result.summary.runbook_version",
                     "data_type": "string",
                     "example_values": [
-                        "3.4.2"
+                        "1.0.0"
                     ],
-                    "description": "Reported runbook version; informational, not an execution gate."
+                    "description": "Release version reported by the runbook, when available; not a build fingerprint."
                 },
                 {
                     "data_path": "action_result.summary.observed_release_status",
                     "data_type": "string",
                     "example_values": [
-                        "Requested",
-                        "Denied"
-                    ]
+                        "Denied",
+                        "PreparingToRelease"
+                    ],
+                    "description": "Matched terminal status on confirmation, or PreparingToRelease on a pending result."
                 },
                 {
                     "data_path": "action_result.status",
@@ -1076,7 +1194,7 @@
                     "data_path": "action_result.message",
                     "data_type": "string",
                     "example_values": [
-                        "Release request denied"
+                        "Quarantine deny confirmed by Exchange."
                     ]
                 },
                 {
@@ -1084,8 +1202,9 @@
                     "data_type": "boolean"
                 },
                 {
-                    "data_path": "action_result.data.*.error_code",
-                    "data_type": "string"
+                    "data_path": "action_result.data.*.runbook_build_id",
+                    "data_type": "string",
+                    "description": "Self-reported build fingerprint from the runbook, when available."
                 }
             ],
             "render": {

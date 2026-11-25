@@ -89,3 +89,23 @@ def test_optional_diagnostics_do_not_gate_success(action, terminal, switch):
     assert report["writes"] == 1
     assert report["result"]["status"] == terminal.lower()
     make_utils()._validate_runbook_result(report["result"], action, IDENTITY)
+
+
+@pytest.mark.parametrize("action,statuses,expected_writes", [
+    ("release", "Requested,PreparingToRelease", 1),
+    ("release", "PreparingToRelease", 0),
+    ("deny", "PreparingToRelease", 0),
+    ("deny", "Requested,PreparingToRelease", 1),
+])
+def test_preparing_to_release_is_reported_as_pending_without_rewrite(
+    action, statuses, expected_writes,
+):
+    report = run_fixture(action, statuses)
+    assert report["writes"] == expected_writes
+    assert report["reads"] == (8 if expected_writes else 1)
+    data = report["result"]
+    assert data["error"] is True
+    assert data["error_code"] == "release_pending"
+    assert data["observed_release_status"] == "PreparingToRelease"
+    with pytest.raises(RunbookActionError):
+        make_utils()._raise_for_runbook_error(data, action, IDENTITY)

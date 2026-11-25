@@ -2,3 +2,6 @@
 # app manifest; install this file only for local development and CI.
 pytest>=8,<10
 requests-mock>=1.12,<2
+
+# Match the cryptography release bundled in the legacy SOAR app.
+cryptography==50.0.0

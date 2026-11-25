@@ -38,31 +38,72 @@ for source_file in \
 done
 cp runbook/runbook.ps1 "${build_tmp}/runbook.ps1"
 
-# Verify the exact staged bytes, including the separately shipped runbook,
-# before touching any previous successful output. Index/status cleanliness is
-# not the contract: unrelated docs/tests/output may remain dirty or untracked.
-python3 - "${source_commit}" "${build_tmp}" "${app_dir_name}" <<'VERIFY'
+# Verify staged inputs against the selected commit before touching previous
+# output. Dependencies are copied offline from the exact manifest/lock set.
+wheel_members=$(python3 - "${source_commit}" "${build_tmp}" "${app_dir_name}" <<'VERIFY'
+import hashlib
+import json
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import sys
 
 commit, staging, app_name = sys.argv[1:]
 staging = Path(staging)
-inputs = sorted((staging / app_name).iterdir()) + [staging / "runbook.ps1"]
-for path in inputs:
-    if path.parent == staging:
-        source_path = "runbook/runbook.ps1"
-    elif path.name == "LICENSE":
-        source_path = "LICENSE"
-    else:
-        source_path = f"app/{path.name}"
+app = staging / app_name
+
+
+def verify(data, source_path):
     result = subprocess.run(
         ["git", "--no-replace-objects", "cat-file", "blob", f"{commit}:{source_path}"],
         capture_output=True,
     )
-    if result.returncode or result.stdout != path.read_bytes():
+    if result.returncode or result.stdout != data:
         sys.exit(f"Source provenance mismatch: {source_path} does not match {commit}")
+
+
+for path in sorted(app.iterdir()):
+    verify(path.read_bytes(), "LICENSE" if path.name == "LICENSE" else f"app/{path.name}")
+verify((staging / "runbook.ps1").read_bytes(), "runbook/runbook.ps1")
+
+lock_path = "tools/wheel-lock.json"
+lock_data = Path(lock_path).read_bytes()
+verify(lock_data, lock_path)
+lock = json.loads(lock_data)
+manifest = json.loads((app / "ms_quarantine_for_splunk_soar.json").read_bytes())
+wheel_paths = set()
+for key in ("pip39_dependencies", "pip313_dependencies"):
+    entries = manifest[key]["wheel"]
+    seen_modules = set()
+    for entry in entries:
+        module, wheel = entry["module"], entry["input_file"]
+        if not re.fullmatch(r"wheels/py(?:3|39|313)/[A-Za-z0-9_.-]+\.whl", wheel):
+            sys.exit(f"Invalid wheel path in {key}: {wheel}")
+        if module in seen_modules or not Path(wheel).name.startswith(f"{module}-"):
+            sys.exit(f"Invalid or duplicate wheel module in {key}: {module}")
+        seen_modules.add(module)
+        wheel_paths.add(wheel)
+    if "cryptography" not in seen_modules:
+        sys.exit(f"Missing cryptography wheel in {key}")
+if wheel_paths != set(lock["wheels"]):
+    sys.exit("Manifest dependency wheels do not match tools/wheel-lock.json")
+
+members = set()
+for wheel in sorted(wheel_paths):
+    dest = app / wheel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    source_path = f"app/{wheel}"
+    shutil.copyfile(source_path, dest)
+    data = dest.read_bytes()
+    verify(data, source_path)
+    if hashlib.sha256(data).hexdigest() != lock["wheels"][wheel]["sha256"]:
+        sys.exit(f"Wheel SHA-256 mismatch: {source_path}")
+    members.add(f"{app_name}/{wheel}")
+    members.update(f"{app_name}/{parent}/" for parent in Path(wheel).parents if parent != Path("."))
+print("\n".join(sorted(members)))
 VERIFY
+)
 
 manifest="${build_tmp}/${app_dir_name}/ms_quarantine_for_splunk_soar.json"
 app_version=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["app_version"])' "${manifest}")
@@ -91,7 +132,8 @@ expected_members=$(printf '%s\n' \
     "${app_dir_name}/ms_quarantine_for_splunk_soar_utils.py" \
     "${app_dir_name}/ms_quarantine_for_splunk_soar_es_ingestion.py" \
     "${app_dir_name}/ms_quarantine_for_splunk_soar_ingestion.py" \
-    "${app_dir_name}/readme.html" | LC_ALL=C sort)
+    "${app_dir_name}/readme.html" \
+    "${wheel_members}" | LC_ALL=C sort)
 actual_members=$(tar -tzf "${app_artifact}" | LC_ALL=C sort)
 if [[ "${actual_members}" != "${expected_members}" ]]; then
     echo "Legacy SOAR package member contract failed." >&2

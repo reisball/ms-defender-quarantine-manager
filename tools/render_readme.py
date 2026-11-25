@@ -62,27 +62,26 @@ ExchangeOnlineManagement module in its PowerShell runtime.</li>
 Exchange/Defender permissions for the quarantine actions you intend to use.
 Exchange sign-in uses Managed Identity, not the asset's client secret.</li>
 <li>Create a runbook webhook. Enter its direct HTTPS URL and the Automation
-Account coordinates in the asset. Configure a separate App Registration with
-Automation Job Operator access on that account for reading Azure job status
-and output. Enter its tenant ID, client ID and client secret value.</li>
+Account coordinates in the asset. The webhook starts jobs. For the separate App
+Registration, assign a custom read-only role at the Automation Account scope with
+<code>Microsoft.Automation/automationAccounts/jobs/read</code> and
+<code>Microsoft.Automation/automationAccounts/jobs/output/read</code> only.
+Check inherited assignments for broader permissions. Enter the App
+Registration's tenant ID, client ID and client secret value.</li>
 <li>Set the Exchange tenant domain in the asset or in the Automation Variable
 <code>ExchangeOrganization</code>; the asset value takes precedence.</li>
 <li>Use one ingesting asset per tenant. Select the target before starting
 Requested-only intake. Configure the container label and schedule in Ingest Settings;
-disable the schedule to pause automatic imports. Use Poll Now for a manual import. For ES, use the native ES ingest settings
-and register the five additional fields below.</li>
+disable the schedule to pause automatic imports. Use Poll Now for a manual import. For ES, use the native ES ingest settings below.</li>
 <li>Configure the analysis playbook's asset bindings, analyst/approver settings,
 notification recipients, portal links and routing label before activation.
 Publish and confirm the matching runbook first, install the matching app, then activate its compatible playbook.
 For combined-layout SOAR, start analysis from the completed mail's single email artifact.</li>
 </ol>
 <p>Native email import requires authenticated local SOAR REST access, including
-when importing into SOAR rather than ES. Automation Broker is not supported;
-SOAR Cloud compatibility has not been verified. The manifest minimum is SOAR 8.5.0
+when importing into SOAR rather than ES. Automation Broker is not supported. The manifest minimum is SOAR 8.5.0
 with Python 3.9/3.13 runtimes; use the runtime supported by your platform.
-SOAR 8.7 and later use Python 3.13. Source version labels and local tests are not
-evidence of a customer deployment; select a unique release version before
-handover of changed runtime bytes.</p>
+SOAR 8.7 and later use Python 3.13.</p>
 <h2>Email import</h2>
 <p><code>on_poll_max_containers</code> is a maximum of simultaneously unresolved
 Microsoft quarantine identities, configurable 1–50 and default 10. It is not a
@@ -100,6 +99,7 @@ republished. Older pending or unconfirmed attempts are not automatically replaye
 They require a deliberate Poll Now retry and must appear as <code>Requested</code>
 in the first 50 candidates. Microsoft-status checks continue for tracked identities. A mail left unchanged can occupy a slot indefinitely. Failed imports also hold
 their slot; retrying one does not consume an additional slot.</p>
+<h3>SOAR events</h3>
 <p>New SOAR events are named after the email subject, without a prefix;
 mail without a subject uses <code>[No subject]</code>.</p>
 <p>Original email and attachments are saved automatically to the container's
@@ -129,10 +129,7 @@ stored field selections remain readable. ES uses its configured native
 threat-analysis and automation settings unchanged. Publication acceptance does
 not prove that an analysis workflow finished.</p>
 <h2>Native ES prerequisites</h2>
-<p>Register <code>quarantine_identity</code>, <code>work_item_id</code>,
-<code>source_data_identifier</code>, <code>quarantine</code> and
-<code>eml_sha256</code> as accepted additional fields in the target ES environment.
-The app does not register them. Configure a valid security domain; urgency and
+<p>No custom ES fields are required. For Release/Deny use <code>container:data.quarantine_identity</code> from the linked SOAR container. Configure a valid security domain; urgency and
 investigation type are optional native settings. Analyst download links use the
 validated external HTTPS base URL from SOAR system information. Test their
 reachability and mail/attachment rendering from the analyst interface. ES is a
@@ -154,8 +151,16 @@ not followed. Configure the platform's trusted CA store for private certificates
 """ + "\n".join(rows) + """
 </tbody></table>
 <h2>Available actions</h2>
+<p><b>Test connectivity</b> reports the installed app and connected runbook
+release versions, and warns if they differ or cannot be compared. The
+separately reported runbook build fingerprint helps identify the deployed
+runbook; equal version labels do not prove both came from the same build.</p>
 <p>Release and Deny run only when invoked by an operator or playbook. The app
-submits one Azure job, waits for its output and returns a native ActionResult.
+serializes calls for the same Entra tenant UUID and quarantine identity across
+assets and workers sharing the same Linux host, service UID and temporary
+directory. A conflict submits no job. This does not cover separate hosts or
+isolated workers. The app then submits one Azure job, waits for its output and
+returns a native ActionResult.
 The runbook checks the exact identity and requires Microsoft <code>Requested</code>
 or an already matching terminal status. Release uses
 <code>Release-QuarantineMessage -Identity &lt;id&gt; -ReleaseToAll -Confirm:$false -ErrorAction Stop</code>;
@@ -190,7 +195,11 @@ deduplicated, and a newly failed attempt is not retried again within that poll.<
 <p>Native container, Vault, artifact and ES calls are not one exactly-once
 transaction. If an ES response is lost, a finding may already exist; a fresh
 attempt can duplicate it. Inspect native evidence before deciding to retry.</p>
-<p>For Release/Deny failures, read the actual Azure/Exchange error and known
+<p>Release/Deny reports <code>summary.outcome</code>:
+<code>confirmed</code>, <code>not_executed</code>, <code>failed</code>,
+<code>pending</code> (Exchange <code>PreparingToRelease</code>), or
+<code>unknown</code>. On errors, read <code>data.*.error_code</code>,
+the actual Azure/Exchange error and known
 <code>azure_job_id</code> in the native ActionResult. A timeout means the result
 is unknown; it does not cancel Azure. Inspect the original job and output in
 Azure Automation. If the webhook response was lost without a job ID, inspect

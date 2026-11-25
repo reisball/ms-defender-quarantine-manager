@@ -65,12 +65,12 @@ def test_status_read_failure_blocks_scheduled_intake_until_observation_recovers(
     status, ar = poll(c)
     assert status == t.APP_ERROR
     assert ar.get_summary()["active_messages"] == 2
-    assert [call[0] for call in c.calls] == ["reconcile"]
+    assert [call[0] for call in c.calls] == ["list", "reconcile"]
     assert not c.events
 
     c.observed[identities[0]] = "Requested"
     c.calls.clear()
     assert poll(c)[0] == t.APP_SUCCESS
-    assert [identity for action, identity, _ in c.calls if action == "reconcile"] == identities[1:] + identities[:1]
+    assert [call[0] for call in c.calls] == ["list", "export"]
     assert len(c._ingest_records()) == 3
     assert len([e for e in c.events if e[0] in {"publish", "es_publish"}]) == 1

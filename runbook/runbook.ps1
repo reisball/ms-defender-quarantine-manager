@@ -23,7 +23,7 @@
         deny    -> Release-QuarantineMessage -Identity <identity> -ReleaseToAll -ActionType Deny -Confirm:$false
 
     Expected webhook body (JSON):
-        { "action": "list" }
+        { "action": "protected_list_v1", "output_public_key": "<base64 DER RSA public key>" }
         { "action": "export",  "identity": "GUID1\\GUID2" }
         { "action": "diagnose", "identity": "GUID1\\GUID2", "include_rbac": false }
         { "action": "reconcile", "identity": "GUID1\\GUID2" }
@@ -56,7 +56,9 @@
     evidence names the effective method (ManagedIdentity), the organization and
     where each value came from (webhook, automation_variable or default).
 
-    Output format (always JSON, written via Write-Output):
+    Output format:
+        List and export JSON is encrypted before Write-Output. The paired app
+        decrypts and validates the records into the following logical results.
         list:
             { "action": "list", "count": 2, "messages": [ {...}, {...} ] }
         export, small EML:
@@ -90,7 +92,6 @@
         - Operational Exchange/Email & collaboration RBAC assigned
         - Least privilege: register the Managed Identity service principal in
           Exchange and add it to a custom role group containing Quarantine
-        - Broader alternative: Security Administrator Entra role
         - Reference: https://learn.microsoft.com/en-us/powershell/exchange/connect-exo-powershell-managed-identity
         - Reference: https://learn.microsoft.com/en-us/powershell/exchange/app-only-auth-powershell-v2#option-2-assign-custom-role-groups-to-the-application-using-service-principals
 
@@ -102,7 +103,7 @@
     Author:  Kai Seidenschnur
     Copyright: 2026 Kai Seidenschnur
     License: Apache-2.0
-    Version: 3.7.4
+    Version: 1.0.0
     Runtime: match the exact known-good Microsoft Automation job (account,
              system identity, runtime, module); the loaded
              ExchangeOnlineManagement version is reported by diagnose and
@@ -134,19 +135,23 @@
         Release-QuarantineMessage has no output object. Release and deny are
         therefore confirmed by polling the exact identity with
         Get-QuarantineMessage. Success requires ReleaseStatus=Released or
-        ReleaseStatus=Denied. An unconfirmed postcondition fails closed as
-        outcome unknown and must not be retried blindly.
+        ReleaseStatus=Denied. PreparingToRelease is reported as pending. Other
+        unconfirmed postconditions have unknown outcome. Do not retry blindly.
 
-    Normal results contain only action, identity, status and the verified
-    observed_identity/observed_release_status. After a successful cmdlet the
+    Confirmed disposition results contain action, identity, status, verified
+    observed_identity/observed_release_status and the stamped runbook version,
+    source revision and build ID. Disposition errors include the same build
+    metadata and report observed_release_status when release is pending.
+    After a successful cmdlet the
     default status-read budget is 7 attempts, 10 seconds apart. A cmdlet error
     is reported immediately: there is no later error-to-success reconstruction.
     Errors use one JSON object with redacted, bounded native text, error_code,
     error_context and optional native exception fields (no error chunk stream).
 
     Optional manual diagnostics:
-        Only diagnose collects build, runtime, connection and command metadata,
-        proxy details, and (with include_rbac=true) tenant RBAC evidence.
+        Only diagnose collects optional runtime, connection and command
+        diagnostics, proxy details, and (with include_rbac=true) tenant RBAC
+        evidence.
         Diagnostics are never a prerequisite for normal commands. Missing RBAC
         diagnostic cmdlets are reported explicitly as not evaluated.
 
@@ -207,16 +212,91 @@ function Write-ErrorResult {
     # Only explicitly requested diagnostics include the optional evidence report.
     if ($Action -eq "diagnose" -and $Details.Count -gt 0) {
         $resultData.details = $Details
+    } elseif ($Action -in @("release", "deny") -and $ErrorCode -eq "release_pending") {
+        $resultData.observed_release_status = "PreparingToRelease"
+    } elseif ($Action -eq "export" -and $ErrorCode -eq "export_oversized") {
+        $resultData.decoded_size = $Details.decoded_size
+        $resultData.max_decoded_size = $Details.max_decoded_size
+        $resultData.handling = "fail_closed"
     }
-    Write-ErrorEnvelope -Data $resultData
+    if ($Action -in @("release", "deny")) {
+        Add-RunbookEnvelopeMetadata -Data $resultData
+    }
+    if ($Action -in @("list", "export") -and $null -ne $script:protectedCipher) {
+        Write-ProtectedOutput -Json ($resultData | ConvertTo-Json -Depth 10 -Compress) -Action $Action -Final
+    } else {
+        Write-ErrorEnvelope -Data $resultData
+    }
     # Azure job completion is transport success; error=true is application failure.
     exit 0
 }
 
+# Protect only mail-bearing responses. The webhook contains a public key,
+# never the per-job AES key. Bind each record's position and final flag to its tag.
+function Initialize-ProtectedOutput {
+    param([object] $PublicKey)
+    if ($PublicKey -isnot [string] -or $PublicKey.Length -gt 600) {
+        throw "A 2048-bit RSA public key is required."
+    }
+    $der = [Convert]::FromBase64String($PublicKey)
+    $rsa = [System.Security.Cryptography.RSA]::Create()
+    try {
+        [int] $consumed = 0
+        $rsa.ImportSubjectPublicKeyInfo($der, [ref] $consumed)
+        if ($rsa.KeySize -ne 2048 -or $consumed -ne $der.Length) {
+            throw "Invalid protected-output RSA key."
+        }
+        $key = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
+        try {
+            $script:protectedWrappedKey = [Convert]::ToBase64String(
+                $rsa.Encrypt($key, [System.Security.Cryptography.RSAEncryptionPadding]::OaepSHA256)
+            )
+            $script:protectedCipher = [System.Security.Cryptography.AesGcm]::new($key)
+            $script:protectedIndex = 0
+        } finally {
+            [Array]::Clear($key, 0, $key.Length)
+        }
+    } finally {
+        $rsa.Dispose()
+    }
+}
+
+function Write-ProtectedOutput {
+    param([string] $Json, [string] $Action, [switch] $Final)
+    if ($null -eq $script:protectedCipher) {
+        throw "Protected-output cipher not initialized."
+    }
+    $finalMarker = if ($Final) { 1 } else { 0 }
+    $aad = [Text.Encoding]::ASCII.GetBytes(
+        "msq-protected-v1:${Action}:$($script:protectedIndex):$finalMarker"
+    )
+    $plain = [Text.Encoding]::UTF8.GetBytes($Json)
+    $nonce = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(12)
+    $ciphertext = [byte[]]::new($plain.Length)
+    $tag = [byte[]]::new(16)
+    try {
+        $script:protectedCipher.Encrypt($nonce, $plain, $ciphertext, $tag, $aad)
+    } finally {
+        [Array]::Clear($plain, 0, $plain.Length)
+    }
+    $record = @{
+        mode = "msq-protected-v1"
+        index = $script:protectedIndex
+        final = $Final.IsPresent
+        nonce = [Convert]::ToBase64String($nonce)
+        ciphertext = [Convert]::ToBase64String($ciphertext)
+        tag = [Convert]::ToBase64String($tag)
+    }
+    if ($script:protectedIndex -eq 0) {
+        $record.wrapped_key = $script:protectedWrappedKey
+    }
+    $script:protectedIndex++
+    Write-Output ($record | ConvertTo-Json -Compress)
+}
+
 function ConvertTo-RunbookJson {
     param([hashtable] $Data)
-    # Preserve list/export transport metadata; ordinary action results stay small.
-    if ($Data.action -in @("list", "export", "diagnose")) {
+    if ($Data.action -in @("list", "export", "diagnose", "release", "deny")) {
         Add-RunbookEnvelopeMetadata -Data $Data
     }
     return ($Data | ConvertTo-Json -Depth 10 -Compress)
@@ -231,24 +311,29 @@ function Write-SuccessResult {
             }
         }
     }
-    Write-Output (ConvertTo-RunbookJson -Data $Data)
+    $json = ConvertTo-RunbookJson -Data $Data
+    if ($Data.action -in @("list", "export")) {
+        Write-ProtectedOutput -Json $json -Action $Data.action -Final:($Data.mode -ne "chunked")
+    } else {
+        Write-Output $json
+    }
 }
 
 # ---------------------------------------------------------------------------
 # Transport limits. These values intentionally mirror the SOAR parser.
 # ---------------------------------------------------------------------------
-$ListMaxRecordBytes        = 900 * 1024
+$ListMaxRecordBytes        = 700 * 1024
 $ListMaxResultCount        = 1000
-$ExportChunkThresholdBytes = 750 * 1024
+$ExportChunkThresholdBytes = 700 * 1024
 $ExportChunkSizeChars     = 250 * 1024
 $ExportMaxChunkCount      = 200
 $ExportMaxDecodedBytes    = 24 * 1024 * 1024
 $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
-$RunbookVersion           = "3.7.4"
-$RunbookSourceRevision    = "sha256:b68bdb2989288f67bb1456e4336cd298a847a5196476464ecf86d78bf5b1e17e"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-3.7.4+sha256.b68bdb2989288f67bb1456e4336cd298a847a5196476464ecf86d78bf5b1e17e"
+$RunbookVersion           = "1.0.0"
+$RunbookSourceRevision    = "sha256:8ee502e412e9752726817a9e2255f4895d78dd85600de2840b9ca5b45179bcac"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.8ee502e412e9752726817a9e2255f4895d78dd85600de2840b9ca5b45179bcac"
 $ReleaseContractId        = "identity_releasetoall"
 $DenyContractId           = "identity_releasetoall_actiontype_deny"
 $PostconditionMaxAttempts = 7
@@ -319,10 +404,21 @@ function Write-ErrorEnvelope {
 }
 
 function ConvertTo-OutputTimestamp {
-    param([object] $Value)
+    param([object] $Value, [switch] $ExpiryEvidence)
 
     if ($null -eq $Value) {
         return ""
+    }
+    if ($ExpiryEvidence) {
+        # Never infer a date, time, or offset for the intake retirement check.
+        if ($Value -is [datetime] -and $Value.Kind -ne [DateTimeKind]::Utc) {
+            return [datetime]::SpecifyKind($Value, [DateTimeKind]::Unspecified).ToString(
+                "o", [System.Globalization.CultureInfo]::InvariantCulture
+            )
+        }
+        if ($Value -isnot [datetime] -and $Value -isnot [datetimeoffset]) {
+            return $Value.ToString()
+        }
     }
     if ($Value -is [datetime]) {
         return $Value.ToString("o", [System.Globalization.CultureInfo]::InvariantCulture)
@@ -1921,8 +2017,11 @@ function Invoke-QuarantineDisposition {
 }
 
 function Read-QuarantineStatus {
-    param([string] $Identity)
+    param([string] $Identity, [switch] $AllowMissing)
     $messages = @(Get-QuarantineMessage -Identity $Identity -ErrorAction Stop 3>$null 4>$null 5>$null 6>$null)
+    if ($AllowMissing -and $messages.Count -eq 0) {
+        return @{ ObservedIdentity = $Identity; ObservedStatus = "NotFound" }
+    }
     if ($messages.Count -ne 1) {
         throw "Get-QuarantineMessage returned $($messages.Count) results for one identity."
     }
@@ -2054,7 +2153,7 @@ function Write-ChunkedList {
     }
 
     foreach ($jsonChunk in $jsonChunks) {
-        Write-Output $jsonChunk
+        Write-ProtectedOutput -Json $jsonChunk -Action "list"
     }
     Write-SuccessResult @{
         action      = "list"
@@ -2319,6 +2418,9 @@ function Invoke-RequestedDisposition {
         }
         return
     }
+    if ($before.ObservedStatus -ieq "PreparingToRelease") {
+        Write-ErrorResult -Action $Action -ErrorCode "release_pending" -ErrorContext "Get-QuarantineMessage" -Message "Exchange is already preparing to release this message. No new disposition command was executed; check Exchange before starting another action."
+    }
     if ($before.ObservedStatus -ine $selectionReleaseStatus) {
         Write-ErrorResult -Action $Action -ErrorCode "precondition_unconfirmed" -ErrorContext "Get-QuarantineMessage" -Message "Exchange did not confirm ReleaseStatus=$selectionReleaseStatus for identity '$Identity' (observed $($before.ObservedStatus)). No disposition cmdlet was executed."
     }
@@ -2330,6 +2432,9 @@ function Invoke-RequestedDisposition {
     }
     $after = Wait-QuarantinePostcondition -Identity $Identity -ExpectedStatus $expectedStatus
     if (-not $after.Confirmed) {
+        if ($after.ObservedStatus -ieq "PreparingToRelease") {
+            Write-ErrorResult -Action $Action -ErrorCode "release_pending" -ErrorContext "Get-QuarantineMessage" -Message "Exchange reports PreparingToRelease; a release is pending and the requested disposition is not confirmed. Check Exchange before starting another action."
+        }
         $message = "The command returned without error, but Exchange did not confirm ReleaseStatus=$expectedStatus for identity '$Identity' after $($after.Attempts) checks. Outcome is unknown; inspect Exchange before deciding on a new action."
         if ($after.LastError) { $message += " Last status read: $($after.LastError)" }
         Write-ErrorResult -Action $Action -ErrorCode "postcondition_unconfirmed" -ErrorContext "Get-QuarantineMessage" -Message $message
@@ -2379,7 +2484,6 @@ if (
 }
 
 # Extract and validate action
-# Note: avoid the ?? operator so the script also runs on PS 5.1, not only 7.2
 if ($null -ne $body.action -and $body.action -isnot [string]) {
     Write-ErrorResult `
         -Action "unknown" `
@@ -2404,6 +2508,11 @@ if ($action.Length -gt 32) {
         -ErrorCode "invalid_action_length" `
         -ErrorContext "webhook_body_validation" `
         -Message "Webhook field 'action' exceeds the supported length."
+}
+
+$protectedRequested = $action -in @("protected_list_v1", "protected_export_v1")
+if ($protectedRequested) {
+    $action = if ($action -eq "protected_list_v1") { "list" } else { "export" }
 }
 
 $validActions = @(
@@ -2446,6 +2555,19 @@ if (
         -ErrorCode "invalid_identity_format" `
         -ErrorContext "webhook_body_validation" `
         -Message "Webhook field 'identity' must be an exact GUID1\\GUID2 pair."
+}
+
+if ($action -in @("list", "export")) {
+    if (-not $protectedRequested) {
+        Write-ErrorResult -Action $action -ErrorCode "protected_output_required" `
+            -Message "List and export require the paired app's protected-output transport."
+    }
+    try {
+        Initialize-ProtectedOutput -PublicKey $body.output_public_key
+    } catch {
+        Write-ErrorResult -Action $action -ErrorCode "protected_output_unavailable" `
+            -Message "Protected output requires a valid public key and a supported PowerShell 7 runtime."
+    }
 }
 
 function Get-OptionalWebhookSetting {
@@ -2781,7 +2903,7 @@ try {
                     Subject          = $_.Subject
                     Type             = $_.Type
                     ReceivedTime     = ConvertTo-OutputTimestamp -Value $_.ReceivedTime
-                    Expires          = ConvertTo-OutputTimestamp -Value $_.Expires
+                    Expires          = ConvertTo-OutputTimestamp -Value $_.Expires -ExpiryEvidence
                     PolicyName       = $_.PolicyName
                     ReleaseStatus    = $_.ReleaseStatus
                 }
@@ -2794,7 +2916,7 @@ try {
             }
             $listJson = ConvertTo-RunbookJson -Data $listResult
             if ((Get-Utf8ByteCount -Content $listJson) -le $ListMaxRecordBytes) {
-                Write-Output $listJson
+                Write-ProtectedOutput -Json $listJson -Action "list" -Final
             } else {
                 Write-ChunkedList -Messages @($normalised)
             }
@@ -2855,7 +2977,6 @@ try {
                         identity         = $identity
                         decoded_size     = $decodedSize
                         max_decoded_size = $ExportMaxDecodedBytes
-                        handling         = "fail_closed"
                     } `
                     -Message "Exported EML size $decodedSize bytes exceeds the cloud-sandbox safety cap of $ExportMaxDecodedBytes bytes. The message remains quarantined; no Vault import, analysis, or release was started."
             }
@@ -3054,8 +3175,9 @@ try {
         # reconcile: read the exact Exchange state without a disposition call
         # --------------------------------------------------------------------
         "reconcile" {
-            # One plain read for the connector's active-window decision.
-            $observation = Read-QuarantineStatus -Identity $identity
+            # An empty, successful exact lookup is different from a thrown
+            # Exchange error. Release/Deny continue to require a real row.
+            $observation = Read-QuarantineStatus -Identity $identity -AllowMissing
             Write-SuccessResult @{
                 action = "reconcile"
                 identity = $identity
@@ -3088,5 +3210,6 @@ try {
 
 } finally {
     # Always disconnect; cleanup failure never changes the action result.
+    if ($null -ne $script:protectedCipher) { $script:protectedCipher.Dispose() }
     $null = Close-ExchangeSessionBestEffort
 }

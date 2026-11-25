@@ -471,10 +471,38 @@ def test_missing_business_payload_is_error_with_known_job(utils, clock, action, 
 def test_runbook_error_retains_job_context_for_native_poll(utils, clock):
     payload = {'action': 'export', 'identity': IDENTITY, 'error': True,
                'message': 'Exchange export: permission denied', 'error_code': 'export_failed'}
-    utils._session.get.side_effect = [job('Completed'), response(payload)]
+    if __package__:
+        from .test_connector import protect_fixture_output
+    else:
+        from test_connector import protect_fixture_output
+
+    def protected_output():
+        return response(text=protect_fixture_output(
+            json.dumps(payload), utils._session.post.call_args.kwargs["json"],
+        ))
+
+    utils._session.get.side_effect = lambda *args, **kwargs: (
+        protected_output() if "/output" in args[0] else job("Completed")
+    )
     with pytest.raises(u.RunbookActionError) as caught:
         utils.run_action('export', IDENTITY)
     assert caught.value.job_id == JOB_ID
     assert caught.value.last_status == 'Completed'
     assert caught.value.result['message'] == payload['message']
     utils._session.post.assert_called_once()
+
+
+@pytest.mark.parametrize("mismatch", [None, "identity", "observed_identity"])
+def test_exact_missing_observation_requires_matching_identities(utils, clock, mismatch):
+    result = {
+        "action": "reconcile", "identity": IDENTITY,
+        "observed_identity": IDENTITY, "observed_release_status": "NotFound",
+    }
+    if mismatch:
+        result[mismatch] = IDENTITY[:-1] + "8"
+    utils._session.get.side_effect = [job("Completed"), response(result)]
+    if mismatch:
+        with pytest.raises(u.AutomationError, match="identity"):
+            utils.run_action("reconcile", IDENTITY)
+    else:
+        assert utils.run_action("reconcile", IDENTITY) == result

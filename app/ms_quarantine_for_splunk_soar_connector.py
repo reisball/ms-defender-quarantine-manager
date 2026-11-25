@@ -14,7 +14,7 @@
 #     https://docs.splunk.com/Documentation/SOAR/current/PlaybookAPI/VaultAPI
 
 import base64
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from datetime import datetime, timezone
 from email import policy
 from email.parser import BytesParser
@@ -23,7 +23,9 @@ import fcntl
 import hashlib
 import json
 import os
+from pathlib import Path
 import re
+import stat
 import tempfile
 
 import phantom.app as phantom
@@ -178,7 +180,7 @@ def validate_identity_format(identity: str) -> str:
         return (
             f"Invalid identity format: '{identity}'. Expected GUID1\\GUID2, e.g. "
             "c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7. "
-            "Use quarantine_identity from the ingested event or finding."
+            "Use container:data.quarantine_identity from the SOAR event or the ES finding’s linked SOAR container."
         )
     return ""
 
@@ -1279,32 +1281,61 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             )
         self.save_progress("Token acquired.")
 
-        self.save_progress("Step 2/3: Firing webhook (action=list)...")
+        self.save_progress("Step 2/3: Starting protected list and waiting for completion...")
         try:
-            job_id = self._utils.fire_webhook("list")
+            def validate_list(output):
+                self.save_progress("Step 3/3: Validating the list result...")
+                self._normalise_list_result(output)
+
+            result = self._utils.run_action("list", validate_result=validate_list)
         except (WebhookError, TokenError, JobTimeoutError,
                 JobFailedError, AutomationError) as exc:
-            return action_result.set_status(
-                phantom.APP_ERROR,
-                self._map_error(exc, "test connectivity")
-            )
-        self.save_progress(f"Job started: {job_id}")
-
-        self.save_progress("Step 3/3: Polling for job completion...")
-        try:
-            output = self._utils.wait_for_action_result(job_id, "list")
-            self._normalise_list_result(output)
-        except AutomationError as exc:
-            exc.job_id = job_id
             return action_result.set_status(
                 phantom.APP_ERROR, self._map_error(exc, "test connectivity")
             )
 
-        return action_result.set_status(
-            phantom.APP_SUCCESS,
+        metadata, warning = self._runbook_version_evidence(result)
+        action_result.update_summary(metadata)
+        message = (
             "Connectivity test passed. Webhook, Azure AD token, job polling, "
             "and Exchange Online connection all working."
         )
+        if warning:
+            message += " Warning: " + warning
+        return action_result.set_status(phantom.APP_SUCCESS, message)
+
+    @staticmethod
+    def _runbook_version_evidence(result):
+        # Use the actual installed manifest, not the runbook's self-reported
+        # fingerprint as a proxy for a release version.
+        manifest = Path(__file__).with_name("ms_quarantine_for_splunk_soar.json")
+        try:
+            app_version = json.loads(manifest.read_text(encoding="utf-8"))["app_version"]
+        except (OSError, ValueError, KeyError, TypeError):
+            app_version = ""
+        version = result.get("runbook_version")
+        build_id = result.get("runbook_build_id")
+        version_pattern = r"[0-9]{1,8}(?:\.[0-9]{1,8}){2}"
+        build_pattern = rf"ms-quarantine-for-splunk-soar-runbook-{version_pattern}\+sha256\.[0-9a-f]{{64}}"
+        summary = {}
+        if isinstance(app_version, str) and re.fullmatch(version_pattern, app_version):
+            summary["app_version"] = app_version
+        if isinstance(version, str) and re.fullmatch(version_pattern, version):
+            summary["runbook_version"] = version
+        if isinstance(build_id, str) and re.fullmatch(build_pattern, build_id):
+            summary["runbook_build_id"] = build_id
+        if not {"app_version", "runbook_version"} <= summary.keys():
+            warning = "App/runbook version comparison unavailable; verify the installed pair against the release package."
+        elif app_version != version:
+            warning = (
+                f"App version {app_version} differs from runbook version {version}. "
+                "Install the runbook from the same release before enabling automation."
+            )
+        else:
+            warning = ""
+        if warning:
+            summary["version_warning"] = warning
+        return summary, warning
 
     # -----------------------------------------------------------------------
     # Shared Requested-list normalization
@@ -1604,8 +1635,83 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             f"{self._rbac_diagnostic_message(result)}.",
         )
 
+    @contextmanager
+    def _disposition_lock(self, tenant, identity):
+        """Serialize same-tenant writes across workers sharing the local lock directory."""
+        uid = os.geteuid()
+        directory = os.path.join(tempfile.gettempdir(), f"msq-soar-disposition-{uid}")
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        dir_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            info = os.fstat(dir_fd)
+            if info.st_uid != uid or info.st_mode & 0o077:
+                raise PermissionError("Disposition lock directory is not private.")
+            key = hashlib.sha256(f"{tenant}|{identity.lower()}".encode("ascii")).hexdigest()
+            fd = os.open(
+                key, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd,
+            )
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_mode & 0o077:
+                    raise PermissionError("Disposition lock file is not private.")
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                yield
+            finally:
+                # Closing releases the lock. Never unlink: another worker may
+                # already hold an open descriptor for the same inode.
+                os.close(fd)
+        finally:
+            os.close(dir_fd)
+
+    @staticmethod
+    def _disposition_error_result(
+        action_result, action, identity, outcome, code, message, *, data=None,
+        job_id="", last_status="",
+    ):
+        result = dict(data or {})
+        result.update({
+            "action": action, "identity": identity, "azure_job_id": job_id,
+            "error": True, "error_code": code, "outcome": outcome, "message": message,
+        })
+        if last_status:
+            result["last_job_status"] = last_status
+        action_result.add_data(result)
+        summary = {
+            "status": "error", "outcome": outcome,
+            "azure_job_id": job_id, "last_job_status": last_status,
+        }
+        for key in ("runbook_version", "observed_release_status"):
+            if result.get(key):
+                summary[key] = result[key]
+        action_result.update_summary(summary)
+        return action_result.set_status(phantom.APP_ERROR, message)
+
     def _execute_disposition(self, action_result, action, identity):
-        """Run one requested disposition; native SOAR owns its result/history."""
+        """Keep the lock from before webhook submission through result validation."""
+        configured_tenant = self.get_config().get("azure_tenant_id")
+        tenant = configured_tenant.strip().lower() if isinstance(configured_tenant, str) else ""
+        # Use the tenant UUID, not the asset ID, app registration or domain alias.
+        if not re.fullmatch(r"[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}", tenant):
+            return self._disposition_error_result(
+                action_result, action, identity, "not_executed", "invalid_tenant_id",
+                "Configure azure_tenant_id as the Microsoft Entra tenant UUID.",
+            )
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(self._disposition_lock(tenant, identity))
+            except BlockingIOError:
+                return self._disposition_error_result(
+                    action_result, action, identity, "not_executed", "operation_in_progress",
+                    "A Release or Deny operation is already in progress for this quarantine identity. No job was submitted.",
+                )
+            except OSError:
+                return self._disposition_error_result(
+                    action_result, action, identity, "not_executed", "disposition_lock_unavailable",
+                    "Could not acquire a private disposition lock. No job was submitted.",
+                )
+            return self._run_disposition_job(action_result, action, identity)
+
+    def _run_disposition_job(self, action_result, action, identity):
         job_id = ""
         self.save_progress(f"Starting Azure Automation action={action}, identity={identity}")
         try:
@@ -1615,114 +1721,64 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 job_id, action=action, identity=identity,
             )
         except AutomationError as exc:
-            result = dict(exc.result) if isinstance(exc, RunbookActionError) else {}
-            result.update({
-                "action": action,
-                "identity": identity,
-                "azure_job_id": job_id or getattr(exc, "job_id", "") or "",
-                "error": True,
-            })
-            last_status = getattr(exc, "last_status", "")
-            if last_status:
-                result["last_job_status"] = last_status
+            data = dict(exc.result) if isinstance(exc, RunbookActionError) else {}
+            code = data.get("error_code", data.get("code"))
+            if not isinstance(code, str) or not code.strip():
+                code = "outcome_unknown"
+            # Only use validated, explicit runbook evidence to assert that
+            # the Exchange command did not execute or reported a failure.
+            outcome = {
+                "precondition_unconfirmed": "not_executed",
+                "disposition_failed": "failed",
+                "release_pending": "pending",
+            }.get(code, "unknown")
             message = self._map_error(exc, action)
-            if result["azure_job_id"] and result["azure_job_id"] not in message:
-                message += f" Azure job ID: {result['azure_job_id']}."
-            if "Azure Automation" not in message:
-                message += " Inspect the job in Azure Automation for the reported cause."
-            result["message"] = message
-            action_result.add_data(result)
-            action_result.update_summary({
-                "status": "error",
-                "azure_job_id": result["azure_job_id"],
-                "last_job_status": last_status,
-            })
-            return action_result.set_status(phantom.APP_ERROR, message)
+            if outcome == "unknown":
+                message += (
+                    " Do not retry before checking Azure job history and the current Exchange status."
+                )
+            return self._disposition_error_result(
+                action_result, action, identity, outcome, code, message, data=data,
+                job_id=job_id or getattr(exc, "job_id", "") or "",
+                last_status=getattr(exc, "last_status", ""),
+            )
 
-        data = dict(result)
-        data["azure_job_id"] = job_id
+        data = dict(result, azure_job_id=job_id, outcome="confirmed")
+        data["message"] = data.get("message") or f"Quarantine {action} confirmed by Exchange."
         action_result.add_data(data)
-        action_result.update_summary({
+        summary = {
             "status": data["status"],
+            "outcome": "confirmed",
             "azure_job_id": job_id,
+            "observed_release_status": data["observed_release_status"],
             "runbook_version": data.get("runbook_version", ""),
-            "observed_release_status": data.get("observed_release_status", ""),
-        })
-        return action_result.set_status(
-            phantom.APP_SUCCESS,
-            data.get("message") or f"Quarantine {action} confirmed by Exchange.",
-        )
+        }
+        action_result.update_summary(summary)
+        return action_result.set_status(phantom.APP_SUCCESS, data["message"])
 
-    # -----------------------------------------------------------------------
-    # Action: release quarantine message
-    # -----------------------------------------------------------------------
+    def _handle_disposition(self, param, action):
+        action_result = self.add_action_result(ActionResult(dict(param)))
+        value = param.get("identity", "")
+        if not isinstance(value, str):
+            message = r"The 'identity' parameter must be a string in GUID1\GUID2 format."
+        else:
+            value = value.strip()
+            message = (
+                validate_identity_format(value[:128])
+                if value else "The 'identity' parameter is required."
+            )
+        if message:
+            return self._disposition_error_result(
+                action_result, action, "",
+                "not_executed", "invalid_identity", message,
+            )
+        return self._execute_disposition(action_result, action, value)
 
     def _handle_release_quarantine_message(self, param):
-        """
-        Release one quarantined message to all original recipients.
-        Runbook executes: Release-QuarantineMessage -Identity <id>
-        -ReleaseToAll
-        IRREVERSIBLE.
-        """
-        action_result = self.add_action_result(ActionResult(dict(param)))
-
-        identity = param.get("identity", "")
-        if not isinstance(identity, str):
-            return action_result.set_status(
-                phantom.APP_ERROR,
-                "The 'identity' parameter must be a string in GUID1\\GUID2 format.",
-            )
-        identity = identity.strip()
-        if not identity:
-            return action_result.set_status(
-                phantom.APP_ERROR,
-                "The 'identity' parameter is required."
-            )
-
-        format_error = validate_identity_format(identity)
-        if format_error:
-            return action_result.set_status(phantom.APP_ERROR, format_error)
-
-        return self._execute_disposition(
-            action_result,
-            "release",
-            identity,
-        )
-
-    # -----------------------------------------------------------------------
-    # Action: deny quarantine release
-    # -----------------------------------------------------------------------
+        return self._handle_disposition(param, "release")
 
     def _handle_deny_quarantine_release(self, param):
-        """
-        Deny a user's release request.
-        Runbook executes: Release-QuarantineMessage -Identity <id>
-        -ReleaseToAll -ActionType Deny
-        """
-        action_result = self.add_action_result(ActionResult(dict(param)))
-
-        identity = param.get("identity", "")
-        if not isinstance(identity, str):
-            return action_result.set_status(
-                phantom.APP_ERROR,
-                "The 'identity' parameter must be a string in GUID1\\GUID2 format.",
-            )
-        identity = identity.strip()
-        if not identity:
-            return action_result.set_status(
-                phantom.APP_ERROR,
-                "The 'identity' parameter is required."
-            )
-
-        format_error = validate_identity_format(identity)
-        if format_error:
-            return action_result.set_status(phantom.APP_ERROR, format_error)
-
-        return self._execute_disposition(
-            action_result,
-            "deny",
-            identity,
-        )
+        return self._handle_disposition(param, "deny")
 
     # -----------------------------------------------------------------------
     # Dispatcher

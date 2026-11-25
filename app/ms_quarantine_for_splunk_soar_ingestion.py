@@ -15,6 +15,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import time
 
 import phantom.app as phantom
@@ -26,6 +27,12 @@ MAX_INGEST_RECORDS = 1000
 MAX_MIME_PARTS = 200
 MAX_ATTACHMENTS = 100
 MAX_MIME_DEPTH = 30
+POLL_PHASE_SECONDS = 600
+POLL_CANDIDATE_WINDOW = 50
+_EXPIRY_TIMESTAMP = re.compile(
+    r"([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})"
+    r"(?:\.([0-9]{1,7}))?(Z|[+-](?:0[0-9]|1[0-3]):[0-5][0-9]|[+-]14:00)"
+)
 
 
 class _MimeStructureLimit(AutomationError):
@@ -285,7 +292,8 @@ class NativeIngestionMixin:
             # Never persist prepared payloads, file checkpoints, leases or history.
             fields = {"key", "identity", "status", "terminal", "container_id", "created_at", "updated_at",
                       "last_error", "publication_started", "observed_release_status", "finding_id",
-                      "email_artifact_id", "ready_artifact_id", "missing_artifact_fields"}
+                      "email_artifact_id", "ready_artifact_id", "missing_artifact_fields",
+                      "expires_at", "last_status_error"}
             records[key] = {name: value for name, value in row.items() if name in fields}
         return {"scope": scope, "records": records, "version": 2}
 
@@ -327,6 +335,26 @@ class NativeIngestionMixin:
             self._ingest_save(state, data)
             return data["records"]
 
+    def _ingest_expiry(self, value):
+        # Old rows and incomplete Exchange metadata are not expiry evidence.
+        match = _EXPIRY_TIMESTAMP.fullmatch(value.strip()) if isinstance(value, str) else None
+        if match is None:
+            return None
+        wall_time, fraction, offset = match.groups()
+        if offset == "-00:00":
+            return None
+        fraction = fraction or ""
+        # PowerShell's round-trip format has seven fractional digits; Python 3.9
+        # supports six here. Round up so a slot cannot retire before the evidence.
+        micros = fraction[:6].ljust(6, "0")
+        try:
+            expiry = self._parse_state_timestamp(f"{wall_time}.{micros}{offset}")
+            if len(fraction) == 7 and fraction[-1] != "0":
+                expiry += timedelta(microseconds=1)
+            return expiry
+        except (AutomationError, OverflowError):
+            return None
+
     def _ingest_claim(self, message, retry_ids):
         """Count new identities once; explicitly retried failures retain their slot."""
         identity = message["Identity"].strip().lower()
@@ -348,6 +376,13 @@ class NativeIngestionMixin:
                    "container_id": old.get("container_id") if old else None,
                    "created_at": old.get("created_at") if old else self._utc_now(),
                    "updated_at": self._utc_now(), "last_error": "", "publication_started": False}
+            expires = self._ingest_expiry(message.get("Expires"))
+            if expires is not None:
+                row["expires_at"] = expires.isoformat()
+            elif old and old.get("expires_at"):
+                row["expires_at"] = old["expires_at"]
+            if old and old.get("last_status_error"):
+                row["last_status_error"] = old["last_status_error"]
             records[key] = row
             self._ingest_save(state, data)
             return {**row, "message": dict(message)}
@@ -367,16 +402,22 @@ class NativeIngestionMixin:
         if time.monotonic() >= getattr(self, "_ingest_deadline", float("inf")):
             raise AutomationError("Poll phase time budget exhausted; no further work started in this phase.")
 
-    def _ingest_reconcile(self, records):
+    def _ingest_reconcile(self, records, listed_requested):
         errors = []
         terminal = 0
-        # Least-recently checked first: slow jobs must not starve later rows.
-        oldest = datetime.min.replace(tzinfo=timezone.utc)
-        ordered = sorted(records.items(), key=lambda item:
-                         self._parse_state_timestamp(item[1].get("updated_at")) or oldest)
-        for key, row in ordered:
+        intake_blocked = False
+        unlisted = []
+        for key, row in records.items():
             if row["terminal"]:
                 continue
+            if row["identity"] not in listed_requested:
+                unlisted.append((key, row))
+            elif row.get("last_status_error") or row.get("observed_release_status") != "requested":
+                self._ingest_update(key, observed_release_status="requested", last_status_error="")
+        # Least-recently checked first: slow jobs must not starve later rows.
+        oldest = datetime.min.replace(tzinfo=timezone.utc)
+        unlisted.sort(key=lambda item: self._parse_state_timestamp(item[1].get("updated_at")) or oldest)
+        for key, row in unlisted:
             try:
                 self._ingest_budget_check()
             except AutomationError as exc:
@@ -388,14 +429,27 @@ class NativeIngestionMixin:
                 observed = str(result.get("observed_release_status") or "").lower()
                 if not observed:
                     raise AutomationError("Current quarantine status is unavailable.")
-                is_terminal = observed in {"released", "denied"}
-                self._ingest_update(key, terminal=is_terminal, observed_release_status=observed)
-                terminal += int(is_terminal)
             except Exception as exc:
-                self._ingest_update(key)  # Rotate failed reads as well as successful ones.
-                errors.append(row["identity"] + ": status observation unavailable (" + self._ingest_error(exc) + ")")
-                break  # Do not multiply remote calls after a read/transport failure.
-        return terminal, errors
+                reason = self._ingest_error(exc)
+                self._ingest_update(key, last_status_error=reason)
+                errors.append(row["identity"] + ": status observation unavailable (" + reason + ")")
+                intake_blocked = True
+                break  # Unclassified, service and transport failures fail closed.
+            expiry = self._ingest_expiry(row.get("expires_at"))
+            expired_and_missing = (observed == "notfound" and expiry is not None
+                                   and expiry <= datetime.now(timezone.utc))
+            is_terminal = observed in {"released", "denied"} or expired_and_missing
+            reason = ""
+            if observed == "notfound" and not is_terminal:
+                reason = "Exact lookup returned no message; expiry is not confirmed."
+                errors.append(row["identity"] + ": " + reason)
+            elif observed == "error":
+                reason = "Exchange reports ReleaseStatus=Error; no terminal disposition confirmed."
+                errors.append(row["identity"] + ": " + reason)
+            self._ingest_update(key, terminal=is_terminal, observed_release_status=observed,
+                                last_status_error=reason)
+            terminal += int(is_terminal)
+        return terminal, errors, intake_blocked
 
     def _ingest_save_artifact(self, row, suffix, cef, name, *, publish=False):
         artifact = {
@@ -591,29 +645,29 @@ class NativeIngestionMixin:
             self._ingest_settings()
             if require_es and self._ingest_target != "es":
                 raise AutomationError("Enable native ES ingestion before on es poll.")
-            self._ingest_deadline = time.monotonic() + 600
             with self._ingest_poll_lock():
                 records = self._ingest_begin_poll()
                 # Snapshot once: a failure during this poll is never retried in it.
                 manual_poll = self.is_poll_now()
                 retry_ids = {key for key, row in records.items()
                              if manual_poll and row["status"] == "failed" and not row["terminal"]}
-                terminal, errors = self._ingest_reconcile(records)
-                if manual_poll:
-                    # Manual intake must work without a later scheduled poll.
-                    # Give imports their own bounded phase after status checks;
-                    # no Azure job deadline is shortened or restarted.
-                    self._ingest_deadline = time.monotonic() + 600
                 limit = self._on_poll_container_limit(param)
+                self.save_progress("Listing first 50 Requested quarantine candidates.")
+                result = self._utils.run_action("list", page_size=POLL_CANDIDATE_WINDOW)
+                messages = self._normalise_list_result(result)[:POLL_CANDIDATE_WINDOW]
+                listed_requested = {
+                    message["Identity"].strip().lower() for message in messages
+                    if str(message.get("ReleaseStatus", "")).lower() == "requested"
+                }
+                # The list is read-only. Do not publish if a subsequent exact
+                # lookup detects a shared failure. List absence alone proves nothing.
+                self._ingest_deadline = time.monotonic() + POLL_PHASE_SECONDS
+                terminal, errors, intake_blocked = self._ingest_reconcile(records, listed_requested)
+                self._ingest_deadline = time.monotonic() + POLL_PHASE_SECONDS
                 records = self._ingest_records()
-                active = sum(not r["terminal"] for r in records.values())
-                messages = []
+                active = sum(not row["terminal"] for row in records.values())
                 created = attempts = 0
-                if (not errors or manual_poll) and (retry_ids or active < self._on_poll_max_containers):
-                    self._ingest_budget_check()
-                    self.save_progress("Listing first 50 Requested quarantine candidates.")
-                    result = self._utils.run_action("list", page_size=50)
-                    messages = self._normalise_list_result(result)[:50]
+                if not intake_blocked and (bool(retry_ids) or active < self._on_poll_max_containers):
                     # Prefer already-counted explicit retries over new candidates.
                     messages.sort(key=lambda m: self._worker_identity_key(
                         m["Identity"].strip().lower(), self.get_asset_id()) not in retry_ids)
@@ -651,12 +705,12 @@ class NativeIngestionMixin:
                     "ingestion_enabled": True, "active_messages": sum(not r["terminal"] for r in records.values()),
                     "active_limit": self._on_poll_max_containers, "ingest_target": self._ingest_target,
                     "requested_containers": limit, "terminal_observed": terminal,
-                    "failed_imports": failed, "errors": len(errors), "candidate_window": 50,
-                    "results_may_be_truncated": len(messages) >= 50,
+                    "failed_imports": failed, "errors": len(errors), "candidate_window": POLL_CANDIDATE_WINDOW,
+                    "results_may_be_truncated": len(messages) >= POLL_CANDIDATE_WINDOW,
                 })
                 if errors:
                     return ar.set_status(phantom.APP_ERROR, "; ".join(errors[:10]))
-                message = f"Imported {created} mail(s); observed {terminal} terminal disposition(s)."
+                message = f"Imported {created} mail(s); resolved {terminal} tracked status(es)."
                 if failed:
                     message += f" {failed} failed import(s) retained; scheduled retries disabled. Inspect native evidence, then use Poll Now for Requested candidates in the first 50."
                 return ar.set_status(phantom.APP_SUCCESS, message)

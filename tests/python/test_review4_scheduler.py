@@ -31,8 +31,7 @@ def test_failed_import_does_not_prevent_terminal_status_and_refill(tmp_path, tar
     c.calls.clear()
     status, ar = poll(c)
     assert status == t.APP_SUCCESS, ar.get_message()
-    assert {identity for action, identity, _ in c.calls if action == "reconcile"} == {
-        row["identity"] for row in rows.values()}
+    assert [identity for action, identity, _ in c.calls if action == "reconcile"] == [last]
     rows = c._ingest_records()
     assert next(row for row in rows.values() if row["identity"] == last)["terminal"] is True
     assert next(row for row in rows.values() if row["identity"] == first)["status"] == "failed"

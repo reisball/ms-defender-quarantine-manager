@@ -1,5 +1,6 @@
 param(
     [switch] $RawOutput,
+    [string] $ProtectedOutputPublicKey,
 
     [ValidateSet("release_requested", "needs_review")]
     [string] $SelectionMode = "release_requested",
@@ -12,6 +13,8 @@ param(
     [int] $SubjectLength = 3,
 
     [switch] $UseStringDates,
+
+    [switch] $UseExpiryEvidenceDates,
 
     [switch] $ExpectOversizedItem,
 
@@ -86,7 +89,20 @@ function Get-QuarantineMessage {
 
     $messages = @(
         for ($index = 0; $index -lt $global:RunbookTestMessageCount; $index++) {
-            if ($global:RunbookTestUseStringDates) {
+            if ($UseExpiryEvidenceDates) {
+                $received = [datetime]::UtcNow
+                $expires = switch ($index) {
+                    0 { "2026-08-28" }
+                    1 { "2026-08-28T12:00:10" }
+                    2 { "not-a-date" }
+                    3 { "2026-08-28T12:00:10.1234567+05:30" }
+                    4 { [datetime]::SpecifyKind([datetime]"2026-08-28T12:00:10", [DateTimeKind]::Local) }
+                    5 { [datetime]::SpecifyKind([datetime]"2026-08-28T12:00:10", [DateTimeKind]::Unspecified) }
+                    6 { [datetime]::SpecifyKind([datetime]"2026-08-28T12:00:10", [DateTimeKind]::Utc) }
+                    7 { [datetimeoffset]"2026-08-28T12:00:10-04:00" }
+                    8 { "2026-02-31T12:00:10+00:00" }
+                }
+            } elseif ($global:RunbookTestUseStringDates) {
                 if (($index % 2) -eq 0) {
                     $received = "2026-07-28T00:00:00Z"
                     $expires = "not-a-date-$index"
@@ -129,7 +145,16 @@ function Get-QuarantineMessage {
     return $messages
 }
 
-$request = @{ action = "list"; quarantine_selection_mode = $SelectionMode }
+. (Join-Path $PSScriptRoot "protected_output_fixture.ps1")
+$rsa = if (-not $ProtectedOutputPublicKey) { New-FixtureRsa }
+$publicKey = if ($ProtectedOutputPublicKey) { $ProtectedOutputPublicKey } else {
+    [Convert]::ToBase64String($rsa.ExportSubjectPublicKeyInfo())
+}
+$request = @{
+    action = "protected_list_v1"
+    quarantine_selection_mode = $SelectionMode
+    output_public_key = $publicKey
+}
 if ($RequestedPageSize -gt 0) {
     $request.page_size = $RequestedPageSize
 }
@@ -138,7 +163,13 @@ $webhookData = [pscustomobject]@{
 }
 
 $output = @(& $runbookPath -WebhookData $webhookData)
-$jsonLines = @($output | Where-Object {
+if ($ProtectedOutputPublicKey) {
+    $output | Write-Output
+    exit 0
+}
+$jsonLines = @(ConvertFrom-FixtureProtectedOutput -Lines $output -Action "list" -Rsa $rsa)
+$rsa.Dispose()
+$jsonLines = @($jsonLines | Where-Object {
     $_ -is [string] -and $_.TrimStart().StartsWith("{")
 })
 if ($jsonLines.Count -lt 1) {

@@ -6,14 +6,18 @@
 
 The app imports only messages with Microsoft status `Requested`, meaning a recipient has requested release. There is no source-mode setting; obsolete settings from older versions are ignored. `NotReleased` mail is not imported.
 
+Both targets export and validate the original EML. A MIME or size problem stops publication rather than importing incomplete mail.
+
+### SOAR events
+
 For each admitted message, the app:
 
 1. exports and validates the original EML;
 2. creates a container with automation disabled;
 3. saves the original EML, attachments and selected metadata to the container and Vault;
-4. publishes the completed message to the configured target (SOAR or ES).
+4. publishes the completed SOAR event with automation enabled.
 
-A MIME or size problem fails the import instead of publishing incomplete mail. Automation starts only after step 4.
+ES setup is not required for this path. See [Enterprise Security](#enterprise-security) for the separate findings path.
 
 Use **one ingesting asset per tenant**. Each asset has its own state, so two assets can import the same message. Changing an asset's tenant, organization or target while it has tracked messages is rejected. Do not delete app state to get around this.
 
@@ -26,8 +30,9 @@ On upgrade, existing state is kept. Earlier `needs_review` scopes become Request
 `on_poll_max_containers` (default 10, range 1–50) is the maximum number of messages whose Microsoft status is still unresolved. It is a total ceiling, not a per-poll increment.
 
 - Imported, in-progress and failed messages all occupy a slot.
-- A slot is freed only when the app observes Microsoft status `Released` or `Denied`. Completed analysis, a failed import or a missing message does not free it.
-- Each poll first re-checks tracked statuses, then fills free slots from the first 50 `Requested` messages. There is no pagination or ordering guarantee, so an empty import does not prove the backlog is empty.
+- A slot is freed after an exact read confirms `Released` or `Denied`, or when a successful exact lookup returns no result and the stored Microsoft expiry has passed. A missing result alone (even repeated), a failed lookup, or Exchange status `Error` does not prove retirement. Only a complete Microsoft timestamp with an explicit UTC offset is accepted as expiry evidence. Records without it still require a confirmed terminal status.
+- An unresolved exact lookup or item-level `Error` is reported for that identity; other messages can still be imported if a slot is available. Unclassified, authentication and transport failures stop intake for that poll.
+- Each poll reads the first 50 `Requested` messages once. A tracked identity explicitly present as `Requested` needs no separate status job. Only tracked identities missing from that window need an exact status read; absence by itself does not change their status or free a slot. The same list then supplies new imports and explicit retries. There is no pagination or ordering guarantee, so an empty import does not prove the backlog is empty.
 - Poll Now's `container_count` limits attempts in that poll and cannot exceed the asset limit.
 
 ## Playbook input (combined layout)
@@ -45,7 +50,7 @@ With `artifact_layout` = `combined`, each message produces **one event and one e
 
 The Vault holds the original EML and all attachments, including inline parts and attached messages. Duplicate filenames get stable prefixes, and path components and control characters are removed. The original EML is always the authoritative copy.
 
-The `separate` layout and ES keep their existing layouts. The separate layout still uses Request, file, field and final Ready artifacts. Historical artifacts are not rewritten.
+The SOAR `separate` layout still uses Request, file, field and final Ready artifacts. The SOAR artifact layout does not apply to ES findings. Historical artifacts are not rewritten.
 
 ### Updating an existing playbook
 
@@ -60,15 +65,15 @@ The app does not edit or activate playbooks. See the [SAA example](../examples/M
 
 ## Enterprise Security
 
-Before enabling ES intake, register these additional fields in ES (the app does not register them):
+Use this section only when the asset targets **ES findings**. This path uploads the original EML and attachments to the SOAR Vault and submits a finding to ES after the uploads succeed. It does not use the SOAR event and email-artifact layout described above.
 
-`quarantine_identity`, `work_item_id`, `source_data_identifier`, `quarantine`, `eml_sha256`
+No custom ES field registration is needed. For Release/Deny, use `container:data.quarantine_identity` from the linked SOAR container.
 
 - Configure the ES target and security domain. Urgency and investigation type are optional.
 - **on es poll** requires an ES target. **on poll** uses the asset's target selection.
 - Original-mail and attachment links use the external SOAR URL (`es_soar_base_url` or the platform URL). It must be HTTPS and reachable by analysts; check downloads from the analyst interface.
-- ES receives headers (max 8,192 characters each), body text (max 256,000 characters, plain text preferred over HTML), attachment links and the correlation fields. Attachment content is not sent.
-- Drilldown searches need `name`, `search`, `earliest` and `latest`. Dashboard drilldowns need `app`, `dashboard_id` and `name`. Tokens need a name and a string value.
+- ES receives headers (max 8,192 characters per original header value), body text (max 256,000 characters, plain text preferred over HTML), and attachment links. Attachment content is not sent.
+- Drilldowns are optional. Searches need `name`, `search`, `earliest` and `latest`. Dashboard drilldowns need `app`, `dashboard_id` and `name`. Tokens need a name and a string value.
 
 Native ES threat-analysis and automation settings control what happens next. ES accepting a finding does not mean analysis completed.
 
@@ -106,6 +111,6 @@ Successful imports are never imported again while their record is retained. SOAR
 | Attachments | 100, with 48 MiB combined decoded size |
 | Tracked messages | 1,000. Active records are never evicted; when full, new admissions fail. |
 | Retention of resolved records | `worker_terminal_retention_days`, 1–365 days, default 30. After that, a reappearing message can be imported again. |
-| Work budget | Scheduled poll: 600 s. Poll Now: 600 s for status checks plus 600 s for import. A running operation can exceed its budget, and unattempted messages wait for the next poll. |
+| Work budget | Both modes get one list job with the configured Azure job timeout, then up to 600 s to start exact status reads and a separate 600 s import phase. A running operation can exceed its phase budget. Unattempted status reads wait for the next poll; a shared lookup failure still prevents publishing in the current poll. |
 
 Messages over a limit are rejected before publication rather than partially imported. The MIME parser bounds message structure, but it is not a malware filter.

@@ -31,7 +31,10 @@ def test_direct_identity_type_rejected_without_any_http(handler, identity):
     with requests_mock.Mocker() as m:
         assert getattr(c, handler)({"identity": identity}) == APP_ERROR
         assert "identity" in ar.get_message().lower()
-        assert ar.get_data() == []
+        row, = ar.get_data()
+        assert row["identity"] == ""
+        assert row["error_code"] == "invalid_identity"
+        assert row["outcome"] == ar.get_summary()["outcome"] == "not_executed"
         assert m.call_count == 0
 
 
@@ -82,7 +85,7 @@ def test_poll_validates_entire_list_before_any_container():
         assert c._handle_on_poll({}) == APP_ERROR
         assert c._saved_containers == []
         assert ar.get_data() == []
-        assert [body["action"] for body in bodies] == ["list"]
+        assert [body["action"] for body in bodies] == ["protected_list_v1"]
 
 
 @pytest.mark.parametrize("count", [True, 1.9, 1.0, float("inf"), "1.9"])

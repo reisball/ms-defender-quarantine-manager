@@ -104,28 +104,19 @@ LIST_COMPLETE_MODE = "list_complete"
 MAX_LIST_RESULT_COUNT = 1000
 CHUNKED_EXPORT_MODE = "chunked"
 CHUNKED_COMPLETE_MODE = "chunked_complete"
-ERROR_CHUNK_MODE = "error_chunk"
-ERROR_COMPLETE_MODE = "error_complete"
 CHUNK_ENCODING = "base64"
+PROTECTED_READ_ACTIONS = {"list", "export"}
+PROTECTED_OUTPUT_MODE = "msq-protected-v1"
+MAX_PROTECTED_RECORD_CHARS = 1024 * 1024
 MAX_CHUNK_COUNT = 200
 MAX_DECODED_EML_BYTES = 24 * 1024 * 1024
 MAX_INLINE_DECODED_EML_BYTES = 10 * 1024 * 1024
 EXCHANGE_AUTH_METHOD = "ManagedIdentity"
 EXCHANGE_SETTING_MAX_CHARS = 256
-PRECONDITION_ERROR_CODE = "precondition_unconfirmed"
-POSTCONDITION_ERROR_CODE = "postcondition_unconfirmed"
-DISPOSITION_REJECTED_ERROR_CODE = "disposition_rejected"
-DISPOSITION_CAPABILITY_ERROR_CODE = "disposition_capability_unconfirmed"
 DIAGNOSTIC_RBAC_NOT_EVALUATED_ERROR_CODE = (
     "diagnostic_rbac_not_evaluated"
 )
 DIAGNOSTIC_RBAC_PARTIAL_ERROR_CODE = "diagnostic_rbac_partial"
-POSTCONDITION_VERIFICATION_METHOD = "Get-QuarantineMessage"
-RELEASE_CONTRACT_ID = "identity_releasetoall"
-DENY_CONTRACT_ID = "identities_actiontype_no_dummy"
-DENY_PLACEHOLDER_CONTRACT_ID = "identities_actiontype_identity_placeholder"
-DENY_SINGLE_IDENTITY_CONTRACT_ID = "identity_actiontype_deny"
-DENY_RELEASE_TO_ALL_CONTRACT_ID = "identity_releasetoall_actiontype_deny"
 MAX_DIAGNOSTIC_TEXT_CHARS = 2048
 MAX_DIAGNOSTIC_TRACE_CHARS = 8192
 MAX_DIAGNOSTIC_TRACE_RECORDS = 25
@@ -134,7 +125,6 @@ MAX_RBAC_ROLE_GROUP_INSPECTIONS = 20
 MAX_PERMISSION_QUERY_ERRORS = 20
 MAX_PERMISSION_QUERY_ERROR_BYTES = 32 * 1024
 MAX_MODULE_VERSION_CHARS = 64
-MAX_BUILD_FIELD_CHARS = 128
 MAX_RUNTIME_FIELD_CHARS = 1024
 MAX_RUNBOOK_SETTING_CHARS = 512
 SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -370,10 +360,6 @@ class RunbookActionError(AutomationError):
         self.result = result
 
 
-class ConnectionContractError(AutomationError):
-    """The deployed runbook did not confirm the configured Exchange settings."""
-
-
 class OversizedExportError(AutomationError):
     """Raised when an EML exceeds the cloud-sandbox safety cap."""
 
@@ -580,7 +566,7 @@ class MSQuarantineForSplunkSOARUtils:
         action: str,
         identity: str = None,
         page_size: int = None,
-        include_rbac: bool = None,
+        include_rbac: bool = None, *, output_public_key: str = None,
     ) -> str:
         """
         POST to the Azure Automation webhook to start a runbook job.
@@ -603,6 +589,10 @@ class MSQuarantineForSplunkSOARUtils:
             WebhookError on failure.
         """
         body = {"action": action}
+        if action in PROTECTED_READ_ACTIONS:
+            if not output_public_key:
+                raise AutomationError("Protected list/export requires a per-job public key.")
+            body = {"action": f"protected_{action}_v1", "output_public_key": output_public_key}
         body.update(self._connection_settings)
         if identity:
             body["identity"] = identity
@@ -792,21 +782,21 @@ class MSQuarantineForSplunkSOARUtils:
     def get_job_output(
         self,
         job_id: str,
-        action: str = None,
-        deadline: float = None,
+        action: str,
+        deadline: float = None, *, output_private_key=None,
     ) -> dict:
         """
         Retrieve and parse the job's Write-Output content.
 
-        The public contract remains one parsed dict for every action. Legacy
-        runbooks write one JSON object. Newer runbooks may write chunked export
-        records; those are verified and normalised back to one export dict here.
+        List and export require authenticated job records. The other actions
+        return one JSON object. Chunked records are verified and reassembled.
 
         Reference:
         https://learn.microsoft.com/en-us/rest/api/automation/job/get-output
 
         Args:
             job_id: Azure Automation Job ID.
+            action: Expected action, which determines wire protection.
 
         Returns:
             Parsed dict from the runbook's Write-Output.
@@ -814,6 +804,8 @@ class MSQuarantineForSplunkSOARUtils:
         Raises:
             AutomationError on HTTP errors or parse failure.
         """
+        if action not in {"list", "export", "release", "deny", "reconcile", "diagnose"}:
+            raise AutomationError("Job output requires a known expected action.")
         if deadline is None:
             deadline = self.new_poll_deadline()
         while time.monotonic() < deadline:
@@ -829,6 +821,9 @@ class MSQuarantineForSplunkSOARUtils:
             self._job_timeout(job_id, "output", "Completed", "No output available")
 
         self._raise_if_stream_limit(raw, action=action)
+        if action in PROTECTED_READ_ACTIONS:
+            raw = self._decrypt_job_records(raw, action, output_private_key)
+
 
         try:
             parsed = json.loads(raw)
@@ -837,9 +832,9 @@ class MSQuarantineForSplunkSOARUtils:
                     "Job output JSON must be an object. "
                     f"Got {type(parsed).__name__}."
                 )
+            mode = self._validated_job_record_mode(parsed)
             if (
-                parsed.get("mode")
-                in {
+                mode in {
                     LIST_CHUNK_MODE,
                     LIST_COMPLETE_MODE,
                     CHUNKED_EXPORT_MODE,
@@ -850,6 +845,66 @@ class MSQuarantineForSplunkSOARUtils:
             return parsed
         except ValueError:
             return self._parse_multiline_job_output(raw)
+
+    @staticmethod
+    def _decrypt_job_records(raw: str, action: str, private_key) -> str:
+        """Accept only a complete, ordered protected response, or a setup error."""
+        from cryptography.exceptions import InvalidTag
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+        try:
+            # Early key/runtime/input errors can precede cipher setup. Never
+            # propagate their arbitrary text, and never accept plaintext data.
+            plain_error = json.loads(raw) if len(raw) < 16384 else None
+        except ValueError:
+            plain_error = None
+        if isinstance(plain_error, dict) and plain_error.get("error") is True:
+            raise AutomationError(
+                "Protected output was not initialized. Check the paired runbook and its PowerShell runtime."
+            )
+        if private_key is None:
+            raise AutomationError("Protected output has no matching job key.")
+
+        decrypted = []
+        cipher = None
+        final = False
+        max_records = MAX_LIST_RESULT_COUNT + 1 if action == "list" else MAX_CHUNK_COUNT + 1
+        try:
+            for index, line in enumerate(raw.split("\n")):
+                if final or index >= max_records or len(line) >= MAX_PROTECTED_RECORD_CHARS:
+                    raise ValueError
+                record = json.loads(line)
+                if (
+                    not isinstance(record, dict) or record.get("mode") != PROTECTED_OUTPUT_MODE
+                    or type(record.get("index")) is not int or record["index"] != index
+                    or type(record.get("final")) is not bool
+                    or ("wrapped_key" in record) != (index == 0)
+                ):
+                    raise ValueError
+                if index == 0:
+                    key = private_key.decrypt(
+                        base64.b64decode(record["wrapped_key"], validate=True),
+                        padding.OAEP(mgf=padding.MGF1(hashes.SHA256()),
+                                     algorithm=hashes.SHA256(), label=None),
+                    )
+                    if len(key) != 32:
+                        raise ValueError
+                    cipher = AESGCM(key)
+                final = record["final"]
+                nonce = base64.b64decode(record["nonce"], validate=True)
+                tag = base64.b64decode(record["tag"], validate=True)
+                if len(nonce) != 12 or len(tag) != 16:
+                    raise ValueError
+                aad = f"{PROTECTED_OUTPUT_MODE}:{action}:{index}:{int(final)}".encode("ascii")
+                ciphertext = base64.b64decode(record["ciphertext"], validate=True)
+                decrypted.append(cipher.decrypt(nonce, ciphertext + tag, aad).decode("utf-8"))
+            if not final:
+                raise ValueError
+        except (ValueError, TypeError, KeyError, InvalidTag) as exc:
+            raise AutomationError("Protected job output is invalid or incomplete.") from None
+        return "\n".join(decrypted)
 
     def _raise_if_stream_limit(self, raw: str, action: str = None):
         """Surface Azure Automation's per-stream limit as an actionable error."""
@@ -880,6 +935,13 @@ class MSQuarantineForSplunkSOARUtils:
                 records.append(parsed)
         return records
 
+    @staticmethod
+    def _validated_job_record_mode(record):
+        mode = record.get("mode")
+        if "mode" in record and not isinstance(mode, str):
+            raise AutomationError("Runbook protocol error: field 'mode' must be a string.")
+        return mode
+
     def _parse_multiline_job_output(self, raw: str) -> dict:
         """
         Parse mixed Automation output.
@@ -896,6 +958,8 @@ class MSQuarantineForSplunkSOARUtils:
                 f"{self.redact_sensitive_text(raw, max_chars=500)}"
             )
 
+        for record in records:
+            self._validated_job_record_mode(record)
         for record in records:
             if record.get("error"):
                 return record
@@ -1265,15 +1329,30 @@ class MSQuarantineForSplunkSOARUtils:
 
     def run_action(
         self, action: str, identity: str = None, page_size: int = None,
-        include_rbac: bool = None,
+        include_rbac: bool = None, *, validate_result=None,
     ) -> dict:
         """Submit exactly one webhook, then wait for its result."""
-        job_id = self.fire_webhook(action, identity, page_size, include_rbac=include_rbac)
-        return self.wait_for_action_result(job_id, action, identity)
+        if action not in PROTECTED_READ_ACTIONS:
+            job_id = self.fire_webhook(action, identity, page_size, include_rbac=include_rbac)
+            return self.wait_for_action_result(job_id, action, identity, validate_result=validate_result)
+        try:
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric import rsa
+
+            private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            public_key = base64.b64encode(private_key.public_key().public_bytes(
+                serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo,
+            )).decode("ascii")
+        except (ImportError, ValueError) as exc:
+            raise AutomationError("Protected output cryptography is unavailable; no job was started.") from exc
+        job_id = self.fire_webhook(action, identity, page_size, output_public_key=public_key)
+        return self.wait_for_action_result(
+            job_id, action, identity, output_private_key=private_key, validate_result=validate_result,
+        )
 
     def wait_for_action_result(
         self, job_id: str, action: str, identity: str = None,
-        requested_include_rbac: bool = None,
+        requested_include_rbac: bool = None, *, output_private_key=None, validate_result=None,
     ) -> dict:
         """Wait for the normal job and output using one shared deadline.
 
@@ -1285,9 +1364,12 @@ class MSQuarantineForSplunkSOARUtils:
         last_status = ""
         try:
             last_status = self.poll_job(job_id, deadline=deadline)
-            result = self.get_job_output(job_id, action=action, deadline=deadline)
+            kwargs = {"output_private_key": output_private_key} if action in PROTECTED_READ_ACTIONS else {}
+            result = self.get_job_output(job_id, action=action, deadline=deadline, **kwargs)
             self._validate_runbook_result(result, action, identity)
             self._raise_for_runbook_error(result, action, identity)
+            if validate_result is not None:
+                validate_result(result)
             return result
         except AutomationError as exc:
             # Preserve the known job on every failure, including bad output
@@ -1322,7 +1404,8 @@ class MSQuarantineForSplunkSOARUtils:
             return
         if requested_action in {"release", "deny"}:
             expected = "released" if requested_action == "release" else "denied"
-            if result.get("status") not in {expected, f"already_{expected}"}:
+            status = result.get("status")
+            if not isinstance(status, str) or status not in {expected, f"already_{expected}"}:
                 raise AutomationError(f"Runbook protocol error: successful {requested_action} requires status={expected} or already_{expected}.")
             if not self._quarantine_identities_match(result.get("observed_identity"), requested_identity):
                 raise AutomationError("Runbook protocol error: observed_identity does not match requested identity.")

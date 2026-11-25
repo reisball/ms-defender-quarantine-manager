@@ -1,0 +1,29 @@
+{
+    "precedent": "https://github.com/splunk-soar-connectors/ssh/tree/a1b1b61dc115d3bed8d0d9f3fae8a79c7ea3fbdd",
+    "wheels": {
+        "wheels/py3/cryptography-50.0.0-cp39-abi3-manylinux_2_28_x86_64.whl": {
+            "sha256": "105110f43a471dbd0060b9c9516cb8a6a79233631a04cc2ba16f28323ac6e025",
+            "url": "https://files.pythonhosted.org/packages/46/c9/f60aed34c013f317f92817b6c171c2d22a78270fa41109bd4b08af26b194/cryptography-50.0.0-cp39-abi3-manylinux_2_28_x86_64.whl"
+        },
+        "wheels/py3/pycparser-2.23-py3-none-any.whl": {
+            "sha256": "e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934",
+            "url": "https://files.pythonhosted.org/packages/a0/e3/59cd50310fc9b59512193629e1984c1f95e5c8ae6e5d8c69532ccc65a7fe/pycparser-2.23-py3-none-any.whl"
+        },
+        "wheels/py3/pycparser-3.12-py3-none-any.whl": {
+            "sha256": "a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e",
+            "url": "https://files.pythonhosted.org/packages/b6/ae/315bbeee126a769cbde43cf4908acb4b40408d8bf8bbf334dd7368d8dadf/pycparser-3.12-py3-none-any.whl"
+        },
+        "wheels/py3/typing_extensions-4.16.0-py3-none-any.whl": {
+            "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+            "url": "https://files.pythonhosted.org/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl"
+        },
+        "wheels/py313/cffi-2.1.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl": {
+            "sha256": "a931079504ecc49efed7744c476a5c343a92fabf66dec2db95edb1b2fdc770e2",
+            "url": "https://files.pythonhosted.org/packages/95/95/86342356ff5953b3fb06f7ef7c5bee212d45e770abc7218d451b9148313c/cffi-2.1.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"
+        },
+        "wheels/py39/cffi-2.0.0-cp39-cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.whl": {
+            "sha256": "61d028e90346df14fedc3d1e5441df818d095f3b87d286825dfcbd6459b7ef63",
+            "url": "https://files.pythonhosted.org/packages/1f/74/cc4096ce66f5939042ae094e2e96f53426a979864aa1f96a621ad128be27/cffi-2.0.0-cp39-cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"
+        }
+    }
+}

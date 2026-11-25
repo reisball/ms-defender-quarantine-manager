@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from unittest.mock import Mock
@@ -14,7 +15,7 @@ else:
     import test_connector as t
 
 from ms_quarantine_for_splunk_soar_ingestion import INGEST_STATE_KEY, mail_files
-from ms_quarantine_for_splunk_soar_utils import AutomationError
+from ms_quarantine_for_splunk_soar_utils import AutomationError, TokenError
 
 ES = {"use_es_ingest": True, "es_security_domain": "threat",
       "es_urgency": "high", "es_investigation_type": "phishing",
@@ -149,7 +150,7 @@ def test_ten_then_three_terminal_refill_without_callbacks(tmp_path, target, mode
     assert ar.get_summary()["terminal_observed"] == 3
     assert ar.get_summary()["active_messages"] == 10
     assert len(c._saved_containers) == 13
-    assert len([x for x in c.calls if x[0] == "reconcile"]) == 10
+    assert len([x for x in c.calls if x[0] == "reconcile"]) == 3
     assert not any(x[0] in {"release", "deny"} for x in c.calls)
 
 
@@ -188,13 +189,39 @@ def test_container_subject_name_preserves_context_and_dedup(tmp_path, target, su
     assert len(c._saved_containers) == 1
 
 
-def test_full_window_has_no_extra_list_or_export(tmp_path, target):
-    c = setup(tmp_path, target)
+def test_zero_then_fifty_tracked_messages_need_only_one_listing(tmp_path, target):
+    c = setup(tmp_path, target, limit=50)
+    c.candidates = []
     assert poll(c)[0] == t.APP_SUCCESS
+    assert c.calls == [("list", None, {"page_size": 50})]
+
+    c.candidates = [candidate(i) for i in range(1, 51)]
     c.calls.clear()
     assert poll(c)[0] == t.APP_SUCCESS
-    assert [x[0] for x in c.calls] == ["reconcile"] * 10
-    assert len(c._saved_containers) == 10
+    assert [c[0] for c in c.calls] == ["list"] + ["export"] * 50
+
+    # Same exact identities, including different casing, are sufficient proof.
+    c.candidates[0]["Identity"] = c.candidates[0]["Identity"].upper()
+    c.calls.clear()
+    assert poll(c)[0] == t.APP_SUCCESS
+    assert c.calls == [("list", None, {"page_size": 50})]
+
+
+def test_truncated_listing_requires_exact_read_for_only_missing_identity(tmp_path, target):
+    c = setup(tmp_path, target, limit=50)
+    c.candidates = [candidate(i) for i in range(1, 51)]
+    assert poll(c)[0] == t.APP_SUCCESS
+    first = c.candidates[0]
+    identity = first["Identity"].lower()
+    c.candidates = [candidate(51)] + c.candidates[1:] + [first]
+    c.calls.clear()
+    status, ar = poll(c)
+    assert status == t.APP_SUCCESS, ar.get_message()
+    assert c.calls == [("list", None, {"page_size": 50}), ("reconcile", identity, {})]
+    assert ar.get_summary()["results_may_be_truncated"] is True
+    assert ar.get_summary()["active_messages"] == 50
+    assert ar.get_summary()["messages_published"] == 0
+    assert not next(r for r in c._ingest_records().values() if r["identity"] == identity)["terminal"]
 
 
 @pytest.mark.parametrize("status", ["Requested", "NotReleased", "ReleasedToSome",
@@ -208,6 +235,85 @@ def test_nonterminal_and_errors_keep_slot(tmp_path, target, status):
     assert ar.get_summary()["active_messages"] == 1
     assert len(c._saved_containers) == 1
     assert result == (t.APP_ERROR if isinstance(status, Exception) else t.APP_SUCCESS)
+
+
+@pytest.mark.parametrize("expires_days", [-1, 1, None])
+def test_exact_missing_observation_needs_expiry_to_free_slot(tmp_path, target, expires_days):
+    c = setup(tmp_path, target, limit=1)
+    c.candidates[0]["Expires"] = "" if expires_days is None else (
+        datetime.now(timezone.utc) + timedelta(days=expires_days)).isoformat()
+    assert poll(c)[0] == t.APP_SUCCESS
+    row, = c._ingest_records().values()
+    c.observed[row["identity"]] = "NotFound"
+    status, ar = poll(c)
+    assert ar.get_summary()["active_messages"] == 1
+    expired = expires_days == -1
+    assert c._ingest_records()[row["key"]]["terminal"] is expired
+    assert ar.get_summary()["messages_published"] == int(expired)
+    assert status == (t.APP_SUCCESS if expired else t.APP_ERROR)
+    if not expired:
+        assert poll(c)[0] == t.APP_ERROR
+        assert not c._ingest_records()[row["key"]]["terminal"]
+
+
+@pytest.mark.parametrize("case_status", ["NotFound", "Error"])
+def test_scheduled_poll_continues_after_case_problem(tmp_path, target, case_status):
+    c = setup(tmp_path, target, limit=3)
+    backlog = c.candidates
+    c.candidates = backlog[:2]
+    c.candidates[0]["Expires"] = (
+        datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    assert poll(c)[0] == t.APP_SUCCESS
+    c.candidates = backlog
+    first, second = c._ingest_records().values()
+    c.observed[first["identity"]] = case_status
+    c.observed[second["identity"]] = "Released"
+    status, ar = poll(c)
+    assert status == t.APP_ERROR  # Report the case problem despite successful intake.
+    assert ar.get_summary()["terminal_observed"] == 1
+    assert ar.get_summary()["messages_published"] == 2
+    first = c._ingest_records()[first["key"]]
+    assert first["last_status_error"] and not first["terminal"]
+    assert first["status"] == "completed"
+
+
+@pytest.mark.parametrize("manual", [False, True])
+@pytest.mark.parametrize("failure", [
+    TokenError("synthetic authentication failure"),
+    AutomationError("synthetic transport failure"),
+    RuntimeError("synthetic unclassified failure"),
+])
+def test_shared_failure_stops_poll_with_free_capacity(tmp_path, target, manual, failure):
+    c = setup(tmp_path, target, limit=2)
+    backlog = c.candidates
+    c.candidates = backlog[:1]
+    assert poll(c)[0] == t.APP_SUCCESS
+    c.candidates = backlog
+    row, = c._ingest_records().values()
+    c.observed[row["identity"]] = failure
+    c.calls.clear()
+    c._is_poll_now = manual
+    status, ar = poll(c)
+    assert status == t.APP_ERROR
+    assert ar.get_summary()["messages_published"] == 0
+    assert [action for action, *_ in c.calls] == ["list", "reconcile"]
+    assert str(failure) in c._ingest_records()[row["key"]]["last_status_error"]
+
+
+
+@pytest.mark.parametrize("observation", ["Requested", "Error", AutomationError("lookup failed")])
+def test_expiry_with_absence_from_list_is_not_enough(tmp_path, target, observation):
+    c = setup(tmp_path, target, limit=1)
+    c.candidates[0]["Expires"] = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    assert poll(c)[0] == t.APP_SUCCESS
+    row, = c._ingest_records().values()
+    assert "expires_at" in row
+    c.candidates = c.candidates[1:]  # List no longer contains the tracked identity.
+    c.observed[row["identity"]] = observation
+    _, ar = poll(c)
+    assert ar.get_summary()["active_messages"] == 1
+    assert not c._ingest_records()[row["key"]]["terminal"]
+    assert len(c._saved_containers) == 1
 
 
 def test_files_are_attached_to_their_own_container(tmp_path, target):
@@ -416,7 +522,7 @@ def test_hidden_asset_imports_large_chunked_mail(tmp_path, target, legacy_mode):
         with t.req_mock.Mocker() as mock:
             mock.post(t.TOKEN_URL, json={'access_token': t.MOCK_TOKEN})
             mock.get(t.job_output_url(), text=output)
-            result = c._utils.get_job_output(t.JOB_ID)
+            result = t.read_protected_fixture(c._utils, "export")
         assert 'eml' not in result
         assert result['_eml_bytes'] == c.eml
         return result
