@@ -2,14 +2,15 @@
 # Artifact generation and the vendor static/app lint gates run separately.
 default_language_version:
   python: python3.13
+# Rev values are verified public Git commit IDs, not credentials.
 repos:
   - repo: https://github.com/compilerla/conventional-pre-commit
-    rev: fa1915d04e129bcd0dccabf6aca53cdc19787ab4 # v4.1.0
+    rev: fa1915d04e129bcd0dccabf6aca53cdc19787ab4 # pragma: allowlist secret — public Git commit for v4.1.0
     hooks:
       - id: conventional-pre-commit
         stages: [commit-msg]
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b # v5.0.0
+    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b # pragma: allowlist secret — public Git commit for v5.0.0
     hooks:
       - id: check-merge-conflict
       - id: end-of-file-fixer
@@ -21,30 +22,30 @@ repos:
       - id: check-json
       - id: check-yaml
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: e84319e627902e1b348574ecf3238dc511933dc7 # v0.11.7
+    rev: e84319e627902e1b348574ecf3238dc511933dc7 # pragma: allowlist secret — public Git commit for v0.11.7
     hooks:
       - id: ruff
       - id: ruff-format
         args: [--check]
   - repo: https://github.com/djlint/djLint
-    rev: 9112cb64851c95a7802358af285d21ad8b7f6437 # v1.36.4
+    rev: 9112cb64851c95a7802358af285d21ad8b7f6437 # pragma: allowlist secret — public Git commit for v1.36.4
     hooks:
       - id: djlint-django
   - repo: https://github.com/hukkin/mdformat
-    rev: 83dc2ce5ca115d3390b9b5561d2898366faf0742 # 0.7.22
+    rev: 83dc2ce5ca115d3390b9b5561d2898366faf0742 # pragma: allowlist secret — public Git commit for 0.7.22
     hooks:
       - id: mdformat
         files: ^manual_readme_content[.]md$
         args: [--check, --number]
   - repo: https://github.com/returntocorp/semgrep
-    rev: 7d52dc9cbf57598680b1607138e9c6bd66659687 # v1.136.0
+    rev: 7d52dc9cbf57598680b1607138e9c6bd66659687 # pragma: allowlist secret — public Git commit for v1.136.0
     hooks:
       - id: semgrep
         types: [python]
         args: [--config, p/python, --error, --metrics=off, --disable-version-check]
         additional_dependencies: [setuptools==81.0.0]
   - repo: https://github.com/Yelp/detect-secrets
-    rev: 01886c8a910c64595c47f186ca1ffc0b77fa5458 # v1.5.0
+    rev: 01886c8a910c64595c47f186ca1ffc0b77fa5458 # pragma: allowlist secret — public Git commit for v1.5.0
     hooks:
       - id: detect-secrets
         args: [--no-verify]

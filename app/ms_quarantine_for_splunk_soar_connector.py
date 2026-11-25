@@ -28,6 +28,9 @@ from email.utils import getaddresses, parsedate_to_datetime
 from pathlib import Path
 
 import phantom.app as phantom
+from phantom.action_result import ActionResult
+from phantom.base_connector import BaseConnector
+
 from ms_quarantine_for_splunk_soar_ingestion import NativeIngestionMixin
 from ms_quarantine_for_splunk_soar_utils import (
     DIAGNOSTIC_RBAC_NOT_EVALUATED_ERROR_CODE,
@@ -44,8 +47,6 @@ from ms_quarantine_for_splunk_soar_utils import (
     redact_sensitive_text,
     validate_webhook_url,
 )
-from phantom.action_result import ActionResult
-from phantom.base_connector import BaseConnector
 
 
 try:
@@ -471,6 +472,8 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 data_bytes,
                 usedforsecurity=False,
             ).hexdigest(),
+            # Legacy SOAR artifact IOC, not an integrity or authentication check.
+            # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
             "sha1": hashlib.sha1(
                 data_bytes,
                 usedforsecurity=False,

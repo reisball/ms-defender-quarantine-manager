@@ -11,6 +11,7 @@ import json
 from urllib.parse import quote, urljoin, urlsplit
 
 import requests
+
 from ms_quarantine_for_splunk_soar_ingestion import (
     _mail_files_from_parsed,
     _MimeStructureLimit,

@@ -25,6 +25,8 @@ ignore = [
 max-complexity = 28
 
 [tool.ruff.lint.isort]
+# The legacy flat module layout must classify identically in app/ and in the TGZ projection.
+known-first-party = ["ms_quarantine_for_splunk_soar_*"]
 combine-as-imports = true
 lines-after-imports = 2
 

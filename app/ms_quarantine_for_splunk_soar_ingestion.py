@@ -20,8 +20,9 @@ from email import policy
 from email.feedparser import BytesFeedParser
 
 import phantom.app as phantom
-from ms_quarantine_for_splunk_soar_utils import MAX_DECODED_EML_BYTES, AutomationError
 from phantom.action_result import ActionResult
+
+from ms_quarantine_for_splunk_soar_utils import MAX_DECODED_EML_BYTES, AutomationError
 
 
 INGEST_STATE_KEY = "quarantine_native_ingest_v1"
