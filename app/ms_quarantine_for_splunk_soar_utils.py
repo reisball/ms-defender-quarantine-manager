@@ -849,9 +849,7 @@ class MSQuarantineForSplunkSOARUtils:
                     "Job output JSON must be an object. "
                     f"Got {type(parsed).__name__}."
                 )
-            mode = parsed.get("mode")
-            if "mode" in parsed and not isinstance(mode, str):
-                raise AutomationError("Runbook protocol error: field 'mode' must be a string.")
+            mode = self._validated_job_record_mode(parsed)
             if (
                 mode in {
                     LIST_CHUNK_MODE,
@@ -954,6 +952,13 @@ class MSQuarantineForSplunkSOARUtils:
                 records.append(parsed)
         return records
 
+    @staticmethod
+    def _validated_job_record_mode(record):
+        mode = record.get("mode")
+        if "mode" in record and not isinstance(mode, str):
+            raise AutomationError("Runbook protocol error: field 'mode' must be a string.")
+        return mode
+
     def _parse_multiline_job_output(self, raw: str) -> dict:
         """
         Parse mixed Automation output.
@@ -971,13 +976,15 @@ class MSQuarantineForSplunkSOARUtils:
             )
 
         for record in records:
+            self._validated_job_record_mode(record)
+        for record in records:
             if record.get("error"):
                 return record
 
         list_records = [
             record for record in records
             if record.get("action") == "list"
-            and record.get("mode") in (LIST_CHUNK_MODE, LIST_COMPLETE_MODE)
+            and record.get("mode") in {LIST_CHUNK_MODE, LIST_COMPLETE_MODE}
         ]
         has_list_complete = any(
             record.get("mode") == LIST_COMPLETE_MODE
@@ -998,7 +1005,7 @@ class MSQuarantineForSplunkSOARUtils:
         chunk_records = [
             record for record in records
             if record.get("action") == "export"
-            and record.get("mode") in (CHUNKED_EXPORT_MODE, CHUNKED_COMPLETE_MODE)
+            and record.get("mode") in {CHUNKED_EXPORT_MODE, CHUNKED_COMPLETE_MODE}
         ]
 
         has_chunked_complete = any(
