@@ -250,7 +250,7 @@
         {
             "action": "on poll",
             "identifier": "on_poll",
-            "description": "Email import: save complete quarantine emails and attachments in SOAR containers. Check Microsoft status and refill the active-message window.",
+            "description": "Email import: save complete quarantine emails and attachments in SOAR containers. Check Microsoft status and refill the active-message window",
             "verbose": "Import complete EML, attachments and metadata before automation. Keep at most the configured active-message count. Exact Microsoft Released/Denied observations release slots; first50 source-status candidate window, no paging.",
             "type": "ingest",
             "read_only": true,
@@ -809,6 +809,14 @@
                 {
                     "data_path": "action_result.summary.cmdlet_proxy_diagnostics_status",
                     "data_type": "string"
+                },
+                {
+                    "data_path": "summary.total_objects_successful",
+                    "data_type": "numeric"
+                },
+                {
+                    "data_path": "summary.total_objects",
+                    "data_type": "numeric"
                 }
             ],
             "versions": "EQ(*)"
@@ -1005,6 +1013,14 @@
                     "data_path": "action_result.data.*.runbook_build_id",
                     "data_type": "string",
                     "description": "Self-reported build fingerprint from the runbook, when available."
+                },
+                {
+                    "data_path": "summary.total_objects_successful",
+                    "data_type": "numeric"
+                },
+                {
+                    "data_path": "summary.total_objects",
+                    "data_type": "numeric"
                 }
             ],
             "render": {
@@ -1205,6 +1221,14 @@
                     "data_path": "action_result.data.*.runbook_build_id",
                     "data_type": "string",
                     "description": "Self-reported build fingerprint from the runbook, when available."
+                },
+                {
+                    "data_path": "summary.total_objects_successful",
+                    "data_type": "numeric"
+                },
+                {
+                    "data_path": "summary.total_objects",
+                    "data_type": "numeric"
                 }
             ],
             "render": {
@@ -1216,7 +1240,7 @@
         {
             "action": "on es poll",
             "identifier": "on_es_poll",
-            "description": "Email import: publish to ES with app-managed Microsoft status checks and active-message limits.",
+            "description": "Email import: publish to ES with app-managed Microsoft status checks and active-message limits",
             "verbose": "Uses the same persistent active-message window and unchanged Runbook as native SOAR intake. ES owns threat analysis and automation launch settings.",
             "type": "ingest",
             "read_only": true,
@@ -1317,6 +1341,42 @@
                     "data_path": "action_result.summary.failed_imports",
                     "data_type": "numeric",
                     "description": "Retained failed imports, not automatically replayed by scheduled polling."
+                },
+                {
+                    "data_path": "action_result.parameter.start_time",
+                    "data_type": "numeric"
+                },
+                {
+                    "data_path": "action_result.parameter.end_time",
+                    "data_type": "numeric"
+                },
+                {
+                    "data_path": "action_result.parameter.container_count",
+                    "data_type": "numeric"
+                },
+                {
+                    "data_path": "action_result.parameter.artifact_count",
+                    "data_type": "numeric"
+                },
+                {
+                    "data_path": "action_result.parameter.container_id",
+                    "data_type": "numeric"
+                },
+                {
+                    "data_path": "action_result.message",
+                    "data_type": "string"
+                },
+                {
+                    "data_path": "action_result.status",
+                    "data_type": "string"
+                },
+                {
+                    "data_path": "summary.total_objects",
+                    "data_type": "numeric"
+                },
+                {
+                    "data_path": "summary.total_objects_successful",
+                    "data_type": "numeric"
                 }
             ],
             "versions": "EQ(*)"
