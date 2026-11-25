@@ -135,19 +135,23 @@
         Release-QuarantineMessage has no output object. Release and deny are
         therefore confirmed by polling the exact identity with
         Get-QuarantineMessage. Success requires ReleaseStatus=Released or
-        ReleaseStatus=Denied. An unconfirmed postcondition fails closed as
-        outcome unknown and must not be retried blindly.
+        ReleaseStatus=Denied. PreparingToRelease is reported as pending. Other
+        unconfirmed postconditions have unknown outcome. Do not retry blindly.
 
-    Normal results contain only action, identity, status and the verified
-    observed_identity/observed_release_status. After a successful cmdlet the
+    Confirmed disposition results contain action, identity, status, verified
+    observed_identity/observed_release_status and the stamped runbook version,
+    source revision and build ID. Disposition errors include the same build
+    metadata and report observed_release_status when release is pending.
+    After a successful cmdlet the
     default status-read budget is 7 attempts, 10 seconds apart. A cmdlet error
     is reported immediately: there is no later error-to-success reconstruction.
     Errors use one JSON object with redacted, bounded native text, error_code,
     error_context and optional native exception fields (no error chunk stream).
 
     Optional manual diagnostics:
-        Only diagnose collects build, runtime, connection and command metadata,
-        proxy details, and (with include_rbac=true) tenant RBAC evidence.
+        Only diagnose collects optional runtime, connection and command
+        diagnostics, proxy details, and (with include_rbac=true) tenant RBAC
+        evidence.
         Diagnostics are never a prerequisite for normal commands. Missing RBAC
         diagnostic cmdlets are reported explicitly as not evaluated.
 
@@ -328,8 +332,8 @@ $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "1.0.0"
-$RunbookSourceRevision    = "sha256:85bd98effc93b7706fdb67aa09ae58c4861a946da8cf738d84a6b8bb58a5cde9"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.85bd98effc93b7706fdb67aa09ae58c4861a946da8cf738d84a6b8bb58a5cde9"
+$RunbookSourceRevision    = "sha256:8ee502e412e9752726817a9e2255f4895d78dd85600de2840b9ca5b45179bcac"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.8ee502e412e9752726817a9e2255f4895d78dd85600de2840b9ca5b45179bcac"
 $ReleaseContractId        = "identity_releasetoall"
 $DenyContractId           = "identity_releasetoall_actiontype_deny"
 $PostconditionMaxAttempts = 7

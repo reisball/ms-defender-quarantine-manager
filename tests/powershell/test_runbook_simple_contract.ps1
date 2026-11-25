@@ -2,6 +2,14 @@ $ErrorActionPreference = "Stop"
 $fixture = Join-Path $PSScriptRoot "test_runbook_irreversible_action.ps1"
 $connectionFixture = Join-Path $PSScriptRoot "test_runbook_connection_contract.ps1"
 $script:scenarios = 0
+$runbookSource = Get-Content (Join-Path $PSScriptRoot "../../runbook/runbook.ps1") -Raw
+$expectedMetadata = @{}
+foreach ($name in @("Version", "SourceRevision", "BuildId")) {
+    $match = [regex]::Match($runbookSource, ('(?m)^\$Runbook' + $name + '\s*=\s*"([^"]+)"$'))
+    if (-not $match.Success) { throw "Missing stamped metadata: $name" }
+    $key = "runbook_" + ([regex]::Replace($name, '(?<!^)[A-Z]', '_$0')).ToLowerInvariant()
+    $expectedMetadata[$key] = $match.Groups[1].Value
+}
 
 function Assert-Scenario {
     param([string] $Action, [string] $Sequence, [string] $Status, [int] $Reads, [int] $Writes, [string] $ErrorCode = "", [string[]] $Flags = @())
@@ -14,13 +22,20 @@ function Assert-Scenario {
     if ($data.metadata_calls -ne 0 -or $data.leaked_secret) { throw "Normal operation collected optional metadata or leaked a secret." }
     if ($data.disconnects -ne 1) { throw "Connection not cleaned up exactly once." }
     $result = $data.result
+    foreach ($key in $expectedMetadata.Keys) {
+        if ($Action -in @("release", "deny")) {
+            if ($result.$key -cne $expectedMetadata[$key]) { throw "Wrong disposition metadata: $key" }
+        } elseif ($result.PSObject.Properties.Name -contains $key) {
+            throw "Unexpected metadata on reconcile: $key"
+        }
+    }
     if ($ErrorCode) {
         if (-not $result.error -or $result.error_code -ne $ErrorCode) { throw "Wrong error: $json" }
         if (-not $result.message -or -not $result.identity -or -not $result.error_context) { throw "Incomplete error: $json" }
-        if ($result.details -or $result.runbook_build_id -or $result.mode) { throw "Normal error contains retired envelope fields." }
+        if ($result.details -or $result.mode) { throw "Normal error contains retired envelope fields." }
         if ($Flags -contains "-CmdletFailure" -and $result.message -cne "mock cmdlet failure") { throw "Original cmdlet error changed." }
     } else {
-        $expectedKeys = if ($Action -eq "reconcile") { "action,identity,observed_identity,observed_release_status" } else { "action,identity,observed_identity,observed_release_status,status" }
+        $expectedKeys = if ($Action -eq "reconcile") { "action,identity,observed_identity,observed_release_status" } else { "action,identity,observed_identity,observed_release_status,runbook_build_id,runbook_source_revision,runbook_version,status" }
         if ((($result.PSObject.Properties.Name | Sort-Object) -join ",") -ne $expectedKeys) { throw "Non-minimal normal result: $json" }
         if ($Action -eq "reconcile" -and $result.observed_release_status -ne $Status) { throw "Wrong observation: $json" }
         if ($Action -ne "reconcile" -and $result.status -ne $Status) { throw "Wrong status: $json" }
@@ -41,6 +56,8 @@ foreach ($action in @("release", "deny")) {
     Assert-Scenario $action "__MULTIPLE__" "" 1 0 "precondition_unconfirmed"
     Assert-Scenario $action "__ERROR__" "" 1 0 "precondition_unconfirmed"
     Assert-Scenario $action "Requested" "" 4 1 "postcondition_unconfirmed"
+    Assert-Scenario $action "PreparingToRelease" "" 1 0 "release_pending"
+    Assert-Scenario $action "Requested,PreparingToRelease" "" 4 1 "release_pending"
     foreach ($flag in @("-CmdletFailure", "-TransportFailure", "-AuthorizationFailure", "-NonTerminatingError")) {
         # Even if a hypothetical later status would be terminal, no read follows failure.
         Assert-Scenario $action "Requested,$target" "" 1 1 "disposition_failed" -Flags @($flag)

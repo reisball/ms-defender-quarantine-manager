@@ -1676,8 +1676,11 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
         if last_status:
             result["last_job_status"] = last_status
         action_result.add_data(result)
-        summary = {"status": "error", "outcome": outcome}
-        for key in ("azure_job_id", "last_job_status", "runbook_version", "observed_release_status"):
+        summary = {
+            "status": "error", "outcome": outcome,
+            "azure_job_id": job_id, "last_job_status": last_status,
+        }
+        for key in ("runbook_version", "observed_release_status"):
             if result.get(key):
                 summary[key] = result[key]
         action_result.update_summary(summary)
@@ -1748,9 +1751,8 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             "outcome": "confirmed",
             "azure_job_id": job_id,
             "observed_release_status": data["observed_release_status"],
+            "runbook_version": data.get("runbook_version", ""),
         }
-        if data.get("runbook_version"):
-            summary["runbook_version"] = data["runbook_version"]
         action_result.update_summary(summary)
         return action_result.set_status(phantom.APP_SUCCESS, data["message"])
 
