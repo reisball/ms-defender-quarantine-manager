@@ -22,6 +22,7 @@ mkdir -p "${build_tmp}/${app_dir_name}" "${build_tmp}/release"
 for source_file in \
     __init__.py \
     LICENSE \
+    NOTICE \
     readme.html \
     ms_quarantine_for_splunk_soar.json \
     ms_quarantine_for_splunk_soar_connector.py \
@@ -124,6 +125,7 @@ mv "${app_artifact}.tmp" "${app_artifact}"
 expected_members=$(printf '%s\n' \
     "${app_dir_name}/" \
     "${app_dir_name}/LICENSE" \
+    "${app_dir_name}/NOTICE" \
     "${app_dir_name}/__init__.py" \
     "${app_dir_name}/ms_quarantine_for_splunk_soar.json" \
     "${app_dir_name}/ms_quarantine_for_splunk_soar.svg" \

@@ -38,12 +38,43 @@ the pinned release package and projects its contents into a disposable app
 root; it does not move files in this repository or put the Azure runbook into
 the SOAR package.
 
-With the upstream command-line tools available in an isolated Python 3.13
-environment, run `python tools/soar_checks.py lint`, `docs` and `static`
-from a committed checkout. The documentation check generates an upstream README
-in scratch space, not over the maintained README here. `static-strict` also
-fails if registration is missing. A non-strict pass is not upstream acceptance
-or native SOAR validation.
+Run the checks from a committed checkout. Both tooling environments use
+Python 3.13, separately from the app runtime and from each other: the app linter
+requires Pydantic 1; the static/doc hooks use a SOAR SDK requiring Pydantic 2.
+
+```bash
+# Use uv 0.13.10, as in CI.
+tooling=$(mktemp -d /tmp/msqsoar-tools.XXXXXX)
+for tool in hooks lint; do
+    uv venv --python 3.13 "$tooling/$tool"
+    uv pip sync --python "$tooling/$tool/bin/python" "tools/soar-tooling/$tool.txt"
+done
+(
+    export PATH="$tooling/hooks/bin:$PATH"
+    SOAR_CHECK_REPORT="$tooling/static.json" python tools/soar_checks.py static
+    python tools/soar_checks.py docs
+    python tools/soar_checks.py notes
+)
+(PATH="$tooling/lint/bin:$PATH" python tools/soar_checks.py lint)
+python3 tools/render_notice.py --check
+```
+
+The lock inputs pin upstream Git commits, and the corresponding `.txt` files
+pin the resolved Python 3.13 dependencies. When updating tools, regenerate with
+`uv pip compile --python-version 3.13 tools/soar-tooling/<tool>.in -o tools/soar-tooling/<tool>.txt`,
+then test both environments independently.
+
+The docs hook generates an upstream README in scratch space, not over this
+repository's maintained README. The linter checks errors and uses a disposable
+app copy with dependency installation enabled. The static report retains raw
+results; upstream reads the live registries when available and can fall back
+to bundled snapshots. `static-strict` additionally fails if registration is
+pending. A non-strict pass is not upstream acceptance or native SOAR validation.
+
+NOTICE is generated from license text in the exact hash-locked runtime wheels
+for both app interpreters, not from tooling or platform-provided dependencies.
+When wheels change, review their bundled license files and native components,
+update the wheel lock, and run `python3 tools/render_notice.py`.
 
 See the [SOAR contribution guide](https://github.com/splunk-soar-connectors/.github/blob/main/.github/CONTRIBUTING.md)
 for the repository request, required hooks and upstream pull request process.
@@ -77,7 +108,7 @@ The builder checks generated help and verifies that every staged runtime byte co
 
 | Artifact | Contents |
 |---|---|
-| `ms-quarantine-for-splunk-soar-<version>.tgz` | One `ms-quarantine-for-splunk-soar/` directory with ten files: manifest, connector, utils, SOAR ingestion, ES ingestion, `__init__.py`, two logos, `readme.html`, `LICENSE` |
+| `ms-quarantine-for-splunk-soar-<version>.tgz` | One `ms-quarantine-for-splunk-soar/` directory with runtime modules, the manifest, icons, `readme.html`, `LICENSE`, `NOTICE` and the six pinned runtime wheels |
 | `ms-quarantine-for-splunk-soar-runbook-<version>.ps1` | Stamped `runbook/runbook.ps1` |
 
 Tests, Markdown, the runbook and example playbooks are not in the app archive. The SAA example is packaged separately as described in [its README](../examples/MS_Quarantine_SAA_Example/README.md#import-and-configure).

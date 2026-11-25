@@ -6,8 +6,8 @@
 import argparse
 import json
 import os
-import tarfile
 import subprocess
+import tarfile
 import tempfile
 from pathlib import Path
 
@@ -20,6 +20,7 @@ def source_snapshot(destination):
     with tempfile.TemporaryDirectory(prefix="msqsoar-package-") as temporary:
         out = Path(temporary)
         subprocess.run(["bash", str(ROOT / "tools/build_release.sh"), str(out)], cwd=ROOT, check=True)
+        commit = json.loads((out / "BUILD_METADATA.json").read_bytes())["source_commit"]
         package, = out.glob("*.tgz")
         with tarfile.open(package) as archive:
             for member in archive:
@@ -39,7 +40,7 @@ def source_snapshot(destination):
             target = destination / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(subprocess.check_output(
-                ["git", "--no-replace-objects", "cat-file", "blob", f"HEAD:{relative}"], cwd=ROOT
+                ["git", "--no-replace-objects", "cat-file", "blob", f"{commit}:{relative}"], cwd=ROOT
             ))
 
 
@@ -51,6 +52,19 @@ def lint():
         snapshot.mkdir()
         source_snapshot(snapshot)
         return subprocess.call(["soar-app-linter", "--single-repo", "--message-level", "error", str(snapshot)])
+
+
+def release_notes():
+    with tempfile.TemporaryDirectory(prefix="msqsoar-notes-", dir="/tmp") as temporary:
+        snapshot = Path(temporary)
+        source_snapshot(snapshot)
+        notes = snapshot / "release_notes/unreleased.md"
+        before = notes.read_bytes()
+        result = subprocess.call(["release-notes", str(snapshot)])
+        if before != notes.read_bytes():
+            print("Upstream release-notes hook rewrote the committed notes.")
+            return 1
+        return result
 
 
 def docs():
@@ -133,9 +147,9 @@ def static(strict=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("check", choices=["lint", "docs", "static", "static-strict"])
+    parser.add_argument("check", choices=["lint", "docs", "notes", "static", "static-strict"])
     args = parser.parse_args()
-    return {"lint": lint, "docs": docs, "static": static, "static-strict": lambda: static(strict=True)}[args.check]()
+    return {"lint": lint, "docs": docs, "notes": release_notes, "static": static, "static-strict": lambda: static(strict=True)}[args.check]()
 
 
 if __name__ == "__main__":

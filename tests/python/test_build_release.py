@@ -17,7 +17,7 @@ WHEEL_LOCK = "tools/wheel-lock.json"
 WHEEL_INPUTS = json.loads((ROOT / WHEEL_LOCK).read_text())["wheels"]
 WHEEL_DIRS = {"wheels", "wheels/py3", "wheels/py39", "wheels/py313"}
 APP_INPUTS = (
-    "__init__.py", "LICENSE", "readme.html", "ms_quarantine_for_splunk_soar.json",
+    "__init__.py", "LICENSE", "NOTICE", "readme.html", "ms_quarantine_for_splunk_soar.json",
     "ms_quarantine_for_splunk_soar_connector.py", "ms_quarantine_for_splunk_soar_utils.py",
     "ms_quarantine_for_splunk_soar_ingestion.py", "ms_quarantine_for_splunk_soar_es_ingestion.py",
     "ms_quarantine_for_splunk_soar.svg", "ms_quarantine_for_splunk_soar_dark.svg",
