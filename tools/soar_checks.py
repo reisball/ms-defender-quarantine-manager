@@ -46,7 +46,7 @@ def source_snapshot(destination):
 def lint():
     # The upstream linter installs a .venv and may add package marker files.
     # Keep that installation outside the checkout without using --no-deps.
-    with tempfile.TemporaryDirectory(prefix="msqsoar-lint-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="msqsoar-lint-", dir="/tmp") as temporary:
         snapshot = Path(temporary) / "ms_quarantine_for_splunk_soar"
         snapshot.mkdir()
         source_snapshot(snapshot)
@@ -55,7 +55,7 @@ def lint():
 
 def docs():
     # Validate the upstream projection without replacing the maintained README.
-    with tempfile.TemporaryDirectory(prefix="msqsoar-docs-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="msqsoar-docs-", dir="/tmp") as temporary:
         snapshot = Path(temporary) / "ms_quarantine_for_splunk_soar"
         snapshot.mkdir()
         source_snapshot(snapshot)
@@ -104,7 +104,7 @@ def static(strict=False):
     }
     # The upstream parser ignores any absolute path containing a hidden
     # directory. A clean /tmp snapshot also isolates its possible auto-fixes.
-    with tempfile.TemporaryDirectory(prefix="msqsoar-static-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="msqsoar-static-", dir="/tmp") as temporary:
         snapshot = Path(temporary) / "ms_quarantine_for_splunk_soar"
         snapshot.mkdir()
         source_snapshot(snapshot)
