@@ -1,7 +1,7 @@
 {
     "appid": "2e21b2c5-a6a6-4fb4-8df7-9dd1135ab08e",
     "name": "MS Quarantine for Splunk SOAR",
-    "description": "Ingest Microsoft Defender quarantine emails through Azure Automation into native SOAR or ES workflows. Inspect, release, deny and reconcile quarantine messages.",
+    "description": "Ingest Microsoft Defender quarantine emails through Azure Automation into native SOAR or ES workflows. Inspect, release or deny quarantine messages.",
     "publisher": "Kai Seidenschnur",
     "package_name": "phantom_ms_quarantine_for_splunk_soar",
     "type": "generic",
