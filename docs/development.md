@@ -14,7 +14,7 @@
 
 ## Checks
 
-Run from the repository root with Python 3.9 and 3.13. `requirements-dev.txt` holds development-only version ranges, not a lockfile; at runtime the app uses platform-provided dependencies.
+Run from the repository root with Python 3.9 and 3.13. `requirements-dev.txt` holds development-only version ranges, not a lockfile; the release builder verifies the runtime wheels against the manifest and wheel lock.
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
@@ -29,6 +29,24 @@ python tools/check_mime_parser_compat.py
 The [GitHub workflow](../.github/workflows/ci.yml) runs this on both Python versions and, on 3.13, the full PowerShell contract sequence in `tests/powershell/`. Running a single PowerShell script does not replace the sequence.
 
 The MIME parser overrides CPython's private `BytesFeedParser._new_message` hook and reads `_msgstack` to enforce the node and depth limits before allocation. Re-run `tools/check_mime_parser_compat.py` and the MIME tests when adding a Python runtime.
+
+## Splunk SOAR community submission
+
+Keep the repository layout above. The upstream legacy connector tooling expects
+the app manifest and source at the checkout root. The submission checker builds
+the pinned release package and projects its contents into a disposable app
+root; it does not move files in this repository or put the Azure runbook into
+the SOAR package.
+
+With the upstream command-line tools available in an isolated Python 3.13
+environment, run `python tools/soar_checks.py lint`, `docs` and `static`
+from a committed checkout. The documentation check generates an upstream README
+in scratch space, not over the maintained README here. `static-strict` also
+fails if registration is missing. A non-strict pass is not upstream acceptance
+or native SOAR validation.
+
+See the [SOAR contribution guide](https://github.com/splunk-soar-connectors/.github/blob/main/.github/CONTRIBUTING.md)
+for the repository request, required hooks and upstream pull request process.
 
 ## Versions and release notes
 
