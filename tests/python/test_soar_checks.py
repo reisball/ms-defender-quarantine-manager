@@ -155,3 +155,21 @@ def test_snapshot_uses_the_packaged_commit_for_documentation(source, tmp_path, m
     assert all((destination / relative).read_text() == "Frozen documentation\n" for relative in files)
     assert (destination / "NOTICE").read_bytes() == (source / "app/NOTICE").read_bytes()
     assert not (destination / "runbook.ps1").exists()
+
+
+def test_linter_requires_json_and_propagates_startup_failure(tmp_path, monkeypatch):
+    # Model the pinned vendor CLI: text mode masks the empty child stdout,
+    # while attempting to decode that stdout in JSON mode fails the command.
+    linter = tmp_path / "soar-app-linter"
+    linter.write_text(
+        f"#!{sys.executable}\n"
+        "import json, subprocess, sys\n"
+        "child = subprocess.run([sys.executable, '-c', "
+        "'import sys; sys.exit(32)'], capture_output=True)\n"
+        "assert child.returncode == 32 and not child.stdout\n"
+        "if '--output-format' in sys.argv and sys.argv[sys.argv.index('--output-format') + 1] == 'json':\n"
+        "    json.loads(child.stdout)\n"
+    )
+    linter.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path), prepend=":")
+    assert soar_checks.run_app_linter(tmp_path) != 0

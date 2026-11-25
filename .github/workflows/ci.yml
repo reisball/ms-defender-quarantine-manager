@@ -507,7 +507,9 @@ jobs:
           python -m pip install uv==0.13.10
           for tool in hooks lint; do
             uv venv --python "$(command -v python)" "$RUNNER_TEMP/soar-$tool"
-            uv pip sync --python "$RUNNER_TEMP/soar-$tool/bin/python" "tools/soar-tooling/$tool.txt"
+            uv pip sync --python "$RUNNER_TEMP/soar-$tool/bin/python" \
+              --build-constraints tools/soar-tooling/build-constraints.txt \
+              "tools/soar-tooling/$tool.txt"
           done
 
       - name: Check bundled notices

@@ -43,25 +43,31 @@ Python 3.13, separately from the app runtime and from each other: the app linter
 requires Pydantic 1; the static/doc hooks use a SOAR SDK requiring Pydantic 2.
 
 ```bash
-# Use uv 0.13.10, as in CI.
-tooling=$(mktemp -d /tmp/msqsoar-tools.XXXXXX)
-for tool in hooks lint; do
-    uv venv --python 3.13 "$tooling/$tool"
-    uv pip sync --python "$tooling/$tool/bin/python" "tools/soar-tooling/$tool.txt"
-done
 (
-    export PATH="$tooling/hooks/bin:$PATH"
-    SOAR_CHECK_REPORT="$tooling/static.json" python tools/soar_checks.py static
-    python tools/soar_checks.py docs
-    python tools/soar_checks.py notes
+    set -e
+    # Use uv 0.13.10, as in CI.
+    tooling=$(mktemp -d /tmp/msqsoar-tools.XXXXXX)
+    for tool in hooks lint; do
+        uv venv --python 3.13 "$tooling/$tool"
+        uv pip sync --python "$tooling/$tool/bin/python" \
+            --build-constraints tools/soar-tooling/build-constraints.txt \
+            "tools/soar-tooling/$tool.txt"
+    done
+    (
+        export PATH="$tooling/hooks/bin:$PATH"
+        SOAR_CHECK_REPORT="$tooling/static.json" python tools/soar_checks.py static
+        python tools/soar_checks.py docs
+        python tools/soar_checks.py notes
+    )
+    (PATH="$tooling/lint/bin:$PATH" python tools/soar_checks.py lint)
+    python3 tools/render_notice.py --check
 )
-(PATH="$tooling/lint/bin:$PATH" python tools/soar_checks.py lint)
-python3 tools/render_notice.py --check
 ```
 
 The lock inputs pin upstream Git commits, and the corresponding `.txt` files
-pin the resolved Python 3.13 dependencies. When updating tools, regenerate with
-`uv pip compile --python-version 3.13 tools/soar-tooling/<tool>.in -o tools/soar-tooling/<tool>.txt`,
+pin the resolved Python 3.13 dependencies. The build constraints also pin
+the isolated build dependencies of the Git-based tools. When updating tools, regenerate with
+`uv pip compile --python-version 3.13 --build-constraints tools/soar-tooling/build-constraints.txt tools/soar-tooling/<tool>.in -o tools/soar-tooling/<tool>.txt`,
 then test both environments independently.
 
 The docs hook generates an upstream README in scratch space, not over this
@@ -73,9 +79,10 @@ to bundled snapshots. `static-strict` additionally fails if registration is
 pending. A non-strict pass is not upstream acceptance or native SOAR validation.
 
 NOTICE is generated from license text in the exact hash-locked runtime wheels
-for both app interpreters, plus pinned upstream license texts for the OpenSSL
-and libffi components statically linked into those wheels. It excludes tooling
-and platform-provided dependencies.
+for both app interpreters, plus pinned notices for the bundled OpenSSL, libffi and Rust components.
+The Rust notice records source checksums and distinguishes the all-target
+cryptography lockfile from the Linux standard-library dependency set. NOTICE
+excludes SOAR tooling and platform-provided dependencies.
 When wheels change, review their bundled license files and native components,
 update the wheel lock, and run `python3 tools/render_notice.py`.
 

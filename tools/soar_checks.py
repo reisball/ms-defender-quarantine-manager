@@ -62,14 +62,22 @@ def lint():
         subprocess.run([sys.executable, "-m", "venv", str(python.parent.parent)], check=True)
         subprocess.run([
             *uv, "pip", "sync", "--python", str(python),
+            "--build-constraints", str(ROOT / "tools/soar-tooling/build-constraints.txt"),
             str(ROOT / "tools/soar-tooling/lint.txt"),
         ], check=True)
         subprocess.run([*uv, "pip", "install", "--python", str(python), "--no-deps", *wheels], check=True)
         subprocess.run([*uv, "pip", "check", "--python", str(python)], check=True)
-        return subprocess.call(
-            ["soar-app-linter", "--single-repo", "--message-level", "error", str(snapshot)],
-            env={**os.environ, "PIP_NO_INDEX": "1"},
-        )
+        return run_app_linter(snapshot)
+
+
+def run_app_linter(snapshot):
+    # The vendor text parser treats empty stdout as success even if Pylint
+    # aborted. JSON mode rejects invalid output and keeps the vendor filters.
+    return subprocess.call(
+        ["soar-app-linter", "--single-repo", "--message-level", "error",
+         "--output-format", "json", str(snapshot)],
+        env={**os.environ, "PIP_NO_INDEX": "1"},
+    )
 
 
 def release_notes():

@@ -51,7 +51,8 @@ def render(app, lock):
         data = notice.read_bytes()
         if hashlib.sha256(data).hexdigest() != source["sha256"]:
             raise ValueError(f"Native notice SHA-256 mismatch: {notice.name}")
-        blocks.append(f"=== {source['component']} ===\nSource: {source['url']}\n" + license_text(data))
+        build_sources = "".join(f"Build source: {url}\n" for url in source.get("build_sources", []))
+        blocks.append(f"=== {source['component']} ===\nSource: {source['url']}\n" + build_sources + license_text(data))
     return ("\n\n".join(blocks) + "\n").encode("utf-8")
 
 
