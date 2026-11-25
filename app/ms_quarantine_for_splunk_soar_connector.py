@@ -23,6 +23,7 @@ import fcntl
 import hashlib
 import json
 import os
+from pathlib import Path
 import re
 import stat
 import tempfile
@@ -1286,18 +1287,55 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 self.save_progress("Step 3/3: Validating the list result...")
                 self._normalise_list_result(output)
 
-            self._utils.run_action("list", validate_result=validate_list)
+            result = self._utils.run_action("list", validate_result=validate_list)
         except (WebhookError, TokenError, JobTimeoutError,
                 JobFailedError, AutomationError) as exc:
             return action_result.set_status(
                 phantom.APP_ERROR, self._map_error(exc, "test connectivity")
             )
 
-        return action_result.set_status(
-            phantom.APP_SUCCESS,
+        metadata, warning = self._runbook_version_evidence(result)
+        action_result.update_summary(metadata)
+        message = (
             "Connectivity test passed. Webhook, Azure AD token, job polling, "
             "and Exchange Online connection all working."
         )
+        if warning:
+            message += " Warning: " + warning
+        return action_result.set_status(phantom.APP_SUCCESS, message)
+
+    @staticmethod
+    def _runbook_version_evidence(result):
+        # Use the actual installed manifest, not the runbook's self-reported
+        # fingerprint as a proxy for a release version.
+        manifest = Path(__file__).with_name("ms_quarantine_for_splunk_soar.json")
+        try:
+            app_version = json.loads(manifest.read_text(encoding="utf-8"))["app_version"]
+        except (OSError, ValueError, KeyError, TypeError):
+            app_version = ""
+        version = result.get("runbook_version")
+        build_id = result.get("runbook_build_id")
+        version_pattern = r"[0-9]{1,8}(?:\.[0-9]{1,8}){2}"
+        build_pattern = rf"ms-quarantine-for-splunk-soar-runbook-{version_pattern}\+sha256\.[0-9a-f]{{64}}"
+        summary = {}
+        if isinstance(app_version, str) and re.fullmatch(version_pattern, app_version):
+            summary["app_version"] = app_version
+        if isinstance(version, str) and re.fullmatch(version_pattern, version):
+            summary["runbook_version"] = version
+        if isinstance(build_id, str) and re.fullmatch(build_pattern, build_id):
+            summary["runbook_build_id"] = build_id
+        if not {"app_version", "runbook_version"} <= summary.keys():
+            warning = "App/runbook version comparison unavailable; verify the installed pair against the release package."
+        elif app_version != version:
+            warning = (
+                f"App version {app_version} differs from runbook version {version}. "
+                "Install the runbook from the same release before enabling automation."
+            )
+        else:
+            warning = ""
+        if warning:
+            summary["version_warning"] = warning
+        return summary, warning
 
     # -----------------------------------------------------------------------
     # Shared Requested-list normalization
@@ -1638,10 +1676,11 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
         if last_status:
             result["last_job_status"] = last_status
         action_result.add_data(result)
-        action_result.update_summary({
-            "status": "error", "outcome": outcome,
-            "azure_job_id": job_id, "last_job_status": last_status,
-        })
+        summary = {"status": "error", "outcome": outcome}
+        for key in ("azure_job_id", "last_job_status", "runbook_version", "observed_release_status"):
+            if result.get(key):
+                summary[key] = result[key]
+        action_result.update_summary(summary)
         return action_result.set_status(phantom.APP_ERROR, message)
 
     def _execute_disposition(self, action_result, action, identity):
@@ -1702,18 +1741,18 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             )
 
         data = dict(result, azure_job_id=job_id, outcome="confirmed")
+        data["message"] = data.get("message") or f"Quarantine {action} confirmed by Exchange."
         action_result.add_data(data)
-        action_result.update_summary({
+        summary = {
             "status": data["status"],
             "outcome": "confirmed",
             "azure_job_id": job_id,
-            "runbook_version": data.get("runbook_version", ""),
-            "observed_release_status": data.get("observed_release_status", ""),
-        })
-        return action_result.set_status(
-            phantom.APP_SUCCESS,
-            data.get("message") or f"Quarantine {action} confirmed by Exchange.",
-        )
+            "observed_release_status": data["observed_release_status"],
+        }
+        if data.get("runbook_version"):
+            summary["runbook_version"] = data["runbook_version"]
+        action_result.update_summary(summary)
+        return action_result.set_status(phantom.APP_SUCCESS, data["message"])
 
     def _handle_disposition(self, param, action):
         action_result = self.add_action_result(ActionResult(dict(param)))

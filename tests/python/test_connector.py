@@ -172,7 +172,6 @@ from ms_quarantine_for_splunk_soar_utils import (  # noqa: E402
     AAD_TOKEN_URL, MGMT_BASE, MGMT_API_VERSION,
     AZURE_STREAM_LIMIT_MESSAGE, MAX_DECODED_EML_BYTES,
     LIST_CHUNK_MODE, LIST_COMPLETE_MODE, MAX_LIST_RESULT_COUNT,
-    ERROR_CHUNK_MODE, ERROR_COMPLETE_MODE,
     MAX_DIAGNOSTIC_TRACE_RECORDS, MAX_RBAC_ROLE_GROUP_INSPECTIONS,
 )
 from ms_quarantine_for_splunk_soar_connector import (  # noqa: E402
@@ -1107,49 +1106,6 @@ def chunked_export_output(
     if order is not None:
         records = [records[i] for i in order]
     return "\n".join(json.dumps(record) for record in records)
-
-
-def chunked_error_output(error_result, chunk_size=64, mutate=None):
-    payload = json.dumps(
-        error_result,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    encoded = base64.b64encode(payload).decode("ascii")
-    chunks = [
-        encoded[offset:offset + chunk_size]
-        for offset in range(0, len(encoded), chunk_size)
-    ]
-    records = [
-        {
-            "action": error_result["action"],
-            "error": True,
-            "mode": ERROR_CHUNK_MODE,
-            "encoding": "base64",
-            "chunk_index": idx,
-            "chunk_count": len(chunks),
-            "payload_chunk": chunk,
-            **build_metadata(),
-        }
-        for idx, chunk in enumerate(chunks)
-    ]
-    records.append({
-        "action": error_result["action"],
-        "error": True,
-        "mode": ERROR_COMPLETE_MODE,
-        "encoding": "base64",
-        "chunk_count": len(chunks),
-        "payload_base64_length": len(encoded),
-        "payload_utf8_bytes": len(payload),
-        "payload_sha256": hashlib.sha256(payload).hexdigest(),
-        **build_metadata(),
-    })
-    if mutate is not None:
-        mutate(records)
-    return "\n".join(
-        json.dumps(record, separators=(",", ":"))
-        for record in records
-    )
 
 
 def chunked_list_output(

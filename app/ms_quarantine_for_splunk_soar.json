@@ -219,11 +219,32 @@
             "action": "test connectivity",
             "identifier": "test_connectivity",
             "description": "Validates webhook reachability and Azure AD token acquisition",
-            "verbose": "Fires the webhook with action=list and waits for job completion. Confirms that the webhook URL, Azure AD credentials, and job polling all work end-to-end.",
+            "verbose": "Fires the webhook with action=list and waits for job completion. Confirms that the webhook URL, Azure AD credentials, and job polling all work end-to-end. Reports installed app and runbook versions separately from the runbook build ID. A version mismatch warns without changing the connectivity result.",
             "type": "test",
             "read_only": true,
             "parameters": {},
-            "output": [],
+            "output": [
+                {
+                    "data_path": "action_result.summary.app_version",
+                    "data_type": "string",
+                    "description": "Version of the installed app manifest, when available."
+                },
+                {
+                    "data_path": "action_result.summary.runbook_version",
+                    "data_type": "string",
+                    "description": "Release version reported by the connected runbook, when available."
+                },
+                {
+                    "data_path": "action_result.summary.runbook_build_id",
+                    "data_type": "string",
+                    "description": "Self-reported runbook build fingerprint; not proof that the two builds match."
+                },
+                {
+                    "data_path": "action_result.summary.version_warning",
+                    "data_type": "string",
+                    "description": "Present when the versions differ or cannot be compared."
+                }
+            ],
             "versions": "EQ(*)"
         },
         {
@@ -832,7 +853,7 @@
                     "data_path": "action_result.data.*.message",
                     "data_type": "string",
                     "example_values": [
-                        "Release request approval confirmed by Exchange quarantine status."
+                        "Quarantine release confirmed by Exchange."
                     ],
                     "column_name": "Message",
                     "column_order": 2
@@ -856,32 +877,36 @@
                     "data_path": "action_result.data.*.runbook_version",
                     "data_type": "string",
                     "example_values": [
-                        "3.4.2"
+                        "1.0.0"
                     ],
-                    "description": "Reported runbook version; informational, not an execution gate."
+                    "description": "Release version reported by the runbook, when available; not a build fingerprint."
                 },
                 {
                     "data_path": "action_result.data.*.azure_job_id",
                     "data_type": "string",
                     "example_values": [
                         "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-                    ]
+                    ],
+                    "description": "Azure job ID when submission returned one."
                 },
                 {
                     "data_path": "action_result.data.*.last_job_status",
                     "data_type": "string",
                     "example_values": [
                         "Running",
-                        "unknown"
-                    ]
+                        "Stopped",
+                        "Completed"
+                    ],
+                    "description": "Last observed Azure job status on an error, when available."
                 },
                 {
                     "data_path": "action_result.data.*.observed_release_status",
                     "data_type": "string",
                     "example_values": [
-                        "Requested",
-                        "Released"
-                    ]
+                        "Released",
+                        "PreparingToRelease"
+                    ],
+                    "description": "Matched terminal status on confirmation, or PreparingToRelease on a pending result."
                 },
                 {
                     "data_path": "action_result.data.*.observed_identity",
@@ -894,7 +919,13 @@
                 {
                     "data_path": "action_result.summary.outcome",
                     "data_type": "string",
-                    "example_values": ["confirmed", "not_executed", "failed", "pending", "unknown"]
+                    "example_values": [
+                        "confirmed",
+                        "not_executed",
+                        "failed",
+                        "pending",
+                        "unknown"
+                    ]
                 },
                 {
                     "data_path": "action_result.data.*.outcome",
@@ -920,31 +951,35 @@
                     "data_type": "string",
                     "example_values": [
                         "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-                    ]
+                    ],
+                    "description": "Azure job ID when submission returned one."
                 },
                 {
                     "data_path": "action_result.summary.last_job_status",
                     "data_type": "string",
                     "example_values": [
                         "Running",
-                        "unknown"
-                    ]
+                        "Stopped",
+                        "Completed"
+                    ],
+                    "description": "Last observed Azure job status on an error, when available."
                 },
                 {
                     "data_path": "action_result.summary.runbook_version",
                     "data_type": "string",
                     "example_values": [
-                        "3.4.2"
+                        "1.0.0"
                     ],
-                    "description": "Reported runbook version; informational, not an execution gate."
+                    "description": "Release version reported by the runbook, when available; not a build fingerprint."
                 },
                 {
                     "data_path": "action_result.summary.observed_release_status",
                     "data_type": "string",
                     "example_values": [
-                        "Requested",
-                        "Released"
-                    ]
+                        "Released",
+                        "PreparingToRelease"
+                    ],
+                    "description": "Matched terminal status on confirmation, or PreparingToRelease on a pending result."
                 },
                 {
                     "data_path": "action_result.status",
@@ -958,7 +993,7 @@
                     "data_path": "action_result.message",
                     "data_type": "string",
                     "example_values": [
-                        "Message released successfully"
+                        "Quarantine release confirmed by Exchange."
                     ]
                 },
                 {
@@ -966,8 +1001,9 @@
                     "data_type": "boolean"
                 },
                 {
-                    "data_path": "action_result.data.*.error_code",
-                    "data_type": "string"
+                    "data_path": "action_result.data.*.runbook_build_id",
+                    "data_type": "string",
+                    "description": "Self-reported build fingerprint from the runbook, when available."
                 }
             ],
             "render": {
@@ -1016,7 +1052,7 @@
                     "data_path": "action_result.data.*.message",
                     "data_type": "string",
                     "example_values": [
-                        "Release request denied. Message remains in quarantine."
+                        "Quarantine deny confirmed by Exchange."
                     ],
                     "column_name": "Message",
                     "column_order": 2
@@ -1040,32 +1076,36 @@
                     "data_path": "action_result.data.*.runbook_version",
                     "data_type": "string",
                     "example_values": [
-                        "3.4.2"
+                        "1.0.0"
                     ],
-                    "description": "Reported runbook version; informational, not an execution gate."
+                    "description": "Release version reported by the runbook, when available; not a build fingerprint."
                 },
                 {
                     "data_path": "action_result.data.*.azure_job_id",
                     "data_type": "string",
                     "example_values": [
                         "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-                    ]
+                    ],
+                    "description": "Azure job ID when submission returned one."
                 },
                 {
                     "data_path": "action_result.data.*.last_job_status",
                     "data_type": "string",
                     "example_values": [
                         "Running",
-                        "unknown"
-                    ]
+                        "Stopped",
+                        "Completed"
+                    ],
+                    "description": "Last observed Azure job status on an error, when available."
                 },
                 {
                     "data_path": "action_result.data.*.observed_release_status",
                     "data_type": "string",
                     "example_values": [
-                        "Requested",
-                        "Denied"
-                    ]
+                        "Denied",
+                        "PreparingToRelease"
+                    ],
+                    "description": "Matched terminal status on confirmation, or PreparingToRelease on a pending result."
                 },
                 {
                     "data_path": "action_result.data.*.observed_identity",
@@ -1078,7 +1118,13 @@
                 {
                     "data_path": "action_result.summary.outcome",
                     "data_type": "string",
-                    "example_values": ["confirmed", "not_executed", "failed", "pending", "unknown"]
+                    "example_values": [
+                        "confirmed",
+                        "not_executed",
+                        "failed",
+                        "pending",
+                        "unknown"
+                    ]
                 },
                 {
                     "data_path": "action_result.data.*.outcome",
@@ -1104,31 +1150,35 @@
                     "data_type": "string",
                     "example_values": [
                         "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-                    ]
+                    ],
+                    "description": "Azure job ID when submission returned one."
                 },
                 {
                     "data_path": "action_result.summary.last_job_status",
                     "data_type": "string",
                     "example_values": [
                         "Running",
-                        "unknown"
-                    ]
+                        "Stopped",
+                        "Completed"
+                    ],
+                    "description": "Last observed Azure job status on an error, when available."
                 },
                 {
                     "data_path": "action_result.summary.runbook_version",
                     "data_type": "string",
                     "example_values": [
-                        "3.4.2"
+                        "1.0.0"
                     ],
-                    "description": "Reported runbook version; informational, not an execution gate."
+                    "description": "Release version reported by the runbook, when available; not a build fingerprint."
                 },
                 {
                     "data_path": "action_result.summary.observed_release_status",
                     "data_type": "string",
                     "example_values": [
-                        "Requested",
-                        "Denied"
-                    ]
+                        "Denied",
+                        "PreparingToRelease"
+                    ],
+                    "description": "Matched terminal status on confirmation, or PreparingToRelease on a pending result."
                 },
                 {
                     "data_path": "action_result.status",
@@ -1142,7 +1192,7 @@
                     "data_path": "action_result.message",
                     "data_type": "string",
                     "example_values": [
-                        "Release request denied"
+                        "Quarantine deny confirmed by Exchange."
                     ]
                 },
                 {
@@ -1150,8 +1200,9 @@
                     "data_type": "boolean"
                 },
                 {
-                    "data_path": "action_result.data.*.error_code",
-                    "data_type": "string"
+                    "data_path": "action_result.data.*.runbook_build_id",
+                    "data_type": "string",
+                    "description": "Self-reported build fingerprint from the runbook, when available."
                 }
             ],
             "render": {

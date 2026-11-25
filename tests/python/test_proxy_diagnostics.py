@@ -1,5 +1,6 @@
 """Read-only Exchange proxy evidence, exercised through the real diagnose path."""
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -7,6 +8,8 @@ import pytest
 import test_connector as t
 
 ROOT = Path(__file__).resolve().parents[2]
+PWSH = shutil.which("pwsh")
+pytestmark = pytest.mark.skipif(PWSH is None, reason="PowerShell is not installed")
 SECRET = 'PROXY_SYNTHETIC_SECRET_123'
 MODULE = r'''
 Remove-Item Function:\Release-QuarantineMessage
@@ -43,7 +46,7 @@ def diagnose(tmp_path, setup=''):
     source = source.replace('$request = @{', setup + '\n$request = @{')
     script = tmp_path / 'diagnose.ps1'
     script.write_text(source)
-    proc = subprocess.run(['pwsh', '-NoProfile', '-File', str(script)],
+    proc = subprocess.run([PWSH, '-NoProfile', '-File', str(script)],
                           capture_output=True, text=True, check=True, timeout=30)
     result = json.loads(next(line for line in reversed(proc.stdout.splitlines()) if line.startswith('{')))
     assert result['status'] == 'inspected', result

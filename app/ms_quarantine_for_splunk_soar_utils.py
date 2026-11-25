@@ -104,8 +104,6 @@ LIST_COMPLETE_MODE = "list_complete"
 MAX_LIST_RESULT_COUNT = 1000
 CHUNKED_EXPORT_MODE = "chunked"
 CHUNKED_COMPLETE_MODE = "chunked_complete"
-ERROR_CHUNK_MODE = "error_chunk"
-ERROR_COMPLETE_MODE = "error_complete"
 CHUNK_ENCODING = "base64"
 PROTECTED_READ_ACTIONS = {"list", "export"}
 PROTECTED_OUTPUT_MODE = "msq-protected-v1"
@@ -115,20 +113,10 @@ MAX_DECODED_EML_BYTES = 24 * 1024 * 1024
 MAX_INLINE_DECODED_EML_BYTES = 10 * 1024 * 1024
 EXCHANGE_AUTH_METHOD = "ManagedIdentity"
 EXCHANGE_SETTING_MAX_CHARS = 256
-PRECONDITION_ERROR_CODE = "precondition_unconfirmed"
-POSTCONDITION_ERROR_CODE = "postcondition_unconfirmed"
-DISPOSITION_REJECTED_ERROR_CODE = "disposition_rejected"
-DISPOSITION_CAPABILITY_ERROR_CODE = "disposition_capability_unconfirmed"
 DIAGNOSTIC_RBAC_NOT_EVALUATED_ERROR_CODE = (
     "diagnostic_rbac_not_evaluated"
 )
 DIAGNOSTIC_RBAC_PARTIAL_ERROR_CODE = "diagnostic_rbac_partial"
-POSTCONDITION_VERIFICATION_METHOD = "Get-QuarantineMessage"
-RELEASE_CONTRACT_ID = "identity_releasetoall"
-DENY_CONTRACT_ID = "identities_actiontype_no_dummy"
-DENY_PLACEHOLDER_CONTRACT_ID = "identities_actiontype_identity_placeholder"
-DENY_SINGLE_IDENTITY_CONTRACT_ID = "identity_actiontype_deny"
-DENY_RELEASE_TO_ALL_CONTRACT_ID = "identity_releasetoall_actiontype_deny"
 MAX_DIAGNOSTIC_TEXT_CHARS = 2048
 MAX_DIAGNOSTIC_TRACE_CHARS = 8192
 MAX_DIAGNOSTIC_TRACE_RECORDS = 25
@@ -137,7 +125,6 @@ MAX_RBAC_ROLE_GROUP_INSPECTIONS = 20
 MAX_PERMISSION_QUERY_ERRORS = 20
 MAX_PERMISSION_QUERY_ERROR_BYTES = 32 * 1024
 MAX_MODULE_VERSION_CHARS = 64
-MAX_BUILD_FIELD_CHARS = 128
 MAX_RUNTIME_FIELD_CHARS = 1024
 MAX_RUNBOOK_SETTING_CHARS = 512
 SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -371,10 +358,6 @@ class RunbookActionError(AutomationError):
     def __init__(self, message: str, result: dict):
         super().__init__(message)
         self.result = result
-
-
-class ConnectionContractError(AutomationError):
-    """The deployed runbook did not confirm the configured Exchange settings."""
 
 
 class OversizedExportError(AutomationError):

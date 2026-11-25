@@ -131,6 +131,10 @@ not followed. Configure the platform's trusted CA store for private certificates
 <tr><td><code>es_soar_base_url</code></td><td>no</td><td><code>not set</code></td><td>Advanced: SOAR URL override (optional; SOAR and ES)</td></tr>
 </tbody></table>
 <h2>Available actions</h2>
+<p><b>Test connectivity</b> reports the installed app and connected runbook
+release versions, and warns if they differ or cannot be compared. The
+separately reported runbook build fingerprint helps identify the deployed
+runbook; equal version labels do not prove both came from the same build.</p>
 <p>Release and Deny run only when invoked by an operator or playbook. The app
 serializes calls for the same Entra tenant UUID and quarantine identity across
 assets and workers sharing the same Linux host, service UID and temporary

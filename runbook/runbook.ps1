@@ -92,7 +92,6 @@
         - Operational Exchange/Email & collaboration RBAC assigned
         - Least privilege: register the Managed Identity service principal in
           Exchange and add it to a custom role group containing Quarantine
-        - Broader alternative: Security Administrator Entra role
         - Reference: https://learn.microsoft.com/en-us/powershell/exchange/connect-exo-powershell-managed-identity
         - Reference: https://learn.microsoft.com/en-us/powershell/exchange/app-only-auth-powershell-v2#option-2-assign-custom-role-groups-to-the-application-using-service-principals
 
@@ -216,6 +215,9 @@ function Write-ErrorResult {
         $resultData.max_decoded_size = $Details.max_decoded_size
         $resultData.handling = "fail_closed"
     }
+    if ($Action -in @("release", "deny")) {
+        Add-RunbookEnvelopeMetadata -Data $resultData
+    }
     if ($Action -in @("list", "export") -and $null -ne $script:protectedCipher) {
         Write-ProtectedOutput -Json ($resultData | ConvertTo-Json -Depth 10 -Compress) -Action $Action -Final
     } else {
@@ -290,8 +292,7 @@ function Write-ProtectedOutput {
 
 function ConvertTo-RunbookJson {
     param([hashtable] $Data)
-    # Preserve list/export transport metadata; ordinary action results stay small.
-    if ($Data.action -in @("list", "export", "diagnose")) {
+    if ($Data.action -in @("list", "export", "diagnose", "release", "deny")) {
         Add-RunbookEnvelopeMetadata -Data $Data
     }
     return ($Data | ConvertTo-Json -Depth 10 -Compress)
@@ -327,8 +328,8 @@ $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "1.0.0"
-$RunbookSourceRevision    = "sha256:9782a5a730da22da5a6d50431e9945c841367b44228ce05e10ab58f87c7e0512"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.9782a5a730da22da5a6d50431e9945c841367b44228ce05e10ab58f87c7e0512"
+$RunbookSourceRevision    = "sha256:85bd98effc93b7706fdb67aa09ae58c4861a946da8cf738d84a6b8bb58a5cde9"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.85bd98effc93b7706fdb67aa09ae58c4861a946da8cf738d84a6b8bb58a5cde9"
 $ReleaseContractId        = "identity_releasetoall"
 $DenyContractId           = "identity_releasetoall_actiontype_deny"
 $PostconditionMaxAttempts = 7

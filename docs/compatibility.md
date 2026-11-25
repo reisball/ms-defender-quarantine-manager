@@ -18,6 +18,12 @@ The SOAR app and the Azure runbook share one release version. Matching version l
 
 Use the matching runbook and app from the same build. The app installer does not update the runbook in Azure. Other pairings are not verified.
 
+**Test connectivity** warns if the installed app and the runbook report different
+release versions or if either version is unavailable. A warning does not change the
+connectivity result. Compare the separately reported runbook build ID with the
+`$RunbookBuildId` in the shipped runbook. Matching version labels are not proof
+that the builds match.
+
 ## Install or replace an internal build
 
 1. Pause any existing intake for the tenant. Do not run two ingesting assets for the same tenant.
