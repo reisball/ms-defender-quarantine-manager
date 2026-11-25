@@ -247,7 +247,12 @@ if ($rsa) {
     $raw = $lines[-1]
 }
 if ($SyntheticExportBase64Path) {
-    Write-Output $raw
+    # This path must emit exactly one encrypted result and no other stream
+    # records. Inspect the merged capture, not the filtered success stream.
+    if ($allStreams.Count -ne 1 -or $allStreams[0] -isnot [string]) {
+        throw "Expected exactly one protected result and no diagnostic output"
+    }
+    Write-Output $allStreams[0]
     exit 0
 }
 $parsed = $raw | ConvertFrom-Json
