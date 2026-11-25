@@ -8,6 +8,6 @@ Include affected versions, expected and observed behavior, impact and a minimal 
 
 ## Scope
 
-Only the current source line (App and Runbook 3.7.4) is maintained. There is no backport policy, guaranteed response time or commercial SLA.
+Only the current source line (App and Runbook 1.0.0) is maintained. There is no backport policy, guaranteed response time or commercial SLA.
 
 For safe operation, see [security and data handling](docs/security.md).

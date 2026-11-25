@@ -4,7 +4,7 @@
 
 ## Requirements
 
-- Splunk SOAR 8.5.0 or later with **native** execution and authenticated access to its local REST API. Automation Broker is not supported. SOAR Cloud has not been verified. The app runs on Python 3.9 or 3.13 (SOAR 8.7 and later use 3.13).
+- Splunk SOAR 8.5.0 or later with **native** execution and authenticated access to its local REST API. Automation Broker is not supported. The app runs on Python 3.9 or 3.13 (SOAR 8.7 and later use 3.13).
 - An Azure Automation Account with a system-assigned Managed Identity and a PowerShell runtime that includes the ExchangeOnlineManagement module.
 - An Entra App Registration that can read Azure Automation job status and output.
 - Exchange/Defender quarantine permissions for the Managed Identity.
@@ -80,7 +80,9 @@ Run **test connectivity**. It checks Azure job access and reads `Requested` mess
 
 ## 5. Configure ingestion
 
-- In the asset's **Ingest Settings**, set the container label and polling schedule. Disable the schedule to pause imports. **Poll Now** runs a manual import.
+- In the asset's **Ingest Settings**, select the intake target and configure the polling schedule. Disable the schedule to pause automatic imports; **Poll Now** runs a manual import.
+- **SOAR events:** Set the container label and leave native ES intake off. No ES fields or drilldowns are needed.
+- **ES findings (optional):** Enable native ES intake, set the security domain and complete the [ES-only setup](ingestion.md#enterprise-security).
 - Keep the asset's tenant, organization and ingest target unchanged while it has tracked messages.
 - For playbooks, use the combined layout and the [playbook input data](ingestion.md#playbook-input-combined-layout). The app does not configure or activate playbooks.
 - For ES, complete the [ES setup](ingestion.md#enterprise-security).

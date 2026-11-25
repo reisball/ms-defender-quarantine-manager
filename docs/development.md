@@ -26,7 +26,7 @@ python tools/stamp_runbook.py --check
 python tools/check_mime_parser_compat.py
 ```
 
-The [GitHub workflow](../.github/workflows/ci.yml) runs this on both Python versions and, on 3.13, the full PowerShell contract sequence in `tests/powershell/`. Running a single PowerShell script does not replace the sequence. The [Gitea workflow](../.gitea/workflows/ci.yml) is the original CI definition and is not run by GitHub.
+The [GitHub workflow](../.github/workflows/ci.yml) runs this on both Python versions and, on 3.13, the full PowerShell contract sequence in `tests/powershell/`. Running a single PowerShell script does not replace the sequence.
 
 The MIME parser overrides CPython's private `BytesFeedParser._new_message` hook and reads `_msgstack` to enforce the node and depth limits before allocation. Re-run `tools/check_mime_parser_compat.py` and the MIME tests when adding a Python runtime.
 
@@ -70,7 +70,7 @@ Tests, Markdown, the runbook and example playbooks are not in the app archive. T
 2. Check versions, generated help, runbook fingerprint, documentation links and the compatibility matrix.
 3. Run all Python and PowerShell checks and inspect the hosted Actions run for the exact commit.
 4. Build twice, compare checksums and check the archive contents.
-5. For 4.0, record the documentation review in [#25](https://github.com/reisball/ms-quarantine-for-splunk-soar/issues/25) before publishing.
+5. Review the user documentation against the exact release candidate before publishing.
 
 Offline tests and a clean build do not prove that a live SOAR, Azure or Exchange deployment works. That requires the [deployment checklist](validation.md) on the exact pair.
 

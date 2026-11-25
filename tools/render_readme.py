@@ -77,12 +77,9 @@ Publish and confirm the matching runbook first, install the matching app, then a
 For combined-layout SOAR, start analysis from the completed mail's single email artifact.</li>
 </ol>
 <p>Native email import requires authenticated local SOAR REST access, including
-when importing into SOAR rather than ES. Automation Broker is not supported;
-SOAR Cloud compatibility has not been verified. The manifest minimum is SOAR 8.5.0
+when importing into SOAR rather than ES. Automation Broker is not supported. The manifest minimum is SOAR 8.5.0
 with Python 3.9/3.13 runtimes; use the runtime supported by your platform.
-SOAR 8.7 and later use Python 3.13. Source version labels and local tests are not
-evidence of a customer deployment; select a unique release version before
-handover of changed runtime bytes.</p>
+SOAR 8.7 and later use Python 3.13.</p>
 <h2>Email import</h2>
 <p><code>on_poll_max_containers</code> is a maximum of simultaneously unresolved
 Microsoft quarantine identities, configurable 1–50 and default 10. It is not a
@@ -100,6 +97,7 @@ republished. Older pending or unconfirmed attempts are not automatically replaye
 They require a deliberate Poll Now retry and must appear as <code>Requested</code>
 in the first 50 candidates. Microsoft-status checks continue for tracked identities. A mail left unchanged can occupy a slot indefinitely. Failed imports also hold
 their slot; retrying one does not consume an additional slot.</p>
+<h3>SOAR events</h3>
 <p>New SOAR events are named after the email subject, without a prefix;
 mail without a subject uses <code>[No subject]</code>.</p>
 <p>Original email and attachments are saved automatically to the container's

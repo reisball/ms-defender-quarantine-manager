@@ -102,7 +102,7 @@
     Author:  Kai Seidenschnur
     Copyright: 2026 Kai Seidenschnur
     License: Apache-2.0
-    Version: 3.7.4
+    Version: 1.0.0
     Runtime: match the exact known-good Microsoft Automation job (account,
              system identity, runtime, module); the loaded
              ExchangeOnlineManagement version is reported by diagnose and
@@ -246,9 +246,9 @@ $ExportMaxDecodedBytes    = 24 * 1024 * 1024
 $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
-$RunbookVersion           = "3.7.4"
-$RunbookSourceRevision    = "sha256:b68bdb2989288f67bb1456e4336cd298a847a5196476464ecf86d78bf5b1e17e"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-3.7.4+sha256.b68bdb2989288f67bb1456e4336cd298a847a5196476464ecf86d78bf5b1e17e"
+$RunbookVersion           = "1.0.0"
+$RunbookSourceRevision    = "sha256:c52a2d4511bb6d896fc21d826e72ac9e57437b8ad6d3a68a4131ccc71b0b5172"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.c52a2d4511bb6d896fc21d826e72ac9e57437b8ad6d3a68a4131ccc71b0b5172"
 $ReleaseContractId        = "identity_releasetoall"
 $DenyContractId           = "identity_releasetoall_actiontype_deny"
 $PostconditionMaxAttempts = 7

@@ -6,14 +6,18 @@
 
 The app imports only messages with Microsoft status `Requested`, meaning a recipient has requested release. There is no source-mode setting; obsolete settings from older versions are ignored. `NotReleased` mail is not imported.
 
+Both targets export and validate the original EML. A MIME or size problem stops publication rather than importing incomplete mail.
+
+### SOAR events
+
 For each admitted message, the app:
 
 1. exports and validates the original EML;
 2. creates a container with automation disabled;
 3. saves the original EML, attachments and selected metadata to the container and Vault;
-4. publishes the completed message to the configured target (SOAR or ES).
+4. publishes the completed SOAR event with automation enabled.
 
-A MIME or size problem fails the import instead of publishing incomplete mail. Automation starts only after step 4.
+ES setup is not required for this path. See [Enterprise Security](#enterprise-security) for the separate findings path.
 
 Use **one ingesting asset per tenant**. Each asset has its own state, so two assets can import the same message. Changing an asset's tenant, organization or target while it has tracked messages is rejected. Do not delete app state to get around this.
 
@@ -45,7 +49,7 @@ With `artifact_layout` = `combined`, each message produces **one event and one e
 
 The Vault holds the original EML and all attachments, including inline parts and attached messages. Duplicate filenames get stable prefixes, and path components and control characters are removed. The original EML is always the authoritative copy.
 
-The `separate` layout and ES keep their existing layouts. The separate layout still uses Request, file, field and final Ready artifacts. Historical artifacts are not rewritten.
+The SOAR `separate` layout still uses Request, file, field and final Ready artifacts. The SOAR artifact layout does not apply to ES findings. Historical artifacts are not rewritten.
 
 ### Updating an existing playbook
 
@@ -60,6 +64,8 @@ The app does not edit or activate playbooks. See the [SAA example](../examples/M
 
 ## Enterprise Security
 
+Use this section only when the asset targets **ES findings**. This path uploads the original EML and attachments to the SOAR Vault and submits a finding to ES after the uploads succeed. It does not use the SOAR event and email-artifact layout described above.
+
 Before enabling ES intake, register these additional fields in ES (the app does not register them):
 
 `quarantine_identity`, `work_item_id`, `source_data_identifier`, `quarantine`, `eml_sha256`
@@ -67,8 +73,8 @@ Before enabling ES intake, register these additional fields in ES (the app does 
 - Configure the ES target and security domain. Urgency and investigation type are optional.
 - **on es poll** requires an ES target. **on poll** uses the asset's target selection.
 - Original-mail and attachment links use the external SOAR URL (`es_soar_base_url` or the platform URL). It must be HTTPS and reachable by analysts; check downloads from the analyst interface.
-- ES receives headers (max 8,192 characters each), body text (max 256,000 characters, plain text preferred over HTML), attachment links and the correlation fields. Attachment content is not sent.
-- Drilldown searches need `name`, `search`, `earliest` and `latest`. Dashboard drilldowns need `app`, `dashboard_id` and `name`. Tokens need a name and a string value.
+- ES receives headers (max 8,192 characters per original header value), body text (max 256,000 characters, plain text preferred over HTML), attachment links and the correlation fields. Attachment content is not sent.
+- Drilldowns are optional. Searches need `name`, `search`, `earliest` and `latest`. Dashboard drilldowns need `app`, `dashboard_id` and `name`. Tokens need a name and a string value.
 
 Native ES threat-analysis and automation settings control what happens next. ES accepting a finding does not mean analysis completed.
 

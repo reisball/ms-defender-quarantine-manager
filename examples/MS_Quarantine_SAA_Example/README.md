@@ -69,6 +69,6 @@ The threshold of 30 is an example, not a recommended security policy.
 | Runtime execution (SAA, Azure, Exchange actions) | **Not performed** |
 | End-to-end compatibility with the app/runbook | **Not verified** ([compatibility](../../docs/compatibility.md)) |
 
-The verified source is commit `1832021` (app/runbook 3.7.4 labels, unreleased 4.0 candidate). The repository copy replaces local assets and approvers with the placeholders above.
+The editor check used a pre-release source build (`1832021`), not a live test of the 1.0.0 packages. The repository copy replaces local assets and approvers with the placeholders above.
 
 Before activation, test at least the following: scores 0, 29, 30 and 100; a missing or invalid score; submission and analysis failures; Prompt Yes, No, timeout and failure; failed Release/Deny; and successful Release/Deny followed by closure.
