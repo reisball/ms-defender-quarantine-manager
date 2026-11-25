@@ -137,21 +137,25 @@ def test_static_orchestration_reports_and_blocks_failures(
 
 def test_snapshot_uses_the_packaged_commit_for_documentation(source, tmp_path, monkeypatch):
     files = ("README.md", "manual_readme_content.md", "release_notes/unreleased.md")
-    for relative in files:
+    settings = ("tools/soar-tooling/quality.toml", "tools/soar-tooling/quality-pre-commit.yaml")
+    for relative in (*files, *settings):
         path = source / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("Frozen documentation\n")
-    git(source, "add", *files)
+    git(source, "add", *files, *settings)
     git(source, "commit", "-qm", "Frozen documentation")
     commit = git(source, "rev-parse", "HEAD")
     (source / "README.md").write_text("Documentation from a later revision\n")
-    git(source, "add", "README.md")
+    (source / settings[0]).write_text("Configuration from a later revision\n")
+    git(source, "add", "README.md", settings[0])
     git(source, "commit", "-qm", "Later documentation")
     monkeypatch.setattr(soar_checks, "ROOT", source)
     monkeypatch.setenv("SOURCE_COMMIT", commit[:12])
     destination = tmp_path / "projection"
     destination.mkdir()
-    soar_checks.source_snapshot(destination)
+    extras = ((settings[0], "pyproject.toml"), (settings[1], ".pre-commit-config.yaml"))
+    soar_checks.source_snapshot(destination, extras=extras)
+    assert all((destination / projected).read_text() == "Frozen documentation\n" for _, projected in extras)
     assert all((destination / relative).read_text() == "Frozen documentation\n" for relative in files)
     assert (destination / "NOTICE").read_bytes() == (source / "app/NOTICE").read_bytes()
     assert not (destination / "runbook.ps1").exists()

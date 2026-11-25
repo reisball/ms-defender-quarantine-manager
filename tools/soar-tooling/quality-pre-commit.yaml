@@ -13,6 +13,7 @@ repos:
     rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b # pragma: allowlist secret — public Git commit for v5.0.0
     hooks:
       - id: check-merge-conflict
+        args: [--assume-in-merge]
       - id: end-of-file-fixer
         exclude: ^NOTICE$
         exclude_types: [markdown]

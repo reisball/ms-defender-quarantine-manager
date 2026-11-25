@@ -75,7 +75,11 @@ then test both environments independently.
 The pinned quality hooks run on the packaged app and its submission Markdown,
 not against the release builder or the separate Azure runbook. They check Ruff
 lint/formatting, JSON/YAML, HTML lint, the manual Markdown fragment, Semgrep's
-Python rules, and secrets. The maintained README keeps its GitHub tables;
+live Python registry rules, merge markers and secrets. The hook revisions and
+quality settings are taken from the selected source commit; Semgrep's remote
+`p/python` rule content can change independently of its executable. The
+template's Conventional Commits hook is a commit-message hook, not a gate on
+GitHub's generated merge commit. The maintained README keeps its GitHub tables;
 the upstream Markdown formatter without GFM would turn them into prose.
 The docs hook generates an upstream README in scratch space, not over this
 repository's maintained README. HTML is linted but not reformatted by the hook:

@@ -6,7 +6,6 @@
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tarfile
@@ -17,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def source_snapshot(destination):
+def source_snapshot(destination, *, extras=()):
     """Project the verified release TGZ into the root layout upstream expects."""
     with tempfile.TemporaryDirectory(prefix="msqsoar-package-") as temporary:
         out = Path(temporary)
@@ -38,8 +37,9 @@ def source_snapshot(destination):
                 with archive.extractfile(member) as source:
                     with target.open("xb") as output:
                         output.write(source.read())
-        for relative in ("README.md", "manual_readme_content.md", "release_notes/unreleased.md"):
-            target = destination / relative
+        docs = ("README.md", "manual_readme_content.md", "release_notes/unreleased.md")
+        for relative, projected in (tuple((path, path) for path in docs) + extras):
+            target = destination / projected
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(subprocess.check_output(
                 ["git", "--no-replace-objects", "cat-file", "blob", f"{commit}:{relative}"], cwd=ROOT
@@ -50,10 +50,10 @@ def quality():
     """Run the applicable repository hooks against the tracked release projection."""
     with tempfile.TemporaryDirectory(prefix="msqsoar-quality-", dir="/tmp") as temporary:
         snapshot = Path(temporary)
-        source_snapshot(snapshot)
-        settings = ROOT / "tools/soar-tooling"
-        shutil.copyfile(settings / "quality.toml", snapshot / "pyproject.toml")
-        shutil.copyfile(settings / "quality-pre-commit.yaml", snapshot / ".pre-commit-config.yaml")
+        source_snapshot(snapshot, extras=(
+            ("tools/soar-tooling/quality.toml", "pyproject.toml"),
+            ("tools/soar-tooling/quality-pre-commit.yaml", ".pre-commit-config.yaml"),
+        ))
         subprocess.run(["git", "init", "-q"], cwd=snapshot, check=True)
         subprocess.run(["git", "add", "--all"], cwd=snapshot, check=True)
         return subprocess.call(["pre-commit", "run", "--all-files", "--show-diff-on-failure"], cwd=snapshot)
