@@ -252,21 +252,42 @@ def test_scheduled_poll_continues_after_case_problem(tmp_path, target, case_stat
 
 
 @pytest.mark.parametrize("manual", [False, True])
-def test_shared_auth_failure_stops_poll_with_free_capacity(tmp_path, target, manual):
+@pytest.mark.parametrize("failure", [
+    TokenError("synthetic authentication failure"),
+    AutomationError("synthetic transport failure"),
+    RuntimeError("synthetic unclassified failure"),
+])
+def test_shared_failure_stops_poll_with_free_capacity(tmp_path, target, manual, failure):
     c = setup(tmp_path, target, limit=2)
     backlog = c.candidates
     c.candidates = backlog[:1]
     assert poll(c)[0] == t.APP_SUCCESS
     c.candidates = backlog
     row, = c._ingest_records().values()
-    c.observed[row["identity"]] = TokenError("synthetic authentication failure")
+    c.observed[row["identity"]] = failure
     c.calls.clear()
     c._is_poll_now = manual
     status, ar = poll(c)
     assert status == t.APP_ERROR
     assert ar.get_summary()["messages_published"] == 0
     assert [action for action, *_ in c.calls] == ["reconcile"]
-    assert "authentication failure" in c._ingest_records()[row["key"]]["last_status_error"]
+    assert str(failure) in c._ingest_records()[row["key"]]["last_status_error"]
+
+
+
+@pytest.mark.parametrize("observation", ["Requested", "Error", AutomationError("lookup failed")])
+def test_expiry_with_absence_from_list_is_not_enough(tmp_path, target, observation):
+    c = setup(tmp_path, target, limit=1)
+    c.candidates[0]["Expires"] = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    assert poll(c)[0] == t.APP_SUCCESS
+    row, = c._ingest_records().values()
+    assert "expires_at" in row
+    c.candidates = c.candidates[1:]  # List no longer contains the tracked identity.
+    c.observed[row["identity"]] = observation
+    _, ar = poll(c)
+    assert ar.get_summary()["active_messages"] == 1
+    assert not c._ingest_records()[row["key"]]["terminal"]
+    assert len(c._saved_containers) == 1
 
 
 def test_files_are_attached_to_their_own_container(tmp_path, target):

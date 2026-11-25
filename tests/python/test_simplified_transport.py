@@ -478,3 +478,19 @@ def test_runbook_error_retains_job_context_for_native_poll(utils, clock):
     assert caught.value.last_status == 'Completed'
     assert caught.value.result['message'] == payload['message']
     utils._session.post.assert_called_once()
+
+
+@pytest.mark.parametrize("mismatch", [None, "identity", "observed_identity"])
+def test_exact_missing_observation_requires_matching_identities(utils, clock, mismatch):
+    result = {
+        "action": "reconcile", "identity": IDENTITY,
+        "observed_identity": IDENTITY, "observed_release_status": "NotFound",
+    }
+    if mismatch:
+        result[mismatch] = IDENTITY[:-1] + "8"
+    utils._session.get.side_effect = [job("Completed"), response(result)]
+    if mismatch:
+        with pytest.raises(u.AutomationError, match="identity"):
+            utils.run_action("reconcile", IDENTITY)
+    else:
+        assert utils.run_action("reconcile", IDENTITY) == result

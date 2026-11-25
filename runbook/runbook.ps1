@@ -247,8 +247,8 @@ $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "1.0.0"
-$RunbookSourceRevision    = "sha256:9e95965728730d4a28c2f790796fd1d07ae9f5f39b1b1963782c9c4999bd0139"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.9e95965728730d4a28c2f790796fd1d07ae9f5f39b1b1963782c9c4999bd0139"
+$RunbookSourceRevision    = "sha256:fa3c859db6f45459a301f6ede1ffdef148586bdbad4f5d607ed8861d39f4c6bc"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.fa3c859db6f45459a301f6ede1ffdef148586bdbad4f5d607ed8861d39f4c6bc"
 $ReleaseContractId        = "identity_releasetoall"
 $DenyContractId           = "identity_releasetoall_actiontype_deny"
 $PostconditionMaxAttempts = 7
@@ -319,10 +319,21 @@ function Write-ErrorEnvelope {
 }
 
 function ConvertTo-OutputTimestamp {
-    param([object] $Value)
+    param([object] $Value, [switch] $ExpiryEvidence)
 
     if ($null -eq $Value) {
         return ""
+    }
+    if ($ExpiryEvidence) {
+        # Never infer a date, time, or offset for the intake retirement check.
+        if ($Value -is [datetime] -and $Value.Kind -ne [DateTimeKind]::Utc) {
+            return [datetime]::SpecifyKind($Value, [DateTimeKind]::Unspecified).ToString(
+                "o", [System.Globalization.CultureInfo]::InvariantCulture
+            )
+        }
+        if ($Value -isnot [datetime] -and $Value -isnot [datetimeoffset]) {
+            return $Value.ToString()
+        }
     }
     if ($Value -is [datetime]) {
         return $Value.ToString("o", [System.Globalization.CultureInfo]::InvariantCulture)
@@ -2784,7 +2795,7 @@ try {
                     Subject          = $_.Subject
                     Type             = $_.Type
                     ReceivedTime     = ConvertTo-OutputTimestamp -Value $_.ReceivedTime
-                    Expires          = ConvertTo-OutputTimestamp -Value $_.Expires
+                    Expires          = ConvertTo-OutputTimestamp -Value $_.Expires -ExpiryEvidence
                     PolicyName       = $_.PolicyName
                     ReleaseStatus    = $_.ReleaseStatus
                 }

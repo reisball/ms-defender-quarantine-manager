@@ -1,4 +1,5 @@
 """Requested-only intake contracts, exercised offline with mocked Exchange."""
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
@@ -115,3 +116,25 @@ def test_runbook_lists_requested_only_despite_legacy_webhook_setting(count):
     assert "quarantine_selection_mode" not in output
     if count == 1000:
         assert '"list_complete"' in raw
+
+
+def test_runbook_to_connector_preserves_only_explicit_expiry_evidence():
+    raw = run_ps("test_runbook_list_contract.ps1", "-MessageCount", "9",
+                 "-UseExpiryEvidenceDates", "-RawOutput")
+    connector = make_connector()
+    utils = connector._utils
+    output = utils._parse_multiline_job_output(raw)
+    utils._validate_runbook_result(output, "list")
+    rows = connector._normalise_list_result(output)
+    evidence = [connector._ingest_expiry(row["Expires"]) for row in rows]
+    assert [row["Expires"] for row in rows[:3]] == [
+        "2026-08-28", "2026-08-28T12:00:10", "not-a-date",
+    ]
+    assert evidence == [
+        None, None, None,
+        datetime(2026, 8, 28, 6, 30, 10, 123457, tzinfo=timezone.utc),
+        None, None,
+        datetime(2026, 8, 28, 12, 0, 10, tzinfo=timezone.utc),
+        datetime(2026, 8, 28, 16, 0, 10, tzinfo=timezone.utc),
+        None,
+    ]

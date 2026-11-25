@@ -15,6 +15,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import time
 
 import phantom.app as phantom
@@ -26,6 +27,10 @@ MAX_INGEST_RECORDS = 1000
 MAX_MIME_PARTS = 200
 MAX_ATTACHMENTS = 100
 MAX_MIME_DEPTH = 30
+_EXPIRY_TIMESTAMP = re.compile(
+    r"([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})"
+    r"(?:\.([0-9]{1,7}))?(Z|[+-](?:0[0-9]|1[0-3]):[0-5][0-9]|[+-]14:00)"
+)
 
 
 class _MimeStructureLimit(AutomationError):
@@ -330,9 +335,22 @@ class NativeIngestionMixin:
 
     def _ingest_expiry(self, value):
         # Old rows and incomplete Exchange metadata are not expiry evidence.
+        match = _EXPIRY_TIMESTAMP.fullmatch(value.strip()) if isinstance(value, str) else None
+        if match is None:
+            return None
+        wall_time, fraction, offset = match.groups()
+        if offset == "-00:00":
+            return None
+        fraction = fraction or ""
+        # PowerShell's round-trip format has seven fractional digits; Python 3.9
+        # supports six here. Round up so a slot cannot retire before the evidence.
+        micros = fraction[:6].ljust(6, "0")
         try:
-            return self._parse_state_timestamp(value)
-        except AutomationError:
+            expiry = self._parse_state_timestamp(f"{wall_time}.{micros}{offset}")
+            if len(fraction) == 7 and fraction[-1] != "0":
+                expiry += timedelta(microseconds=1)
+            return expiry
+        except (AutomationError, OverflowError):
             return None
 
     def _ingest_claim(self, message, retry_ids):

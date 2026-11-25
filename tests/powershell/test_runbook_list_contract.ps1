@@ -13,6 +13,8 @@ param(
 
     [switch] $UseStringDates,
 
+    [switch] $UseExpiryEvidenceDates,
+
     [switch] $ExpectOversizedItem,
 
     [ValidateRange(0, 999)]
@@ -86,7 +88,20 @@ function Get-QuarantineMessage {
 
     $messages = @(
         for ($index = 0; $index -lt $global:RunbookTestMessageCount; $index++) {
-            if ($global:RunbookTestUseStringDates) {
+            if ($UseExpiryEvidenceDates) {
+                $received = [datetime]::UtcNow
+                $expires = switch ($index) {
+                    0 { "2026-08-28" }
+                    1 { "2026-08-28T12:00:10" }
+                    2 { "not-a-date" }
+                    3 { "2026-08-28T12:00:10.1234567+05:30" }
+                    4 { [datetime]::SpecifyKind([datetime]"2026-08-28T12:00:10", [DateTimeKind]::Local) }
+                    5 { [datetime]::SpecifyKind([datetime]"2026-08-28T12:00:10", [DateTimeKind]::Unspecified) }
+                    6 { [datetime]::SpecifyKind([datetime]"2026-08-28T12:00:10", [DateTimeKind]::Utc) }
+                    7 { [datetimeoffset]"2026-08-28T12:00:10-04:00" }
+                    8 { "2026-02-31T12:00:10+00:00" }
+                }
+            } elseif ($global:RunbookTestUseStringDates) {
                 if (($index % 2) -eq 0) {
                     $received = "2026-07-28T00:00:00Z"
                     $expires = "not-a-date-$index"
