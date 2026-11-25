@@ -27,6 +27,8 @@ MAX_INGEST_RECORDS = 1000
 MAX_MIME_PARTS = 200
 MAX_ATTACHMENTS = 100
 MAX_MIME_DEPTH = 30
+POLL_PHASE_SECONDS = 600
+POLL_CANDIDATE_WINDOW = 50
 _EXPIRY_TIMESTAMP = re.compile(
     r"([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})"
     r"(?:\.([0-9]{1,7}))?(Z|[+-](?:0[0-9]|1[0-3]):[0-5][0-9]|[+-]14:00)"
@@ -400,17 +402,22 @@ class NativeIngestionMixin:
         if time.monotonic() >= getattr(self, "_ingest_deadline", float("inf")):
             raise AutomationError("Poll phase time budget exhausted; no further work started in this phase.")
 
-    def _ingest_reconcile(self, records):
+    def _ingest_reconcile(self, records, listed_requested):
         errors = []
         terminal = 0
         intake_blocked = False
-        # Least-recently checked first: slow jobs must not starve later rows.
-        oldest = datetime.min.replace(tzinfo=timezone.utc)
-        ordered = sorted(records.items(), key=lambda item:
-                         self._parse_state_timestamp(item[1].get("updated_at")) or oldest)
-        for key, row in ordered:
+        unlisted = []
+        for key, row in records.items():
             if row["terminal"]:
                 continue
+            if row["identity"] not in listed_requested:
+                unlisted.append((key, row))
+            elif row.get("last_status_error") or row.get("observed_release_status") != "requested":
+                self._ingest_update(key, observed_release_status="requested", last_status_error="")
+        # Least-recently checked first: slow jobs must not starve later rows.
+        oldest = datetime.min.replace(tzinfo=timezone.utc)
+        unlisted.sort(key=lambda item: self._parse_state_timestamp(item[1].get("updated_at")) or oldest)
+        for key, row in unlisted:
             try:
                 self._ingest_budget_check()
             except AutomationError as exc:
@@ -638,34 +645,29 @@ class NativeIngestionMixin:
             self._ingest_settings()
             if require_es and self._ingest_target != "es":
                 raise AutomationError("Enable native ES ingestion before on es poll.")
-            self._ingest_deadline = time.monotonic() + 600
             with self._ingest_poll_lock():
                 records = self._ingest_begin_poll()
                 # Snapshot once: a failure during this poll is never retried in it.
                 manual_poll = self.is_poll_now()
                 retry_ids = {key for key, row in records.items()
                              if manual_poll and row["status"] == "failed" and not row["terminal"]}
-                terminal, errors, intake_blocked = self._ingest_reconcile(records)
-                if manual_poll:
-                    # Manual intake must work without a later scheduled poll.
-                    # Give imports their own bounded phase after status checks;
-                    # no Azure job deadline is shortened or restarted.
-                    self._ingest_deadline = time.monotonic() + 600
                 limit = self._on_poll_container_limit(param)
+                self.save_progress("Listing first 50 Requested quarantine candidates.")
+                result = self._utils.run_action("list", page_size=POLL_CANDIDATE_WINDOW)
+                messages = self._normalise_list_result(result)[:POLL_CANDIDATE_WINDOW]
+                listed_requested = {
+                    message["Identity"].strip().lower() for message in messages
+                    if str(message.get("ReleaseStatus", "")).lower() == "requested"
+                }
+                # The list is read-only. Do not publish if a subsequent exact
+                # lookup detects a shared failure. List absence alone proves nothing.
+                self._ingest_deadline = time.monotonic() + POLL_PHASE_SECONDS
+                terminal, errors, intake_blocked = self._ingest_reconcile(records, listed_requested)
+                self._ingest_deadline = time.monotonic() + POLL_PHASE_SECONDS
                 records = self._ingest_records()
-                active = sum(not r["terminal"] for r in records.values())
-                messages = []
+                active = sum(not row["terminal"] for row in records.values())
                 created = attempts = 0
-                can_list = not intake_blocked and (bool(retry_ids) or active < self._on_poll_max_containers)
-                if can_list and time.monotonic() >= self._ingest_deadline:
-                    budget_error = "Poll phase time budget exhausted; no further work started in this phase."
-                    if budget_error not in errors:
-                        errors.append(budget_error)
-                    can_list = False
-                if can_list:
-                    self.save_progress("Listing first 50 Requested quarantine candidates.")
-                    result = self._utils.run_action("list", page_size=50)
-                    messages = self._normalise_list_result(result)[:50]
+                if not intake_blocked and (bool(retry_ids) or active < self._on_poll_max_containers):
                     # Prefer already-counted explicit retries over new candidates.
                     messages.sort(key=lambda m: self._worker_identity_key(
                         m["Identity"].strip().lower(), self.get_asset_id()) not in retry_ids)
@@ -703,8 +705,8 @@ class NativeIngestionMixin:
                     "ingestion_enabled": True, "active_messages": sum(not r["terminal"] for r in records.values()),
                     "active_limit": self._on_poll_max_containers, "ingest_target": self._ingest_target,
                     "requested_containers": limit, "terminal_observed": terminal,
-                    "failed_imports": failed, "errors": len(errors), "candidate_window": 50,
-                    "results_may_be_truncated": len(messages) >= 50,
+                    "failed_imports": failed, "errors": len(errors), "candidate_window": POLL_CANDIDATE_WINDOW,
+                    "results_may_be_truncated": len(messages) >= POLL_CANDIDATE_WINDOW,
                 })
                 if errors:
                     return ar.set_status(phantom.APP_ERROR, "; ".join(errors[:10]))

@@ -32,7 +32,7 @@ On upgrade, existing state is kept. Earlier `needs_review` scopes become Request
 - Imported, in-progress and failed messages all occupy a slot.
 - A slot is freed after an exact read confirms `Released` or `Denied`, or when a successful exact lookup returns no result and the stored Microsoft expiry has passed. A missing result alone (even repeated), a failed lookup, or Exchange status `Error` does not prove retirement. Only a complete Microsoft timestamp with an explicit UTC offset is accepted as expiry evidence. Records without it still require a confirmed terminal status.
 - An unresolved exact lookup or item-level `Error` is reported for that identity; other messages can still be imported if a slot is available. Unclassified, authentication and transport failures stop intake for that poll.
-- Each poll first re-checks tracked statuses, then fills free slots from the first 50 `Requested` messages. There is no pagination or ordering guarantee, so an empty import does not prove the backlog is empty.
+- Each poll reads the first 50 `Requested` messages once. A tracked identity explicitly present as `Requested` needs no separate status job. Only tracked identities missing from that window need an exact status read; absence by itself does not change their status or free a slot. The same list then supplies new imports and explicit retries. There is no pagination or ordering guarantee, so an empty import does not prove the backlog is empty.
 - Poll Now's `container_count` limits attempts in that poll and cannot exceed the asset limit.
 
 ## Playbook input (combined layout)
@@ -111,6 +111,6 @@ Successful imports are never imported again while their record is retained. SOAR
 | Attachments | 100, with 48 MiB combined decoded size |
 | Tracked messages | 1,000. Active records are never evicted; when full, new admissions fail. |
 | Retention of resolved records | `worker_terminal_retention_days`, 1–365 days, default 30. After that, a reappearing message can be imported again. |
-| Work budget | Scheduled poll: 600 s. Poll Now: 600 s for status checks plus 600 s for import. A running operation can exceed its budget, and unattempted messages wait for the next poll. |
+| Work budget | Both modes get one list job with the configured Azure job timeout, then up to 600 s to start exact status reads and a separate 600 s import phase. A running operation can exceed its phase budget. Unattempted status reads wait for the next poll; a shared lookup failure still prevents publishing in the current poll. |
 
 Messages over a limit are rejected before publication rather than partially imported. The MIME parser bounds message structure, but it is not a malware filter.

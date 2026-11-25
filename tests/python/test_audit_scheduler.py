@@ -33,7 +33,7 @@ def test_failed_export_is_not_resumed_and_terminal_observation_frees_slot(
     # A restarted scheduled poll observes status but never retries the failed job.
     c = setup(tmp_path, target, limit=1)
     assert poll(c)[0] == t.APP_SUCCESS
-    assert [call[0] for call in c.calls] == ["reconcile"]
+    assert [call[0] for call in c.calls] == ["list"]
     assert not c.events
     c.observed[row["identity"]] = terminal
     status, ar = poll(c)
@@ -109,33 +109,35 @@ def test_budget_stops_next_effect_and_persists_only_attempt_result(
     restored._ingest_settings()
     assert restored._ingest_records()[row["key"]] == row
     assert poll(restored)[0] == t.APP_SUCCESS
-    assert [call[0] for call in restored.calls] == ["reconcile"]
+    assert [call[0] for call in restored.calls] == ["list"]
     assert not restored.events
 
 
 @pytest.mark.parametrize("target", ["soar", "es"])
 @pytest.mark.parametrize("terminal", ["Released", "Denied"])
-def test_slow_status_read_persists_terminal_evidence_without_further_jobs(
+def test_slow_status_read_persists_terminal_evidence_without_more_status_jobs(
         tmp_path, monkeypatch, target, terminal):
     c = setup(tmp_path, target, limit=2)
     assert poll(c)[0] == t.APP_SUCCESS
     rows = list(c._ingest_records().values())
     c.calls.clear()
     c.observed[rows[0]["identity"]] = terminal
+    c.candidates = c.candidates[2:]  # Both tracked identities fall outside the list.
     now = [0.0]
     monkeypatch.setattr(ingestion.time, "monotonic", lambda: now[0])
     run = c._utils.run_action
 
     def slow(action, **kwargs):
         result = run(action, **kwargs)
-        now[0] += 600
+        if action == "reconcile":
+            now[0] += 600
         return result
 
     c._utils.run_action = slow
     status, ar = poll(c)
     assert status == t.APP_ERROR
     assert "budget" in ar.get_message()
-    assert [call[0] for call in c.calls] == ["reconcile"]
+    assert [call[0] for call in c.calls] == ["list", "reconcile", "export"]
     assert c._ingest_records()[rows[0]["key"]]["terminal"] is True
     assert c._ingest_records()[rows[0]["key"]]["status"] == "completed"
     assert c._ingest_records()[rows[1]["key"]]["terminal"] is False
@@ -152,7 +154,7 @@ def test_unavailable_status_keeps_window_and_stops_additional_remote_work(tmp_pa
     status, ar = poll(c)
     assert status == t.APP_ERROR
     assert ar.get_summary()["active_messages"] == 2
-    assert [call[0] for call in c.calls] == ["reconcile"]
+    assert [call[0] for call in c.calls] == ["list", "reconcile"]
     assert not c.events
     assert all(row["status"] == "completed" and not row["terminal"]
                for row in c._ingest_records().values())

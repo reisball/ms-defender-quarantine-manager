@@ -150,7 +150,7 @@ def test_ten_then_three_terminal_refill_without_callbacks(tmp_path, target, mode
     assert ar.get_summary()["terminal_observed"] == 3
     assert ar.get_summary()["active_messages"] == 10
     assert len(c._saved_containers) == 13
-    assert len([x for x in c.calls if x[0] == "reconcile"]) == 10
+    assert len([x for x in c.calls if x[0] == "reconcile"]) == 3
     assert not any(x[0] in {"release", "deny"} for x in c.calls)
 
 
@@ -189,13 +189,39 @@ def test_container_subject_name_preserves_context_and_dedup(tmp_path, target, su
     assert len(c._saved_containers) == 1
 
 
-def test_full_window_has_no_extra_list_or_export(tmp_path, target):
-    c = setup(tmp_path, target)
+def test_zero_then_fifty_tracked_messages_need_only_one_listing(tmp_path, target):
+    c = setup(tmp_path, target, limit=50)
+    c.candidates = []
     assert poll(c)[0] == t.APP_SUCCESS
+    assert c.calls == [("list", None, {"page_size": 50})]
+
+    c.candidates = [candidate(i) for i in range(1, 51)]
     c.calls.clear()
     assert poll(c)[0] == t.APP_SUCCESS
-    assert [x[0] for x in c.calls] == ["reconcile"] * 10
-    assert len(c._saved_containers) == 10
+    assert [c[0] for c in c.calls] == ["list"] + ["export"] * 50
+
+    # Same exact identities, including different casing, are sufficient proof.
+    c.candidates[0]["Identity"] = c.candidates[0]["Identity"].upper()
+    c.calls.clear()
+    assert poll(c)[0] == t.APP_SUCCESS
+    assert c.calls == [("list", None, {"page_size": 50})]
+
+
+def test_truncated_listing_requires_exact_read_for_only_missing_identity(tmp_path, target):
+    c = setup(tmp_path, target, limit=50)
+    c.candidates = [candidate(i) for i in range(1, 51)]
+    assert poll(c)[0] == t.APP_SUCCESS
+    first = c.candidates[0]
+    identity = first["Identity"].lower()
+    c.candidates = [candidate(51)] + c.candidates[1:] + [first]
+    c.calls.clear()
+    status, ar = poll(c)
+    assert status == t.APP_SUCCESS, ar.get_message()
+    assert c.calls == [("list", None, {"page_size": 50}), ("reconcile", identity, {})]
+    assert ar.get_summary()["results_may_be_truncated"] is True
+    assert ar.get_summary()["active_messages"] == 50
+    assert ar.get_summary()["messages_published"] == 0
+    assert not next(r for r in c._ingest_records().values() if r["identity"] == identity)["terminal"]
 
 
 @pytest.mark.parametrize("status", ["Requested", "NotReleased", "ReleasedToSome",
@@ -270,7 +296,7 @@ def test_shared_failure_stops_poll_with_free_capacity(tmp_path, target, manual, 
     status, ar = poll(c)
     assert status == t.APP_ERROR
     assert ar.get_summary()["messages_published"] == 0
-    assert [action for action, *_ in c.calls] == ["reconcile"]
+    assert [action for action, *_ in c.calls] == ["list", "reconcile"]
     assert str(failure) in c._ingest_records()[row["key"]]["last_status_error"]
 
 
