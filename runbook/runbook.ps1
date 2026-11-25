@@ -209,6 +209,8 @@ function Write-ErrorResult {
     # Only explicitly requested diagnostics include the optional evidence report.
     if ($Action -eq "diagnose" -and $Details.Count -gt 0) {
         $resultData.details = $Details
+    } elseif ($Action -in @("release", "deny") -and $ErrorCode -eq "release_pending") {
+        $resultData.observed_release_status = "PreparingToRelease"
     } elseif ($Action -eq "export" -and $ErrorCode -eq "export_oversized") {
         $resultData.decoded_size = $Details.decoded_size
         $resultData.max_decoded_size = $Details.max_decoded_size
@@ -325,8 +327,8 @@ $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "1.0.0"
-$RunbookSourceRevision    = "sha256:0f122133505eab5524692c165c07808f99312edcfbfb5c961fdd4898a8ce0144"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.0f122133505eab5524692c165c07808f99312edcfbfb5c961fdd4898a8ce0144"
+$RunbookSourceRevision    = "sha256:fb0f031008ed55091883c8f1d104f07d8af3a92708d003fea638d96532affd75"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.fb0f031008ed55091883c8f1d104f07d8af3a92708d003fea638d96532affd75"
 $ReleaseContractId        = "identity_releasetoall"
 $DenyContractId           = "identity_releasetoall_actiontype_deny"
 $PostconditionMaxAttempts = 7
@@ -2411,6 +2413,9 @@ function Invoke-RequestedDisposition {
         }
         return
     }
+    if ($before.ObservedStatus -ieq "PreparingToRelease") {
+        Write-ErrorResult -Action $Action -ErrorCode "release_pending" -ErrorContext "Get-QuarantineMessage" -Message "Exchange is already preparing to release this message. No new disposition command was executed; check Exchange before starting another action."
+    }
     if ($before.ObservedStatus -ine $selectionReleaseStatus) {
         Write-ErrorResult -Action $Action -ErrorCode "precondition_unconfirmed" -ErrorContext "Get-QuarantineMessage" -Message "Exchange did not confirm ReleaseStatus=$selectionReleaseStatus for identity '$Identity' (observed $($before.ObservedStatus)). No disposition cmdlet was executed."
     }
@@ -2422,6 +2427,9 @@ function Invoke-RequestedDisposition {
     }
     $after = Wait-QuarantinePostcondition -Identity $Identity -ExpectedStatus $expectedStatus
     if (-not $after.Confirmed) {
+        if ($Action -eq "release" -and $after.ObservedStatus -ieq "PreparingToRelease") {
+            Write-ErrorResult -Action $Action -ErrorCode "release_pending" -ErrorContext "Get-QuarantineMessage" -Message "Exchange is preparing to release this message but has not confirmed Released. Check Exchange before starting another action."
+        }
         $message = "The command returned without error, but Exchange did not confirm ReleaseStatus=$expectedStatus for identity '$Identity' after $($after.Attempts) checks. Outcome is unknown; inspect Exchange before deciding on a new action."
         if ($after.LastError) { $message += " Last status read: $($after.LastError)" }
         Write-ErrorResult -Action $Action -ErrorCode "postcondition_unconfirmed" -ErrorContext "Get-QuarantineMessage" -Message $message

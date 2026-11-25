@@ -796,7 +796,7 @@
             "action": "release quarantine message",
             "identifier": "release_quarantine_message",
             "description": "Release a quarantined message to all original recipients",
-            "verbose": "Runs one Azure Automation job for release. The runbook checks the exact identity is Requested, then executes Release-QuarantineMessage -Identity <id> -ReleaseToAll -Confirm:$false -ErrorAction Stop once. After a successful command it waits for Released using bounded status reads (default seven checks, ten seconds apart). The app waits for the same Azure job within the configured budget (default 600 seconds, status polling every five seconds). Errors include the known job ID and original cause. A timeout does not cancel the Azure job or prove that Exchange performed no action. No automatic writing retry, later recovery or operation ID is required. A deliberately started new action is a new request. Use inspect release environment only when manual diagnosis is wanted.",
+            "verbose": "Runs one Azure Automation job for release. The runbook checks the exact identity is Requested, then executes Release-QuarantineMessage -Identity <id> -ReleaseToAll -Confirm:$false -ErrorAction Stop once. After a successful command it waits for Released using bounded status reads (default seven checks, ten seconds apart). The app waits for the same Azure job within the configured budget (default 600 seconds, status polling every five seconds). Errors include the known job ID and original cause. A timeout does not cancel the Azure job or prove that Exchange performed no action. No automatic writing retry, later recovery or operation ID is required. A deliberately started new action is a new request. Use inspect release environment only when manual diagnosis is wanted. A same-identity conflict on the shared SOAR execution host submits no job. Consult summary.outcome and data.error_code; never retry pending or unknown results before inspection.",
             "type": "correct",
             "read_only": false,
             "parameters": {
@@ -892,6 +892,21 @@
                     "description": "Identity returned by the final Get-QuarantineMessage verification attempt. Success requires an exact match."
                 },
                 {
+                    "data_path": "action_result.summary.outcome",
+                    "data_type": "string",
+                    "example_values": ["confirmed", "not_executed", "failed", "pending", "unknown"]
+                },
+                {
+                    "data_path": "action_result.data.*.outcome",
+                    "data_type": "string",
+                    "description": "Same disposition outcome as the summary."
+                },
+                {
+                    "data_path": "action_result.data.*.error_code",
+                    "data_type": "string",
+                    "description": "Present when SOAR reports an error, including pending or unknown results."
+                },
+                {
                     "data_path": "action_result.summary.status",
                     "data_type": "string",
                     "example_values": [
@@ -965,7 +980,7 @@
             "action": "deny quarantine release",
             "identifier": "deny_quarantine_release",
             "description": "Deny a user's request to release a quarantined message",
-            "verbose": "Runs one Azure Automation job for deny. The runbook checks the exact identity is Requested, then executes Release-QuarantineMessage -Identity <id> -ReleaseToAll -ActionType Deny -Confirm:$false -ErrorAction Stop once. After a successful command it waits for Denied using bounded status reads (default seven checks, ten seconds apart). The app waits for the same Azure job within the configured budget (default 600 seconds, status polling every five seconds). Errors include the known job ID and original cause. A timeout does not cancel the Azure job or prove that Exchange performed no action. No automatic writing retry, later recovery or operation ID is required. A deliberately started new action is a new request. Use inspect release environment only when manual diagnosis is wanted.",
+            "verbose": "Runs one Azure Automation job for deny. The runbook checks the exact identity is Requested, then executes Release-QuarantineMessage -Identity <id> -ReleaseToAll -ActionType Deny -Confirm:$false -ErrorAction Stop once. After a successful command it waits for Denied using bounded status reads (default seven checks, ten seconds apart). The app waits for the same Azure job within the configured budget (default 600 seconds, status polling every five seconds). Errors include the known job ID and original cause. A timeout does not cancel the Azure job or prove that Exchange performed no action. No automatic writing retry, later recovery or operation ID is required. A deliberately started new action is a new request. Use inspect release environment only when manual diagnosis is wanted. A same-identity conflict on the shared SOAR execution host submits no job. Consult summary.outcome and data.error_code; never retry pending or unknown results before inspection.",
             "type": "correct",
             "read_only": false,
             "parameters": {
@@ -1059,6 +1074,21 @@
                         "c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"
                     ],
                     "description": "Identity returned by the final Get-QuarantineMessage verification attempt. Success requires an exact match."
+                },
+                {
+                    "data_path": "action_result.summary.outcome",
+                    "data_type": "string",
+                    "example_values": ["confirmed", "not_executed", "failed", "pending", "unknown"]
+                },
+                {
+                    "data_path": "action_result.data.*.outcome",
+                    "data_type": "string",
+                    "description": "Same disposition outcome as the summary."
+                },
+                {
+                    "data_path": "action_result.data.*.error_code",
+                    "data_type": "string",
+                    "description": "Present when SOAR reports an error, including pending or unknown results."
                 },
                 {
                     "data_path": "action_result.summary.status",

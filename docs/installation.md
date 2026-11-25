@@ -79,7 +79,7 @@ This app has its own app UUID (`2e21b2c5-a6a6-4fb4-8df7-9dd1135ab08e`). Assets a
 |---|---|
 | `webhook_url` | Direct **HTTPS** webhook URL including its token. HTTP and redirects are rejected. |
 | `azure_subscription_id`, `azure_resource_group`, `azure_automation_account` | Location of the Automation Account |
-| `azure_tenant_id`, `azure_client_id`, `azure_client_secret` | App Registration from step 3 (not an Exchange login) |
+| `azure_tenant_id`, `azure_client_id`, `azure_client_secret` | App Registration from step 3 (not an Exchange login); use the Entra tenant UUID, not a domain alias |
 | `exchange_organization` | Optional; falls back to the `ExchangeOrganization` Automation Variable |
 | `on_poll_max_containers` | Active-message limit, 1–50, default 10. See [email import](ingestion.md#active-message-limit). |
 | `worker_terminal_retention_days` | 1–365, default 30 |

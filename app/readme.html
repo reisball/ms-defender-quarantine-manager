@@ -132,7 +132,11 @@ not followed. Configure the platform's trusted CA store for private certificates
 </tbody></table>
 <h2>Available actions</h2>
 <p>Release and Deny run only when invoked by an operator or playbook. The app
-submits one Azure job, waits for its output and returns a native ActionResult.
+serializes calls for the same Entra tenant UUID and quarantine identity across
+assets and workers sharing the same Linux host, service UID and temporary
+directory. A conflict submits no job. This does not cover separate hosts or
+isolated workers. The app then submits one Azure job, waits for its output and
+returns a native ActionResult.
 The runbook checks the exact identity and requires Microsoft <code>Requested</code>
 or an already matching terminal status. Release uses
 <code>Release-QuarantineMessage -Identity &lt;id&gt; -ReleaseToAll -Confirm:$false -ErrorAction Stop</code>;
@@ -172,7 +176,11 @@ deduplicated, and a newly failed attempt is not retried again within that poll.<
 <p>Native container, Vault, artifact and ES calls are not one exactly-once
 transaction. If an ES response is lost, a finding may already exist; a fresh
 attempt can duplicate it. Inspect native evidence before deciding to retry.</p>
-<p>For Release/Deny failures, read the actual Azure/Exchange error and known
+<p>Release/Deny reports <code>summary.outcome</code>:
+<code>confirmed</code>, <code>not_executed</code>, <code>failed</code>,
+<code>pending</code> (Exchange <code>PreparingToRelease</code>), or
+<code>unknown</code>. On errors, read <code>data.*.error_code</code>,
+the actual Azure/Exchange error and known
 <code>azure_job_id</code> in the native ActionResult. A timeout means the result
 is unknown; it does not cancel Azure. Inspect the original job and output in
 Azure Automation. If the webhook response was lost without a job ID, inspect
