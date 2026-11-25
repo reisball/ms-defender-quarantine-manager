@@ -146,19 +146,29 @@ def test_snapshot_uses_the_packaged_commit_for_documentation(source, tmp_path, m
     git(source, "commit", "-qm", "Frozen documentation")
     commit = git(source, "rev-parse", "HEAD")
     (source / "README.md").write_text("Documentation from a later revision\n")
-    (source / settings[0]).write_text("Configuration from a later revision\n")
-    git(source, "add", "README.md", settings[0])
+    for relative in settings:
+        (source / relative).write_text("Configuration from a later revision\n")
+    git(source, "add", "README.md", *settings)
     git(source, "commit", "-qm", "Later documentation")
     monkeypatch.setattr(soar_checks, "ROOT", source)
     monkeypatch.setenv("SOURCE_COMMIT", commit[:12])
     destination = tmp_path / "projection"
     destination.mkdir()
-    extras = ((settings[0], "pyproject.toml"), (settings[1], ".pre-commit-config.yaml"))
-    soar_checks.source_snapshot(destination, extras=extras)
-    assert all((destination / projected).read_text() == "Frozen documentation\n" for _, projected in extras)
+    soar_checks.source_snapshot(destination)
     assert all((destination / relative).read_text() == "Frozen documentation\n" for relative in files)
     assert (destination / "NOTICE").read_bytes() == (source / "app/NOTICE").read_bytes()
     assert not (destination / "runbook.ps1").exists()
+
+    pre_commit = tmp_path / "pre-commit"
+    pre_commit.write_text(
+        f"#!{sys.executable}\n"
+        "from pathlib import Path\n"
+        "for name in ('pyproject.toml', '.pre-commit-config.yaml'):\n"
+        "    assert Path(name).read_bytes() == b'Frozen documentation\\n', name\n"
+    )
+    pre_commit.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path), prepend=":")
+    assert soar_checks.quality() == 0
 
 
 def test_linter_requires_json_and_propagates_startup_failure(tmp_path, monkeypatch):
