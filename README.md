@@ -1,6 +1,6 @@
-# MS Quarantine for Splunk SOAR
+# MS Defender Quarantine Manager
 
-Bring Microsoft Defender quarantine mail into Splunk SOAR for investigation, then release or deny it.
+A community connector for Splunk SOAR to investigate Microsoft Defender for Office 365 quarantined email and release or deny requested messages.
 
 The app imports quarantined messages that have a recipient release request (Microsoft status `Requested`) through an Azure Automation runbook. Each message becomes one SOAR event with the original EML and attachments in the Vault. Playbooks or analysts can then release or deny the message. Native Splunk Enterprise Security (ES) ingestion is optional.
 
@@ -15,6 +15,22 @@ This is a community-maintained connector, not a Splunk or Microsoft support offe
 | [Native SAA example playbook](examples/MS_Quarantine_SAA_Example/README.md) (optional) | Splunk SOAR, imported separately |
 
 App and runbook share one version. Deploy them as a matching pair; see the [compatibility matrix](docs/compatibility.md).
+
+## Exchange Online PowerShell cmdlets
+
+The Azure Automation runbook uses the `ExchangeOnlineManagement` module (not
+Microsoft Graph) for the quarantine operations:
+
+| Operation | Cmdlet and key arguments |
+|---|---|
+| List messages with a release request | `Get-QuarantineMessage -ReleaseStatus Requested` |
+| Export the original EML | `Export-QuarantineMessage -Identity <identity>` |
+| Release to all original recipients | `Release-QuarantineMessage -Identity <identity> -ReleaseToAll` |
+| Deny the release request | `Release-QuarantineMessage -Identity <identity> -ReleaseToAll -ActionType Deny` |
+
+The runbook reads the status by identity with `Get-QuarantineMessage` before and
+after a release or denial. See [Installation](docs/installation.md) for
+permissions and [Operation](docs/operations.md) for how outcomes are confirmed.
 
 ## Quick start
 

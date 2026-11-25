@@ -18,7 +18,7 @@ def license_text(data):
 
 def render(app, lock):
     blocks = [
-        "MS Quarantine for Splunk SOAR\nCopyright 2026 Kai Seidenschnur",
+        "MS Defender Quarantine Manager\nCopyright 2026 Kai Seidenschnur",
         "Third-party notices for the bundled SOAR runtime wheels (both Python versions).",
     ]
     for relative, entry in sorted(lock["wheels"].items()):
