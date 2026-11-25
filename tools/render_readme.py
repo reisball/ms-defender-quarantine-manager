@@ -14,6 +14,10 @@ ROOT = Path(__file__).resolve().parent.parent
 def render(manifest):
     title = escape(manifest["name"]) + " " + escape(manifest["app_version"])
     return """<!doctype html>
+<!--
+Copyright 2026 Kai Seidenschnur
+Licensed under the Apache License, Version 2.0.
+-->
 <html lang="en"><head><meta charset="utf-8"><title>""" + title + """</title></head>
 <body>
 <h1>""" + title + """</h1>

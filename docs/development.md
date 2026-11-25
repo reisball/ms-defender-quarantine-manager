@@ -45,7 +45,7 @@ requires Pydantic 1; the static/doc hooks use a SOAR SDK requiring Pydantic 2.
 ```bash
 (
     set -e
-    # Use uv 0.13.10, as in CI.
+    # Use uv 0.13.10 and pre-commit 4.5.1, as in CI.
     tooling=$(mktemp -d /tmp/msqsoar-tools.XXXXXX)
     for tool in hooks lint; do
         uv venv --python 3.13 "$tooling/$tool"
@@ -53,8 +53,10 @@ requires Pydantic 1; the static/doc hooks use a SOAR SDK requiring Pydantic 2.
             --build-constraints tools/soar-tooling/build-constraints.txt \
             "tools/soar-tooling/$tool.txt"
     done
+    python tools/soar_checks.py quality
     (
         export PATH="$tooling/hooks/bin:$PATH"
+        python tools/soar_checks.py copyright
         SOAR_CHECK_REPORT="$tooling/static.json" python tools/soar_checks.py static
         python tools/soar_checks.py docs
         python tools/soar_checks.py notes
@@ -70,8 +72,19 @@ the isolated build dependencies of the Git-based tools. When updating tools, reg
 `uv pip compile --python-version 3.13 --build-constraints tools/soar-tooling/build-constraints.txt tools/soar-tooling/<tool>.in -o tools/soar-tooling/<tool>.txt`,
 then test both environments independently.
 
+The pinned quality hooks run on the packaged app and its submission Markdown,
+not against the release builder or the separate Azure runbook. They check Ruff
+lint/formatting, JSON/YAML, HTML lint, the manual Markdown fragment, Semgrep's
+Python rules, and secrets. The maintained README keeps its GitHub tables;
+the upstream Markdown formatter without GFM would turn them into prose.
 The docs hook generates an upstream README in scratch space, not over this
-repository's maintained README. The linter checks errors and uses a disposable
+repository's maintained README. HTML is linted but not reformatted by the hook:
+`tools/render_readme.py` owns its exact bytes. The copyright audit runs on a
+copy with the actual owner as an explicit argument; it is a manual
+submission check because the upstream updater uses the calendar year.
+Do not run the unmodified legacy template's dependency/NOTICE generation on
+this layout: it assumes a root `requirements.txt` and would replace the NOTICE
+for the bundled wheels. The linter checks errors and uses a disposable
 app copy seeded with the pinned tooling and the exact bundled Python 3.13
 wheels; upstream dependency checks stay enabled. The static report retains raw
 results; upstream reads the live registries when available and can fall back

@@ -504,13 +504,16 @@ jobs:
 
       - name: Install pinned tool environments
         run: |
-          python -m pip install uv==0.13.10
+          python -m pip install uv==0.13.10 pre-commit==4.5.1
           for tool in hooks lint; do
             uv venv --python "$(command -v python)" "$RUNNER_TEMP/soar-$tool"
             uv pip sync --python "$RUNNER_TEMP/soar-$tool/bin/python" \
               --build-constraints tools/soar-tooling/build-constraints.txt \
               "tools/soar-tooling/$tool.txt"
           done
+
+      - name: Run connector quality hooks
+        run: python tools/soar_checks.py quality
 
       - name: Check bundled notices
         run: python tools/render_notice.py --check

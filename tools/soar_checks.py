@@ -6,6 +6,7 @@
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -43,6 +44,34 @@ def source_snapshot(destination):
             target.write_bytes(subprocess.check_output(
                 ["git", "--no-replace-objects", "cat-file", "blob", f"{commit}:{relative}"], cwd=ROOT
             ))
+
+
+def quality():
+    """Run the applicable repository hooks against the tracked release projection."""
+    with tempfile.TemporaryDirectory(prefix="msqsoar-quality-", dir="/tmp") as temporary:
+        snapshot = Path(temporary)
+        source_snapshot(snapshot)
+        settings = ROOT / "tools/soar-tooling"
+        shutil.copyfile(settings / "quality.toml", snapshot / "pyproject.toml")
+        shutil.copyfile(settings / "quality-pre-commit.yaml", snapshot / ".pre-commit-config.yaml")
+        subprocess.run(["git", "init", "-q"], cwd=snapshot, check=True)
+        subprocess.run(["git", "add", "--all"], cwd=snapshot, check=True)
+        return subprocess.call(["pre-commit", "run", "--all-files", "--show-diff-on-failure"], cwd=snapshot)
+
+
+def copyright_audit():
+    """Report changes suggested by the time-dependent vendor copyright hook."""
+    with tempfile.TemporaryDirectory(prefix="msqsoar-copyright-", dir="/tmp") as temporary:
+        snapshot = Path(temporary)
+        source_snapshot(snapshot)
+        before = {p: p.read_bytes() for p in snapshot.rglob("*") if p.is_file()}
+        subprocess.run(["copyright-updates", str(snapshot), "--copyright", "Kai Seidenschnur"], check=True)
+        after = {p: p.read_bytes() for p in snapshot.rglob("*") if p.is_file()}
+        changes = sorted(str(p.relative_to(snapshot)) for p in before.keys() | after.keys()
+                         if before.get(p) != after.get(p))
+        for filename in changes:
+            print(f"Review copyright change: {filename}")
+        return int(bool(changes))
 
 
 def lint():
@@ -173,9 +202,9 @@ def static(strict=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("check", choices=["lint", "docs", "notes", "static", "static-strict"])
+    parser.add_argument("check", choices=["quality", "copyright", "lint", "docs", "notes", "static", "static-strict"])
     args = parser.parse_args()
-    return {"lint": lint, "docs": docs, "notes": release_notes, "static": static, "static-strict": lambda: static(strict=True)}[args.check]()
+    return {"quality": quality, "copyright": copyright_audit, "lint": lint, "docs": docs, "notes": release_notes, "static": static, "static-strict": lambda: static(strict=True)}[args.check]()
 
 
 if __name__ == "__main__":

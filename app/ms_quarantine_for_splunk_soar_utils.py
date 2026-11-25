@@ -1,7 +1,7 @@
 # Copyright 2026 Kai Seidenschnur
 # Licensed under the Apache License, Version 2.0.
 #
-# MS Quarantine for Splunk SOAR – Azure Automation Utils
+# MS Quarantine for Splunk SOAR - Azure Automation Utils
 # ===============================================
 # Handles all HTTP communication:
 #   - Azure AD token acquisition (client credentials)
@@ -20,24 +20,21 @@ import hashlib
 import json
 import re
 import time
-from urllib.parse import parse_qsl, quote, quote_plus, urlsplit
 from email.utils import parsedate_to_datetime
+from typing import Optional
+from urllib.parse import parse_qsl, quote, quote_plus, urlsplit
 
 import requests
 
 
 def validate_webhook_url(value: str) -> str:
     """Require HTTPS without including the secret-bearing URL in errors."""
-    message = (
-        "Asset configuration error: 'webhook_url' must be a valid HTTPS URL with a host."
-    )
+    message = "Asset configuration error: 'webhook_url' must be a valid HTTPS URL with a host."
     try:
         url = value.strip()
         parsed = urlsplit(url)
         _ = parsed.port  # Validate an explicitly supplied port as well.
-        if parsed.scheme != "https" or not parsed.hostname or any(
-            char.isspace() for char in parsed.netloc
-        ):
+        if parsed.scheme != "https" or not parsed.hostname or any(char.isspace() for char in parsed.netloc):
             raise ValueError(message)
     except (AttributeError, TypeError, ValueError):
         raise ValueError(message) from None
@@ -85,7 +82,7 @@ JOB_OUTPUT_API_PATH = JOB_API_PATH + "/output"
 # Automation Management API version
 MGMT_API_VERSION = "2023-11-01"
 
-# Job terminal states – polling stops on any of these
+# Job terminal states - polling stops on any of these
 JOB_TERMINAL_STATES = {"Completed", "Failed", "Stopped", "Suspended", "Disconnected"}
 
 # Job success state
@@ -113,9 +110,7 @@ MAX_DECODED_EML_BYTES = 24 * 1024 * 1024
 MAX_INLINE_DECODED_EML_BYTES = 10 * 1024 * 1024
 EXCHANGE_AUTH_METHOD = "ManagedIdentity"
 EXCHANGE_SETTING_MAX_CHARS = 256
-DIAGNOSTIC_RBAC_NOT_EVALUATED_ERROR_CODE = (
-    "diagnostic_rbac_not_evaluated"
-)
+DIAGNOSTIC_RBAC_NOT_EVALUATED_ERROR_CODE = "diagnostic_rbac_not_evaluated"
 DIAGNOSTIC_RBAC_PARTIAL_ERROR_CODE = "diagnostic_rbac_partial"
 MAX_DIAGNOSTIC_TEXT_CHARS = 2048
 MAX_DIAGNOSTIC_TRACE_CHARS = 8192
@@ -164,9 +159,7 @@ def normalize_exchange_connection_settings(organization=None) -> dict:
         raise ValueError("exchange_organization must be a string.")
     org = (organization or "").strip()
     if org:
-        if len(org) > EXCHANGE_SETTING_MAX_CHARS or re.search(
-            r"[\x00-\x20\x7f]", org
-        ):
+        if len(org) > EXCHANGE_SETTING_MAX_CHARS or re.search(r"[\x00-\x20\x7f]", org):
             raise ValueError(
                 "exchange_organization must be a single tenant value "
                 "such as contoso.onmicrosoft.com (no whitespace or "
@@ -185,11 +178,13 @@ def redact_sensitive_text(value, secrets=(), max_chars=MAX_PERSISTED_ERROR_CHARS
         secret_text = str(secret or "")
         if not secret_text:
             continue
-        candidates.extend((
-            secret_text,
-            quote(secret_text, safe=""),
-            quote_plus(secret_text),
-        ))
+        candidates.extend(
+            (
+                secret_text,
+                quote(secret_text, safe=""),
+                quote_plus(secret_text),
+            )
+        )
     for candidate in sorted(set(candidates), key=len, reverse=True):
         if candidate:
             text = text.replace(candidate, "[REDACTED]")
@@ -200,7 +195,7 @@ def redact_sensitive_text(value, secrets=(), max_chars=MAX_PERSISTED_ERROR_CHARS
     text = re.sub(
         r'(?i)((?:\{|,)\s*"(?:authorization|set-cookie|cookie)"\s*:\s*")'
         r'(?:\\[^\r\n]|[^"\\\r\n]|\\(?=[\r\n]|$))*("|(?=[\r\n]|$))',
-        r'\1[REDACTED]\2',
+        r"\1[REDACTED]\2",
         text,
     )
 
@@ -211,10 +206,16 @@ def redact_sensitive_text(value, secrets=(), max_chars=MAX_PERSISTED_ERROR_CHARS
     for delimiter in ('"', "'"):
         pattern = (
             r"""(?i)(["']?(?:authorization|set-cookie|cookie)["']?\s*[:=]\s*"""
-            + delimiter + r")"
-            + r"(?:[\\`][^\r\n]|" + delimiter * 2
-            + r"|[^" + delimiter + r"\\`\r\n]|[\\`](?=[\r\n]|$))*"
-            + "(" + delimiter + r"|(?=[\r\n]|$))"
+            + delimiter
+            + r")"
+            + r"(?:[\\`][^\r\n]|"
+            + delimiter * 2
+            + r"|[^"
+            + delimiter
+            + r"\\`\r\n]|[\\`](?=[\r\n]|$))*"
+            + "("
+            + delimiter
+            + r"|(?=[\r\n]|$))"
         )
         text = re.sub(pattern, r"\1[REDACTED]\2", text)
 
@@ -278,6 +279,7 @@ def redact_sensitive_text(value, secrets=(), max_chars=MAX_PERSISTED_ERROR_CHARS
         r"\1[REDACTED]",
         text,
     )
+
     def redact_jwt(match):
         candidate = match.group(0)
         header_segment = candidate.split(".", 1)[0]
@@ -285,9 +287,7 @@ def redact_sensitive_text(value, secrets=(), max_chars=MAX_PERSISTED_ERROR_CHARS
             return "[REDACTED-JWT]"
         padded_header = header_segment + ("=" * (-len(header_segment) % 4))
         try:
-            header = json.loads(
-                base64.urlsafe_b64decode(padded_header).decode("utf-8")
-            )
+            header = json.loads(base64.urlsafe_b64decode(padded_header).decode("utf-8"))
         except (
             binascii.Error,
             UnicodeDecodeError,
@@ -305,25 +305,29 @@ def redact_sensitive_text(value, secrets=(), max_chars=MAX_PERSISTED_ERROR_CHARS
     text = JWT_COMPACT_RE.sub(redact_jwt, text)
     if max_chars is None:
         return text
-    return text[:max(0, int(max_chars))]
+    return text[: max(0, int(max_chars))]
 
 
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
 
+
 class AutomationError(Exception):
     """Raised when an Azure Automation operation fails."""
+
     pass
 
 
 class TokenError(AutomationError):
     """Raised when Azure AD token acquisition fails."""
+
     pass
 
 
 class WebhookError(AutomationError):
     """Raised when the webhook call fails."""
+
     pass
 
 
@@ -345,6 +349,7 @@ class JobTimeoutError(AutomationError):
 
 class JobFailedError(AutomationError):
     """Raised when a job reaches a failure terminal state."""
+
     def __init__(self, message, job_id="", last_status="", exception=""):
         super().__init__(message)
         self.job_id = job_id
@@ -367,8 +372,8 @@ class OversizedExportError(AutomationError):
         self,
         message: str,
         identity: str = "",
-        decoded_size: int = None,
-        max_decoded_size: int = None,
+        decoded_size: Optional[int] = None,
+        max_decoded_size: Optional[int] = None,
     ):
         super().__init__(message)
         self.identity = identity
@@ -379,6 +384,7 @@ class OversizedExportError(AutomationError):
 # ---------------------------------------------------------------------------
 # Utils class
 # ---------------------------------------------------------------------------
+
 
 class MSQuarantineForSplunkSOARUtils:
     """
@@ -392,39 +398,39 @@ class MSQuarantineForSplunkSOARUtils:
 
     def __init__(
         self,
-        webhook_url:        str,
-        tenant_id:          str,
-        client_id:          str,
-        client_secret:      str,
-        subscription_id:    str,
-        resource_group:     str,
+        webhook_url: str,
+        tenant_id: str,
+        client_id: str,
+        client_secret: str,
+        subscription_id: str,
+        resource_group: str,
         automation_account: str,
-        poll_interval:      int  = 5,
-        poll_timeout:       int  = 600,
+        poll_interval: int = 5,
+        poll_timeout: int = 600,
         retain_chunked_base64: bool = True,
-        exchange_organization: str = None,
+        exchange_organization: Optional[str] = None,
         progress_callback=None,
     ):
         self._connection_settings = normalize_exchange_connection_settings(
             exchange_organization,
         )
         self.selection_release_status = "Requested"
-        self._webhook_url        = validate_webhook_url(webhook_url)
-        self._tenant_id          = tenant_id
-        self._client_id          = client_id
-        self._client_secret      = client_secret
-        self._subscription_id    = subscription_id
-        self._resource_group     = resource_group
+        self._webhook_url = validate_webhook_url(webhook_url)
+        self._tenant_id = tenant_id
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._subscription_id = subscription_id
+        self._resource_group = resource_group
         self._automation_account = automation_account
-        self._poll_interval      = poll_interval
-        self._poll_timeout       = poll_timeout
+        self._poll_interval = poll_interval
+        self._poll_timeout = poll_timeout
         self._retain_chunked_base64 = retain_chunked_base64
         # Native connector callback, accepting one human-readable string.
         self.progress_callback = progress_callback
         self._next_progress_at = 0.0
 
-        self._session            = requests.Session()
-        self._mgmt_token         = None   # cached for current action
+        self._session = requests.Session()
+        self._mgmt_token = None  # cached for current action
 
     def new_poll_deadline(self) -> float:
         """Return one absolute deadline shared by job status and output."""
@@ -518,18 +524,16 @@ class MSQuarantineForSplunkSOARUtils:
             response = self._session.post(
                 url,
                 data={
-                    "grant_type":    "client_credentials",
-                    "client_id":     self._client_id,
+                    "grant_type": "client_credentials",
+                    "client_id": self._client_id,
                     "client_secret": self._client_secret,
-                    "scope":         MGMT_SCOPE,
+                    "scope": MGMT_SCOPE,
                 },
                 timeout=timeout,
                 verify=True,
             )
         except requests.exceptions.RequestException as exc:
-            raise TokenError(
-                self._transport_error_message("Token request failed", exc)
-            ) from exc
+            raise TokenError(self._transport_error_message("Token request failed", exc)) from exc
 
         if not response.ok:
             try:
@@ -537,9 +541,7 @@ class MSQuarantineForSplunkSOARUtils:
             except Exception:
                 detail = response.text[:500]
             detail = self.redact_sensitive_text(detail, max_chars=500)
-            raise TokenError(
-                f"Azure AD token request failed (HTTP {response.status_code}): {detail}"
-            )
+            raise TokenError(f"Azure AD token request failed (HTTP {response.status_code}): {detail}")
 
         try:
             token = response.json().get("access_token")
@@ -564,14 +566,16 @@ class MSQuarantineForSplunkSOARUtils:
     def fire_webhook(
         self,
         action: str,
-        identity: str = None,
-        page_size: int = None,
-        include_rbac: bool = None, *, output_public_key: str = None,
+        identity: Optional[str] = None,
+        page_size: Optional[int] = None,
+        include_rbac: Optional[bool] = None,
+        *,
+        output_public_key: Optional[str] = None,
     ) -> str:
         """
         POST to the Azure Automation webhook to start a runbook job.
 
-        The webhook URL already contains the auth token as a query parameter –
+        The webhook URL already contains the auth token as a query parameter -
         no additional auth header is needed.
 
         Reference:
@@ -610,17 +614,12 @@ class MSQuarantineForSplunkSOARUtils:
                 allow_redirects=False,
             )
         except requests.exceptions.RequestException as exc:
-            raise WebhookError(
-                self._transport_error_message("Webhook request failed", exc)
-            ) from exc
+            raise WebhookError(self._transport_error_message("Webhook request failed", exc)) from exc
 
         # requests treats 3xx as OK; reject before parsing even apparent JobIds.
         # WebhookError preserves the existing unknown-outcome/no-retry handling.
         if 300 <= response.status_code < 400:
-            raise WebhookError(
-                f"Webhook returned HTTP {response.status_code}; redirects are not followed. "
-                "The submission outcome is unknown."
-            )
+            raise WebhookError(f"Webhook returned HTTP {response.status_code}; redirects are not followed. The submission outcome is unknown.")
 
         if not response.ok:
             if response.status_code == 404:
@@ -636,27 +635,17 @@ class MSQuarantineForSplunkSOARUtils:
                     "token in the URL is invalid or expired. Create a new webhook "
                     "and update webhook_url."
                 )
-            raise WebhookError(
-                f"Webhook returned HTTP {response.status_code}: "
-                f"{self.redact_sensitive_text(response.text, max_chars=500)}"
-            )
+            raise WebhookError(f"Webhook returned HTTP {response.status_code}: {self.redact_sensitive_text(response.text, max_chars=500)}")
 
         try:
             data = response.json()
         except ValueError as exc:
-            raise WebhookError(
-                "Webhook response is not valid JSON: "
-                f"{self.redact_sensitive_text(response.text, max_chars=200)}"
-            ) from exc
+            raise WebhookError(f"Webhook response is not valid JSON: {self.redact_sensitive_text(response.text, max_chars=200)}") from exc
 
         # Azure Automation webhook response: { "JobIds": ["<uuid>"] }
         job_ids = data.get("JobIds", []) if isinstance(data, dict) else []
-        if (not isinstance(job_ids, list) or len(job_ids) != 1
-                or not isinstance(job_ids[0], str) or not GUID_RE.fullmatch(job_ids[0])):
-            raise WebhookError(
-                "Webhook response did not contain JobIds: "
-                f"{self.redact_sensitive_text(data, max_chars=500)}"
-            )
+        if not isinstance(job_ids, list) or len(job_ids) != 1 or not isinstance(job_ids[0], str) or not GUID_RE.fullmatch(job_ids[0]):
+            raise WebhookError(f"Webhook response did not contain JobIds: {self.redact_sensitive_text(data, max_chars=500)}")
 
         return job_ids[0]
 
@@ -667,20 +656,20 @@ class MSQuarantineForSplunkSOARUtils:
     def _job_url(self, job_id: str) -> str:
         """Build the Management API URL for a specific job."""
         path = JOB_API_PATH.format(
-            subscription_id    = self._subscription_id,
-            resource_group     = self._resource_group,
-            automation_account = self._automation_account,
-            job_id             = job_id,
+            subscription_id=self._subscription_id,
+            resource_group=self._resource_group,
+            automation_account=self._automation_account,
+            job_id=job_id,
         )
         return f"{MGMT_BASE}{path}?api-version={MGMT_API_VERSION}"
 
     def _job_output_url(self, job_id: str) -> str:
         """Build the Management API URL for a job's output."""
         path = JOB_OUTPUT_API_PATH.format(
-            subscription_id    = self._subscription_id,
-            resource_group     = self._resource_group,
-            automation_account = self._automation_account,
-            job_id             = job_id,
+            subscription_id=self._subscription_id,
+            resource_group=self._resource_group,
+            automation_account=self._automation_account,
+            job_id=job_id,
         )
         return f"{MGMT_BASE}{path}?api-version={MGMT_API_VERSION}"
 
@@ -706,8 +695,11 @@ class MSQuarantineForSplunkSOARUtils:
                 break
             try:
                 response = self._session.get(
-                    url, headers=headers, timeout=min(15 if phase == "status" else 30, remaining),
-                    verify=True, allow_redirects=False,
+                    url,
+                    headers=headers,
+                    timeout=min(15 if phase == "status" else 30, remaining),
+                    verify=True,
+                    allow_redirects=False,
                 )
             except requests.exceptions.RequestException as exc:
                 last_error = self._transport_error_message("Transient job read failure", exc)
@@ -728,21 +720,20 @@ class MSQuarantineForSplunkSOARUtils:
                     )
                 else:
                     return response
-            self._sleep_for_retry(
-                delay, deadline, f"Waiting for Azure Automation job {job_id}; {last_error}."
-            )
+            self._sleep_for_retry(delay, deadline, f"Waiting for Azure Automation job {job_id}; {last_error}.")
         self._job_timeout(job_id, phase, last_status, last_error)
 
     def _job_timeout(self, job_id, phase, last_status, detail=""):
         raise JobTimeoutError(
             f"Job {job_id} did not finish {phase} within the {self._poll_timeout}s wait budget. "
             "The outcome is unknown; Azure has not been stopped. Check the job in Azure "
-            "before consciously starting a new action."
-            + (f" Last read error: {detail}" if detail else ""),
-            job_id=job_id, last_status=last_status, phase=phase,
+            "before consciously starting a new action." + (f" Last read error: {detail}" if detail else ""),
+            job_id=job_id,
+            last_status=last_status,
+            phase=phase,
         )
 
-    def poll_job(self, job_id: str, deadline: float = None) -> str:
+    def poll_job(self, job_id: str, deadline: Optional[float] = None) -> str:
         """Wait through nonterminal Azure states within one job/output deadline."""
         if deadline is None:
             deadline = self.new_poll_deadline()
@@ -755,22 +746,21 @@ class MSQuarantineForSplunkSOARUtils:
                 if not isinstance(status, str) or not status:
                     raise ValueError("missing status")
             except (ValueError, KeyError, TypeError) as exc:
-                raise AutomationError(
-                    "Unexpected job status response: "
-                    f"{self.redact_sensitive_text(response.text, max_chars=200)}"
-                ) from exc
+                raise AutomationError(f"Unexpected job status response: {self.redact_sensitive_text(response.text, max_chars=200)}") from exc
             last_status = status
             if status in JOB_FAILURE_STATES:
                 exception = properties.get("exception", "")
                 raise JobFailedError(
-                    f"Job {job_id} reached failure state '{status}'"
-                    + (f": {exception}" if exception else ""),
-                    job_id=job_id, last_status=status, exception=exception,
+                    f"Job {job_id} reached failure state '{status}'" + (f": {exception}" if exception else ""),
+                    job_id=job_id,
+                    last_status=status,
+                    exception=exception,
                 )
             if status == JOB_SUCCESS_STATE:
                 return status
             self._sleep_for_retry(
-                self._poll_interval, deadline,
+                self._poll_interval,
+                deadline,
                 f"Waiting for Azure Automation job {job_id} ({status}).",
             )
         self._job_timeout(job_id, "status", last_status)
@@ -783,7 +773,9 @@ class MSQuarantineForSplunkSOARUtils:
         self,
         job_id: str,
         action: str,
-        deadline: float = None, *, output_private_key=None,
+        deadline: Optional[float] = None,
+        *,
+        output_private_key=None,
     ) -> dict:
         """
         Retrieve and parse the job's Write-Output content.
@@ -814,7 +806,8 @@ class MSQuarantineForSplunkSOARUtils:
             if raw:
                 break
             self._sleep_for_retry(
-                max(float(self._poll_interval), 1.0), deadline,
+                max(float(self._poll_interval), 1.0),
+                deadline,
                 f"Waiting for Azure Automation job {job_id} output.",
             )
         else:
@@ -824,23 +817,17 @@ class MSQuarantineForSplunkSOARUtils:
         if action in PROTECTED_READ_ACTIONS:
             raw = self._decrypt_job_records(raw, action, output_private_key)
 
-
         try:
             parsed = json.loads(raw)
             if not isinstance(parsed, dict):
-                raise AutomationError(
-                    "Job output JSON must be an object. "
-                    f"Got {type(parsed).__name__}."
-                )
+                raise AutomationError(f"Job output JSON must be an object. Got {type(parsed).__name__}.")
             mode = self._validated_job_record_mode(parsed)
-            if (
-                mode in {
-                    LIST_CHUNK_MODE,
-                    LIST_COMPLETE_MODE,
-                    CHUNKED_EXPORT_MODE,
-                    CHUNKED_COMPLETE_MODE,
-                }
-            ):
+            if mode in {
+                LIST_CHUNK_MODE,
+                LIST_COMPLETE_MODE,
+                CHUNKED_EXPORT_MODE,
+                CHUNKED_COMPLETE_MODE,
+            }:
                 return self._parse_multiline_job_output(raw)
             return parsed
         except ValueError:
@@ -861,9 +848,7 @@ class MSQuarantineForSplunkSOARUtils:
         except ValueError:
             plain_error = None
         if isinstance(plain_error, dict) and plain_error.get("error") is True:
-            raise AutomationError(
-                "Protected output was not initialized. Check the paired runbook and its PowerShell runtime."
-            )
+            raise AutomationError("Protected output was not initialized. Check the paired runbook and its PowerShell runtime.")
         if private_key is None:
             raise AutomationError("Protected output has no matching job key.")
 
@@ -877,8 +862,10 @@ class MSQuarantineForSplunkSOARUtils:
                     raise ValueError
                 record = json.loads(line)
                 if (
-                    not isinstance(record, dict) or record.get("mode") != PROTECTED_OUTPUT_MODE
-                    or type(record.get("index")) is not int or record["index"] != index
+                    not isinstance(record, dict)
+                    or record.get("mode") != PROTECTED_OUTPUT_MODE
+                    or type(record.get("index")) is not int
+                    or record["index"] != index
                     or type(record.get("final")) is not bool
                     or ("wrapped_key" in record) != (index == 0)
                 ):
@@ -886,8 +873,7 @@ class MSQuarantineForSplunkSOARUtils:
                 if index == 0:
                     key = private_key.decrypt(
                         base64.b64decode(record["wrapped_key"], validate=True),
-                        padding.OAEP(mgf=padding.MGF1(hashes.SHA256()),
-                                     algorithm=hashes.SHA256(), label=None),
+                        padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
                     )
                     if len(key) != 32:
                         raise ValueError
@@ -906,7 +892,7 @@ class MSQuarantineForSplunkSOARUtils:
             raise AutomationError("Protected job output is invalid or incomplete.") from None
         return "\n".join(decrypted)
 
-    def _raise_if_stream_limit(self, raw: str, action: str = None):
+    def _raise_if_stream_limit(self, raw: str, action: Optional[str] = None):
         """Surface Azure Automation's per-stream limit as an actionable error."""
         if AZURE_STREAM_LIMIT_MESSAGE in raw:
             if action == "list":
@@ -916,8 +902,7 @@ class MSQuarantineForSplunkSOARUtils:
                     "export chunking does not repair list output."
                 )
             raise AutomationError(
-                "Azure Automation job output exceeded the 1 MiB stream limit. "
-                "Use bounded list/chunked export transport in the runbook."
+                "Azure Automation job output exceeded the 1 MiB stream limit. Use bounded list/chunked export transport in the runbook."
             )
 
     def _json_dict_lines(self, raw: str) -> list:
@@ -965,139 +950,77 @@ class MSQuarantineForSplunkSOARUtils:
                 return record
 
         list_records = [
-            record for record in records
-            if record.get("action") == "list"
-            and record.get("mode") in {LIST_CHUNK_MODE, LIST_COMPLETE_MODE}
+            record for record in records if record.get("action") == "list" and record.get("mode") in {LIST_CHUNK_MODE, LIST_COMPLETE_MODE}
         ]
-        has_list_complete = any(
-            record.get("mode") == LIST_COMPLETE_MODE
-            for record in list_records
-        )
-        has_list_chunk = any(
-            record.get("mode") == LIST_CHUNK_MODE
-            for record in list_records
-        )
+        has_list_complete = any(record.get("mode") == LIST_COMPLETE_MODE for record in list_records)
+        has_list_chunk = any(record.get("mode") == LIST_CHUNK_MODE for record in list_records)
         if has_list_complete:
             return self._parse_chunked_list_records(list_records)
         if has_list_chunk:
-            raise AutomationError(
-                "Chunked list output is incomplete: missing "
-                "action=list mode=list_complete trailer."
-            )
+            raise AutomationError("Chunked list output is incomplete: missing action=list mode=list_complete trailer.")
 
         chunk_records = [
-            record for record in records
-            if record.get("action") == "export"
-            and record.get("mode") in {CHUNKED_EXPORT_MODE, CHUNKED_COMPLETE_MODE}
+            record
+            for record in records
+            if record.get("action") == "export" and record.get("mode") in {CHUNKED_EXPORT_MODE, CHUNKED_COMPLETE_MODE}
         ]
 
-        has_chunked_complete = any(
-            record.get("mode") == CHUNKED_COMPLETE_MODE
-            for record in chunk_records
-        )
-        has_chunk = any(
-            record.get("mode") == CHUNKED_EXPORT_MODE
-            for record in chunk_records
-        )
+        has_chunked_complete = any(record.get("mode") == CHUNKED_COMPLETE_MODE for record in chunk_records)
+        has_chunk = any(record.get("mode") == CHUNKED_EXPORT_MODE for record in chunk_records)
 
         if has_chunked_complete:
             return self._parse_chunked_export_records(chunk_records)
 
         if has_chunk:
-            raise AutomationError(
-                "Chunked export output is incomplete: missing "
-                "action=export mode=chunked_complete trailer."
-            )
+            raise AutomationError("Chunked export output is incomplete: missing action=export mode=chunked_complete trailer.")
 
         # Legacy behaviour: verbose output before a single final JSON object.
         return records[-1]
 
     def _parse_chunked_list_records(self, records: list) -> dict:
         """Validate bounded list records and normalise them to one list result."""
-        complete_records = [
-            record for record in records
-            if record.get("action") == "list"
-            and record.get("mode") == LIST_COMPLETE_MODE
-        ]
+        complete_records = [record for record in records if record.get("action") == "list" and record.get("mode") == LIST_COMPLETE_MODE]
         if len(complete_records) != 1:
-            raise AutomationError(
-                "Chunked list output must contain exactly one "
-                "action=list mode=list_complete trailer."
-            )
+            raise AutomationError("Chunked list output must contain exactly one action=list mode=list_complete trailer.")
 
         complete = complete_records[0]
-        chunk_count = self._required_int(
-            complete, "chunk_count", "chunked list trailer"
-        )
-        expected_count = self._required_int(
-            complete, "count", "chunked list trailer"
-        )
-        metadata = {key: complete[key] for key in (
-            "runbook_version", "runbook_source_revision", "runbook_build_id"
-        ) if key in complete}
+        chunk_count = self._required_int(complete, "chunk_count", "chunked list trailer")
+        expected_count = self._required_int(complete, "count", "chunked list trailer")
+        metadata = {key: complete[key] for key in ("runbook_version", "runbook_source_revision", "runbook_build_id") if key in complete}
 
         if chunk_count < 1 or chunk_count > MAX_LIST_RESULT_COUNT:
-            raise AutomationError(
-                "Chunked list chunk_count must be between 1 and "
-                f"{MAX_LIST_RESULT_COUNT}."
-            )
+            raise AutomationError(f"Chunked list chunk_count must be between 1 and {MAX_LIST_RESULT_COUNT}.")
         if expected_count < 1 or expected_count > MAX_LIST_RESULT_COUNT:
-            raise AutomationError(
-                "Chunked list count must be between 1 and "
-                f"{MAX_LIST_RESULT_COUNT}."
-            )
+            raise AutomationError(f"Chunked list count must be between 1 and {MAX_LIST_RESULT_COUNT}.")
 
-        chunks = [
-            record for record in records
-            if record.get("action") == "list"
-            and record.get("mode") == LIST_CHUNK_MODE
-        ]
+        chunks = [record for record in records if record.get("action") == "list" and record.get("mode") == LIST_CHUNK_MODE]
         if len(chunks) != chunk_count:
-            raise AutomationError(
-                f"Chunked list expected {chunk_count} chunk(s), "
-                f"got {len(chunks)}."
-            )
+            raise AutomationError(f"Chunked list expected {chunk_count} chunk(s), got {len(chunks)}.")
 
         indexed_chunks = {}
         for chunk in chunks:
-            idx = self._required_int(
-                chunk, "chunk_index", "chunked list record"
-            )
+            idx = self._required_int(chunk, "chunk_index", "chunked list record")
             if idx < 0 or idx >= chunk_count:
-                raise AutomationError(
-                    f"Chunked list chunk_index {idx} is out of range."
-                )
+                raise AutomationError(f"Chunked list chunk_index {idx} is out of range.")
             if idx in indexed_chunks:
-                raise AutomationError(
-                    f"Chunked list contains duplicate chunk_index {idx}."
-                )
+                raise AutomationError(f"Chunked list contains duplicate chunk_index {idx}.")
 
             messages = chunk.get("messages")
             if not isinstance(messages, list) or not messages:
-                raise AutomationError(
-                    "Chunked list record messages must be a non-empty array."
-                )
+                raise AutomationError("Chunked list record messages must be a non-empty array.")
             if any(not isinstance(message, dict) for message in messages):
-                raise AutomationError(
-                    "Chunked list record messages must contain only objects."
-                )
+                raise AutomationError("Chunked list record messages must contain only objects.")
             indexed_chunks[idx] = messages
 
         missing = [idx for idx in range(chunk_count) if idx not in indexed_chunks]
         if missing:
-            raise AutomationError(
-                "Chunked list is missing chunk_index value(s): "
-                + ", ".join(str(idx) for idx in missing)
-            )
+            raise AutomationError("Chunked list is missing chunk_index value(s): " + ", ".join(str(idx) for idx in missing))
 
         messages = []
         for idx in range(chunk_count):
             messages.extend(indexed_chunks[idx])
         if len(messages) != expected_count:
-            raise AutomationError(
-                "Chunked list count mismatch: "
-                f"expected {expected_count}, got {len(messages)}."
-            )
+            raise AutomationError(f"Chunked list count mismatch: expected {expected_count}, got {len(messages)}.")
 
         return {
             "action": "list",
@@ -1108,78 +1031,40 @@ class MSQuarantineForSplunkSOARUtils:
 
     def _parse_chunked_export_records(self, records: list) -> dict:
         """Validate and normalise chunked export output to one export dict."""
-        complete_records = [
-            record for record in records
-            if record.get("action") == "export"
-            and record.get("mode") == CHUNKED_COMPLETE_MODE
-        ]
+        complete_records = [record for record in records if record.get("action") == "export" and record.get("mode") == CHUNKED_COMPLETE_MODE]
         if len(complete_records) != 1:
-            raise AutomationError(
-                "Chunked export output must contain exactly one "
-                "action=export mode=chunked_complete trailer."
-            )
+            raise AutomationError("Chunked export output must contain exactly one action=export mode=chunked_complete trailer.")
 
         complete = complete_records[0]
         identity = self._required_string(complete, "identity", "chunked trailer")
         chunk_count = self._required_int(complete, "chunk_count", "chunked trailer")
-        eml_base64_length = self._required_int(
-            complete, "eml_base64_length", "chunked trailer"
-        )
-        decoded_size = self._required_int(
-            complete, "decoded_size", "chunked trailer"
-        )
-        expected_sha256 = self._required_string(
-            complete, "sha256", "chunked trailer"
-        )
-        metadata = {key: complete[key] for key in (
-            "runbook_version", "runbook_source_revision", "runbook_build_id"
-        ) if key in complete}
+        eml_base64_length = self._required_int(complete, "eml_base64_length", "chunked trailer")
+        decoded_size = self._required_int(complete, "decoded_size", "chunked trailer")
+        expected_sha256 = self._required_string(complete, "sha256", "chunked trailer")
+        metadata = {key: complete[key] for key in ("runbook_version", "runbook_source_revision", "runbook_build_id") if key in complete}
 
         if chunk_count < 1:
             raise AutomationError("Chunked export chunk_count must be at least 1.")
         if chunk_count > MAX_CHUNK_COUNT:
-            raise AutomationError(
-                f"Chunked export chunk_count {chunk_count} exceeds "
-                f"the supported maximum of {MAX_CHUNK_COUNT}."
-            )
+            raise AutomationError(f"Chunked export chunk_count {chunk_count} exceeds the supported maximum of {MAX_CHUNK_COUNT}.")
         if decoded_size < 0:
-            raise AutomationError(
-                "Chunked export decoded_size must not be negative."
-            )
+            raise AutomationError("Chunked export decoded_size must not be negative.")
         if decoded_size > MAX_DECODED_EML_BYTES:
             raise AutomationError(
-                f"Chunked export decoded EML size {decoded_size} bytes exceeds "
-                f"the supported maximum of {MAX_DECODED_EML_BYTES} bytes."
+                f"Chunked export decoded EML size {decoded_size} bytes exceeds the supported maximum of {MAX_DECODED_EML_BYTES} bytes."
             )
-        if (
-            self._retain_chunked_base64
-            and decoded_size > MAX_INLINE_DECODED_EML_BYTES
-        ):
+        if self._retain_chunked_base64 and decoded_size > MAX_INLINE_DECODED_EML_BYTES:
             raise AutomationError(
-                f"Inline export is limited to "
-                f"{MAX_INLINE_DECODED_EML_BYTES} decoded bytes. "
-                "Set export_mode=vault for larger EML files."
+                f"Inline export is limited to {MAX_INLINE_DECODED_EML_BYTES} decoded bytes. Set export_mode=vault for larger EML files."
             )
         max_base64_length = ((MAX_DECODED_EML_BYTES + 2) // 3) * 4
         if eml_base64_length > max_base64_length:
-            raise AutomationError(
-                f"Chunked export base64 length {eml_base64_length} exceeds "
-                f"the maximum possible length {max_base64_length}."
-            )
+            raise AutomationError(f"Chunked export base64 length {eml_base64_length} exceeds the maximum possible length {max_base64_length}.")
         if not SHA256_HEX_RE.match(expected_sha256):
-            raise AutomationError(
-                "Chunked export trailer sha256 must be lowercase 64-character hex."
-            )
-        chunks = [
-            record for record in records
-            if record.get("action") == "export"
-            and record.get("mode") == CHUNKED_EXPORT_MODE
-        ]
+            raise AutomationError("Chunked export trailer sha256 must be lowercase 64-character hex.")
+        chunks = [record for record in records if record.get("action") == "export" and record.get("mode") == CHUNKED_EXPORT_MODE]
         if len(chunks) != chunk_count:
-            raise AutomationError(
-                f"Chunked export expected {chunk_count} chunk(s), "
-                f"got {len(chunks)}."
-            )
+            raise AutomationError(f"Chunked export expected {chunk_count} chunk(s), got {len(chunks)}.")
 
         indexed_chunks = {}
         for chunk in chunks:
@@ -1188,75 +1073,46 @@ class MSQuarantineForSplunkSOARUtils:
 
             encoding = self._required_string(chunk, "encoding", "chunk")
             if encoding != CHUNK_ENCODING:
-                raise AutomationError(
-                    f"Chunked export uses unsupported encoding '{encoding}'."
-                )
+                raise AutomationError(f"Chunked export uses unsupported encoding '{encoding}'.")
 
             idx = self._required_int(chunk, "chunk_index", "chunk")
             record_chunk_count = self._required_int(chunk, "chunk_count", "chunk")
             if record_chunk_count != chunk_count:
                 raise AutomationError("Chunked export chunk_count mismatch.")
             if idx < 0 or idx >= chunk_count:
-                raise AutomationError(
-                    f"Chunked export chunk_index {idx} is out of range."
-                )
+                raise AutomationError(f"Chunked export chunk_index {idx} is out of range.")
             if idx in indexed_chunks:
-                raise AutomationError(
-                    f"Chunked export contains duplicate chunk_index {idx}."
-                )
+                raise AutomationError(f"Chunked export contains duplicate chunk_index {idx}.")
 
-            indexed_chunks[idx] = self._required_string(
-                chunk, "eml_chunk", "chunk"
-            )
+            indexed_chunks[idx] = self._required_string(chunk, "eml_chunk", "chunk")
 
         missing = [idx for idx in range(chunk_count) if idx not in indexed_chunks]
         if missing:
-            raise AutomationError(
-                "Chunked export is missing chunk_index value(s): "
-                + ", ".join(str(idx) for idx in missing)
-            )
+            raise AutomationError("Chunked export is missing chunk_index value(s): " + ", ".join(str(idx) for idx in missing))
 
-        actual_base64_length = sum(
-            len(indexed_chunks[idx]) for idx in range(chunk_count)
-        )
+        actual_base64_length = sum(len(indexed_chunks[idx]) for idx in range(chunk_count))
         if actual_base64_length != eml_base64_length:
-            raise AutomationError(
-                "Chunked export eml_base64_length mismatch: "
-                f"expected {eml_base64_length}, got {actual_base64_length}."
-            )
+            raise AutomationError(f"Chunked export eml_base64_length mismatch: expected {eml_base64_length}, got {actual_base64_length}.")
 
         eml_bytes = bytearray()
         sha256 = hashlib.sha256()
         for idx in range(chunk_count):
             encoded_chunk = indexed_chunks[idx]
             if len(encoded_chunk) % 4 != 0:
-                raise AutomationError(
-                    f"Chunked export chunk_index {idx} length is not "
-                    "divisible by four."
-                )
+                raise AutomationError(f"Chunked export chunk_index {idx} length is not divisible by four.")
             try:
-                decoded_chunk = base64.b64decode(
-                    encoded_chunk, validate=True
-                )
+                decoded_chunk = base64.b64decode(encoded_chunk, validate=True)
             except (binascii.Error, ValueError) as exc:
-                raise AutomationError(
-                    f"Chunked export produced invalid base64 EML in "
-                    f"chunk_index {idx}: {exc}"
-                ) from exc
+                raise AutomationError(f"Chunked export produced invalid base64 EML in chunk_index {idx}: {exc}") from exc
             eml_bytes.extend(decoded_chunk)
             sha256.update(decoded_chunk)
 
         if len(eml_bytes) != decoded_size:
-            raise AutomationError(
-                "Chunked export decoded_size mismatch: "
-                f"expected {decoded_size}, got {len(eml_bytes)}."
-            )
+            raise AutomationError(f"Chunked export decoded_size mismatch: expected {decoded_size}, got {len(eml_bytes)}.")
 
         actual_sha256 = sha256.hexdigest()
         if actual_sha256 != expected_sha256:
-            raise AutomationError(
-                "Chunked export sha256 mismatch after reassembly."
-            )
+            raise AutomationError("Chunked export sha256 mismatch after reassembly.")
 
         result = {
             "action": "export",
@@ -1270,36 +1126,26 @@ class MSQuarantineForSplunkSOARUtils:
             "_eml_bytes": eml_bytes,
         }
         if self._retain_chunked_base64:
-            result["eml"] = "".join(
-                indexed_chunks[idx] for idx in range(chunk_count)
-            )
+            result["eml"] = "".join(indexed_chunks[idx] for idx in range(chunk_count))
         return result
 
     def _required_string(self, data: dict, key: str, where: str) -> str:
         val = data.get(key)
         if val is None:
-            raise AutomationError(
-                f"{where} missing required field '{key}'."
-            )
+            raise AutomationError(f"{where} missing required field '{key}'.")
         val = str(val)
         if val == "":
-            raise AutomationError(
-                f"{where} field '{key}' is empty."
-            )
+            raise AutomationError(f"{where} field '{key}' is empty.")
         return val
 
     def _required_int(self, data: dict, key: str, where: str) -> int:
         val = data.get(key)
         if isinstance(val, bool) or val is None:
-            raise AutomationError(
-                f"{where} missing numeric field '{key}'."
-            )
+            raise AutomationError(f"{where} missing numeric field '{key}'.")
         try:
             return parse_strict_integer(val)
         except (TypeError, ValueError) as exc:
-            raise AutomationError(
-                f"{where} field '{key}' is not numeric."
-            ) from exc
+            raise AutomationError(f"{where} field '{key}' is not numeric.") from exc
 
     @staticmethod
     def _canonical_quarantine_identity(value):
@@ -1307,9 +1153,7 @@ class MSQuarantineForSplunkSOARUtils:
         if not isinstance(value, str) or len(value) > 73:
             return None
         parts = value.split("\\")
-        if len(parts) != 2 or not all(
-            GUID_RE.fullmatch(part) for part in parts
-        ):
+        if len(parts) != 2 or not all(GUID_RE.fullmatch(part) for part in parts):
             return None
         return "\\".join(part.lower() for part in parts)
 
@@ -1317,19 +1161,20 @@ class MSQuarantineForSplunkSOARUtils:
     def _quarantine_identities_match(cls, left, right) -> bool:
         canonical_left = cls._canonical_quarantine_identity(left)
         canonical_right = cls._canonical_quarantine_identity(right)
-        return bool(
-            canonical_left
-            and canonical_right
-            and canonical_left == canonical_right
-        )
+        return bool(canonical_left and canonical_right and canonical_left == canonical_right)
 
     # -----------------------------------------------------------------------
     # Combined: run a full action
     # -----------------------------------------------------------------------
 
     def run_action(
-        self, action: str, identity: str = None, page_size: int = None,
-        include_rbac: bool = None, *, validate_result=None,
+        self,
+        action: str,
+        identity: Optional[str] = None,
+        page_size: Optional[int] = None,
+        include_rbac: Optional[bool] = None,
+        *,
+        validate_result=None,
     ) -> dict:
         """Submit exactly one webhook, then wait for its result."""
         if action not in PROTECTED_READ_ACTIONS:
@@ -1340,19 +1185,32 @@ class MSQuarantineForSplunkSOARUtils:
             from cryptography.hazmat.primitives.asymmetric import rsa
 
             private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-            public_key = base64.b64encode(private_key.public_key().public_bytes(
-                serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo,
-            )).decode("ascii")
+            public_key = base64.b64encode(
+                private_key.public_key().public_bytes(
+                    serialization.Encoding.DER,
+                    serialization.PublicFormat.SubjectPublicKeyInfo,
+                )
+            ).decode("ascii")
         except (ImportError, ValueError) as exc:
             raise AutomationError("Protected output cryptography is unavailable; no job was started.") from exc
         job_id = self.fire_webhook(action, identity, page_size, output_public_key=public_key)
         return self.wait_for_action_result(
-            job_id, action, identity, output_private_key=private_key, validate_result=validate_result,
+            job_id,
+            action,
+            identity,
+            output_private_key=private_key,
+            validate_result=validate_result,
         )
 
     def wait_for_action_result(
-        self, job_id: str, action: str, identity: str = None,
-        requested_include_rbac: bool = None, *, output_private_key=None, validate_result=None,
+        self,
+        job_id: str,
+        action: str,
+        identity: Optional[str] = None,
+        requested_include_rbac: Optional[bool] = None,
+        *,
+        output_private_key=None,
+        validate_result=None,
     ) -> dict:
         """Wait for the normal job and output using one shared deadline.
 
@@ -1380,8 +1238,11 @@ class MSQuarantineForSplunkSOARUtils:
             raise
 
     def _validate_runbook_result(
-        self, result: dict, requested_action: str, requested_identity: str = None,
-        requested_include_rbac: bool = None,
+        self,
+        result: dict,
+        requested_action: str,
+        requested_identity: Optional[str] = None,
+        requested_include_rbac: Optional[bool] = None,
     ) -> None:
         """Check action/identity and business result, not implementation evidence."""
         if not isinstance(result, dict):
@@ -1394,9 +1255,7 @@ class MSQuarantineForSplunkSOARUtils:
         context = result.get("context", result.get("details", {}))
         context = context if isinstance(context, dict) else {}
         response_identity = result.get("identity", context.get("identity") if is_error else None)
-        if requested_identity is not None and not self._quarantine_identities_match(
-            response_identity, requested_identity
-        ):
+        if requested_identity is not None and not self._quarantine_identities_match(response_identity, requested_identity):
             raise AutomationError("Runbook protocol error: response identity does not match the requested identity.")
         if is_error:
             if not isinstance(result.get("message"), str) or not result["message"]:
@@ -1411,7 +1270,9 @@ class MSQuarantineForSplunkSOARUtils:
                 raise AutomationError("Runbook protocol error: observed_identity does not match requested identity.")
             observed = result.get("observed_release_status")
             if not isinstance(observed, str) or observed.lower() != expected:
-                raise AutomationError(f"Runbook protocol error: successful {requested_action} lacks confirmed Exchange ReleaseStatus={expected.title()}.")
+                raise AutomationError(
+                    f"Runbook protocol error: successful {requested_action} lacks confirmed Exchange ReleaseStatus={expected.title()}."
+                )
         elif requested_action == "list":
             if "messages" not in result or not isinstance(result["messages"], (list, dict)):
                 raise AutomationError("Runbook protocol error: list requires messages.")
@@ -1427,7 +1288,10 @@ class MSQuarantineForSplunkSOARUtils:
         # Manual diagnose details remain optional observations, not a proof matrix.
 
     def _raise_for_runbook_error(
-        self, result: dict, requested_action: str, requested_identity: str = None,
+        self,
+        result: dict,
+        requested_action: str,
+        requested_identity: Optional[str] = None,
     ) -> None:
         if result.get("error") is not True:
             return
