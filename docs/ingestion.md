@@ -30,7 +30,8 @@ On upgrade, existing state is kept. Earlier `needs_review` scopes become Request
 `on_poll_max_containers` (default 10, range 1–50) is the maximum number of messages whose Microsoft status is still unresolved. It is a total ceiling, not a per-poll increment.
 
 - Imported, in-progress and failed messages all occupy a slot.
-- A slot is freed only when the app observes Microsoft status `Released` or `Denied`. Completed analysis, a failed import or a missing message does not free it.
+- A slot is freed after an exact read confirms `Released` or `Denied`, or when a successful exact lookup returns no result and the stored Microsoft expiry has passed. A missing result alone (even repeated), a failed lookup, or Exchange status `Error` does not prove retirement. Older records without a stored expiry still require a confirmed terminal status.
+- An unresolved exact lookup or item-level `Error` is reported for that identity; other messages can still be imported if a slot is available. Unclassified, authentication and transport failures stop intake for that poll.
 - Each poll first re-checks tracked statuses, then fills free slots from the first 50 `Requested` messages. There is no pagination or ordering guarantee, so an empty import does not prove the backlog is empty.
 - Poll Now's `container_count` limits attempts in that poll and cannot exceed the asset limit.
 

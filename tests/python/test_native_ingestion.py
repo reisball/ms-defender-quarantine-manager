@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from unittest.mock import Mock
@@ -14,7 +15,7 @@ else:
     import test_connector as t
 
 from ms_quarantine_for_splunk_soar_ingestion import INGEST_STATE_KEY, mail_files
-from ms_quarantine_for_splunk_soar_utils import AutomationError
+from ms_quarantine_for_splunk_soar_utils import AutomationError, TokenError
 
 ES = {"use_es_ingest": True, "es_security_domain": "threat",
       "es_urgency": "high", "es_investigation_type": "phishing",
@@ -208,6 +209,64 @@ def test_nonterminal_and_errors_keep_slot(tmp_path, target, status):
     assert ar.get_summary()["active_messages"] == 1
     assert len(c._saved_containers) == 1
     assert result == (t.APP_ERROR if isinstance(status, Exception) else t.APP_SUCCESS)
+
+
+@pytest.mark.parametrize("expires_days", [-1, 1, None])
+def test_exact_missing_observation_needs_expiry_to_free_slot(tmp_path, target, expires_days):
+    c = setup(tmp_path, target, limit=1)
+    c.candidates[0]["Expires"] = "" if expires_days is None else (
+        datetime.now(timezone.utc) + timedelta(days=expires_days)).isoformat()
+    assert poll(c)[0] == t.APP_SUCCESS
+    row, = c._ingest_records().values()
+    c.observed[row["identity"]] = "NotFound"
+    status, ar = poll(c)
+    assert ar.get_summary()["active_messages"] == 1
+    expired = expires_days == -1
+    assert c._ingest_records()[row["key"]]["terminal"] is expired
+    assert ar.get_summary()["messages_published"] == int(expired)
+    assert status == (t.APP_SUCCESS if expired else t.APP_ERROR)
+    if not expired:
+        assert poll(c)[0] == t.APP_ERROR
+        assert not c._ingest_records()[row["key"]]["terminal"]
+
+
+@pytest.mark.parametrize("case_status", ["NotFound", "Error"])
+def test_scheduled_poll_continues_after_case_problem(tmp_path, target, case_status):
+    c = setup(tmp_path, target, limit=3)
+    backlog = c.candidates
+    c.candidates = backlog[:2]
+    c.candidates[0]["Expires"] = (
+        datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    assert poll(c)[0] == t.APP_SUCCESS
+    c.candidates = backlog
+    first, second = c._ingest_records().values()
+    c.observed[first["identity"]] = case_status
+    c.observed[second["identity"]] = "Released"
+    status, ar = poll(c)
+    assert status == t.APP_ERROR  # Report the case problem despite successful intake.
+    assert ar.get_summary()["terminal_observed"] == 1
+    assert ar.get_summary()["messages_published"] == 2
+    first = c._ingest_records()[first["key"]]
+    assert first["last_status_error"] and not first["terminal"]
+    assert first["status"] == "completed"
+
+
+@pytest.mark.parametrize("manual", [False, True])
+def test_shared_auth_failure_stops_poll_with_free_capacity(tmp_path, target, manual):
+    c = setup(tmp_path, target, limit=2)
+    backlog = c.candidates
+    c.candidates = backlog[:1]
+    assert poll(c)[0] == t.APP_SUCCESS
+    c.candidates = backlog
+    row, = c._ingest_records().values()
+    c.observed[row["identity"]] = TokenError("synthetic authentication failure")
+    c.calls.clear()
+    c._is_poll_now = manual
+    status, ar = poll(c)
+    assert status == t.APP_ERROR
+    assert ar.get_summary()["messages_published"] == 0
+    assert [action for action, *_ in c.calls] == ["reconcile"]
+    assert "authentication failure" in c._ingest_records()[row["key"]]["last_status_error"]
 
 
 def test_files_are_attached_to_their_own_container(tmp_path, target):

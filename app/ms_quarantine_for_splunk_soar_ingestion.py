@@ -285,7 +285,8 @@ class NativeIngestionMixin:
             # Never persist prepared payloads, file checkpoints, leases or history.
             fields = {"key", "identity", "status", "terminal", "container_id", "created_at", "updated_at",
                       "last_error", "publication_started", "observed_release_status", "finding_id",
-                      "email_artifact_id", "ready_artifact_id", "missing_artifact_fields"}
+                      "email_artifact_id", "ready_artifact_id", "missing_artifact_fields",
+                      "expires_at", "last_status_error"}
             records[key] = {name: value for name, value in row.items() if name in fields}
         return {"scope": scope, "records": records, "version": 2}
 
@@ -327,6 +328,13 @@ class NativeIngestionMixin:
             self._ingest_save(state, data)
             return data["records"]
 
+    def _ingest_expiry(self, value):
+        # Old rows and incomplete Exchange metadata are not expiry evidence.
+        try:
+            return self._parse_state_timestamp(value)
+        except AutomationError:
+            return None
+
     def _ingest_claim(self, message, retry_ids):
         """Count new identities once; explicitly retried failures retain their slot."""
         identity = message["Identity"].strip().lower()
@@ -348,6 +356,13 @@ class NativeIngestionMixin:
                    "container_id": old.get("container_id") if old else None,
                    "created_at": old.get("created_at") if old else self._utc_now(),
                    "updated_at": self._utc_now(), "last_error": "", "publication_started": False}
+            expires = self._ingest_expiry(message.get("Expires"))
+            if expires is not None:
+                row["expires_at"] = expires.isoformat()
+            elif old and old.get("expires_at"):
+                row["expires_at"] = old["expires_at"]
+            if old and old.get("last_status_error"):
+                row["last_status_error"] = old["last_status_error"]
             records[key] = row
             self._ingest_save(state, data)
             return {**row, "message": dict(message)}
@@ -370,6 +385,7 @@ class NativeIngestionMixin:
     def _ingest_reconcile(self, records):
         errors = []
         terminal = 0
+        intake_blocked = False
         # Least-recently checked first: slow jobs must not starve later rows.
         oldest = datetime.min.replace(tzinfo=timezone.utc)
         ordered = sorted(records.items(), key=lambda item:
@@ -388,14 +404,27 @@ class NativeIngestionMixin:
                 observed = str(result.get("observed_release_status") or "").lower()
                 if not observed:
                     raise AutomationError("Current quarantine status is unavailable.")
-                is_terminal = observed in {"released", "denied"}
-                self._ingest_update(key, terminal=is_terminal, observed_release_status=observed)
-                terminal += int(is_terminal)
             except Exception as exc:
-                self._ingest_update(key)  # Rotate failed reads as well as successful ones.
-                errors.append(row["identity"] + ": status observation unavailable (" + self._ingest_error(exc) + ")")
-                break  # Do not multiply remote calls after a read/transport failure.
-        return terminal, errors
+                reason = self._ingest_error(exc)
+                self._ingest_update(key, last_status_error=reason)
+                errors.append(row["identity"] + ": status observation unavailable (" + reason + ")")
+                intake_blocked = True
+                break  # Unclassified, service and transport failures fail closed.
+            expiry = self._ingest_expiry(row.get("expires_at"))
+            expired_and_missing = (observed == "notfound" and expiry is not None
+                                   and expiry <= datetime.now(timezone.utc))
+            is_terminal = observed in {"released", "denied"} or expired_and_missing
+            reason = ""
+            if observed == "notfound" and not is_terminal:
+                reason = "Exact lookup returned no message; expiry is not confirmed."
+                errors.append(row["identity"] + ": " + reason)
+            elif observed == "error":
+                reason = "Exchange reports ReleaseStatus=Error; no terminal disposition confirmed."
+                errors.append(row["identity"] + ": " + reason)
+            self._ingest_update(key, terminal=is_terminal, observed_release_status=observed,
+                                last_status_error=reason)
+            terminal += int(is_terminal)
+        return terminal, errors, intake_blocked
 
     def _ingest_save_artifact(self, row, suffix, cef, name, *, publish=False):
         artifact = {
@@ -598,7 +627,7 @@ class NativeIngestionMixin:
                 manual_poll = self.is_poll_now()
                 retry_ids = {key for key, row in records.items()
                              if manual_poll and row["status"] == "failed" and not row["terminal"]}
-                terminal, errors = self._ingest_reconcile(records)
+                terminal, errors, intake_blocked = self._ingest_reconcile(records)
                 if manual_poll:
                     # Manual intake must work without a later scheduled poll.
                     # Give imports their own bounded phase after status checks;
@@ -609,8 +638,13 @@ class NativeIngestionMixin:
                 active = sum(not r["terminal"] for r in records.values())
                 messages = []
                 created = attempts = 0
-                if (not errors or manual_poll) and (retry_ids or active < self._on_poll_max_containers):
-                    self._ingest_budget_check()
+                can_list = not intake_blocked and (bool(retry_ids) or active < self._on_poll_max_containers)
+                if can_list and time.monotonic() >= self._ingest_deadline:
+                    budget_error = "Poll phase time budget exhausted; no further work started in this phase."
+                    if budget_error not in errors:
+                        errors.append(budget_error)
+                    can_list = False
+                if can_list:
                     self.save_progress("Listing first 50 Requested quarantine candidates.")
                     result = self._utils.run_action("list", page_size=50)
                     messages = self._normalise_list_result(result)[:50]
@@ -656,7 +690,7 @@ class NativeIngestionMixin:
                 })
                 if errors:
                     return ar.set_status(phantom.APP_ERROR, "; ".join(errors[:10]))
-                message = f"Imported {created} mail(s); observed {terminal} terminal disposition(s)."
+                message = f"Imported {created} mail(s); resolved {terminal} tracked status(es)."
                 if failed:
                     message += f" {failed} failed import(s) retained; scheduled retries disabled. Inspect native evidence, then use Poll Now for Requested candidates in the first 50."
                 return ar.set_status(phantom.APP_SUCCESS, message)

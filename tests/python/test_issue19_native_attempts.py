@@ -396,13 +396,13 @@ def test_manual_retry_survives_slow_failed_status_without_assuming_free_slot(tmp
         if action == 'reconcile':
             now[0] += 601
             c.calls.append((action, kwargs['identity'], {}))
-            raise AutomationError('temporary status read failure')
+            return {"observed_release_status": "NotFound"}
         return run(action, **kwargs)
     c._utils.run_action = slow
     c._is_poll_now = True
     status, ar = poll(c)
     assert status == t.APP_ERROR  # Retain real status-read failure despite import success.
-    assert 'temporary status read failure' in ar.get_message()
+    assert 'expiry is not confirmed' in ar.get_message()
     assert ar.get_summary()['terminal_observed'] == 0
     assert ar.get_summary()['active_messages'] == 1
     assert ar.get_summary()['messages_published'] == 1
@@ -419,6 +419,8 @@ def test_manual_status_problem_keeps_existing_slots_and_fills_free_slot(
     c._is_poll_now = True
     assert poll(c, container_count=2)[0] == t.APP_SUCCESS
     original_rows = list(c._ingest_records().values())
+    for row in original_rows:
+        c._ingest_update(row["key"], expires_at=None)
     now = [0]
     monkeypatch.setattr(ingestion.time, "monotonic", lambda: now[0])
     run = c._utils.run_action
@@ -426,7 +428,7 @@ def test_manual_status_problem_keeps_existing_slots_and_fills_free_slot(
         result = run(action, **kwargs)
         if action == "reconcile":
             if status_issue == "read_error":
-                raise AutomationError("temporary status failure")
+                return {"observed_release_status": "NotFound"}
             now[0] += 601
         return result
     c._utils.run_action = status_problem
@@ -442,7 +444,7 @@ def test_manual_status_problem_keeps_existing_slots_and_fills_free_slot(
         assert "phase time budget exhausted" in ar.get_message()
         assert "no further imports started" not in ar.get_message()
     else:
-        assert "temporary status failure" in ar.get_message()
+        assert "expiry is not confirmed" in ar.get_message()
     c._utils.run_action = run
     c.calls.clear()
     assert poll(c)[0] == t.APP_SUCCESS

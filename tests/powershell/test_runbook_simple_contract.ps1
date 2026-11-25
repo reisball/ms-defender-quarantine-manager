@@ -22,6 +22,7 @@ function Assert-Scenario {
     } else {
         $expectedKeys = if ($Action -eq "reconcile") { "action,identity,observed_identity,observed_release_status" } else { "action,identity,observed_identity,observed_release_status,status" }
         if ((($result.PSObject.Properties.Name | Sort-Object) -join ",") -ne $expectedKeys) { throw "Non-minimal normal result: $json" }
+        if ($Action -eq "reconcile" -and $result.observed_release_status -ne $Status) { throw "Wrong observation: $json" }
         if ($Action -ne "reconcile" -and $result.status -ne $Status) { throw "Wrong status: $json" }
         if ($result.observed_identity -ine $result.identity) { throw "Result identity is not bound." }
     }
@@ -51,9 +52,10 @@ foreach ($action in @("release", "deny")) {
     Assert-Scenario $action "Requested,$target" "" 1 0 "disposition_failed" -Flags @("-IncompatibleParameterSets")
 }
 foreach ($status in @("Requested", "Released", "Denied", "PreparingToRelease")) {
-    Assert-Scenario "reconcile" $status "" 1 0 -Flags @("-ForbidCmdlet")
+    Assert-Scenario "reconcile" $status $status 1 0 -Flags @("-ForbidCmdlet")
 }
-Assert-Scenario "reconcile" "__EMPTY__" "" 1 0 "runbook_unhandled_error"
+Assert-Scenario "reconcile" "__EMPTY__" "NotFound" 1 0 -Flags @("-ForbidCmdlet")
+Assert-Scenario "reconcile" "__ERROR__" "" 1 0 "runbook_unhandled_error" -Flags @("-ForbidCmdlet")
 
 foreach ($request in @(
     @{ action = "list"; organization = "example.onmicrosoft.com" },

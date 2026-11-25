@@ -247,8 +247,8 @@ $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "1.0.0"
-$RunbookSourceRevision    = "sha256:c52a2d4511bb6d896fc21d826e72ac9e57437b8ad6d3a68a4131ccc71b0b5172"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.c52a2d4511bb6d896fc21d826e72ac9e57437b8ad6d3a68a4131ccc71b0b5172"
+$RunbookSourceRevision    = "sha256:9e95965728730d4a28c2f790796fd1d07ae9f5f39b1b1963782c9c4999bd0139"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.9e95965728730d4a28c2f790796fd1d07ae9f5f39b1b1963782c9c4999bd0139"
 $ReleaseContractId        = "identity_releasetoall"
 $DenyContractId           = "identity_releasetoall_actiontype_deny"
 $PostconditionMaxAttempts = 7
@@ -1921,8 +1921,11 @@ function Invoke-QuarantineDisposition {
 }
 
 function Read-QuarantineStatus {
-    param([string] $Identity)
+    param([string] $Identity, [switch] $AllowMissing)
     $messages = @(Get-QuarantineMessage -Identity $Identity -ErrorAction Stop 3>$null 4>$null 5>$null 6>$null)
+    if ($AllowMissing -and $messages.Count -eq 0) {
+        return @{ ObservedIdentity = $Identity; ObservedStatus = "NotFound" }
+    }
     if ($messages.Count -ne 1) {
         throw "Get-QuarantineMessage returned $($messages.Count) results for one identity."
     }
@@ -3054,8 +3057,9 @@ try {
         # reconcile: read the exact Exchange state without a disposition call
         # --------------------------------------------------------------------
         "reconcile" {
-            # One plain read for the connector's active-window decision.
-            $observation = Read-QuarantineStatus -Identity $identity
+            # An empty, successful exact lookup is different from a thrown
+            # Exchange error. Release/Deny continue to require a real row.
+            $observation = Read-QuarantineStatus -Identity $identity -AllowMissing
             Write-SuccessResult @{
                 action = "reconcile"
                 identity = $identity
