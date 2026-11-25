@@ -20,7 +20,9 @@ param(
 
     [switch] $OrganizationVariableReadFailure,
 
-    [switch] $LiteralRequest
+    [switch] $LiteralRequest,
+
+    [string] $SyntheticExportBase64Path
 )
 
 $ErrorActionPreference = "Stop"
@@ -187,7 +189,11 @@ function Get-QuarantineMessage {
 function Export-QuarantineMessage {
     param([string] $Identity, [object] $ErrorAction)
     return [pscustomobject]@{
-        Eml = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("Subject: s"))
+        Eml = if ($SyntheticExportBase64Path) {
+            [IO.File]::ReadAllText($SyntheticExportBase64Path)
+        } else {
+            [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("Subject: s"))
+        }
     }
 }
 
@@ -239,6 +245,10 @@ if ($rsa) {
     $lines = @(ConvertFrom-FixtureProtectedOutput -Lines $successStream -Action "list" -Rsa $rsa)
     $rsa.Dispose()
     $raw = $lines[-1]
+}
+if ($SyntheticExportBase64Path) {
+    Write-Output $raw
+    exit 0
 }
 $parsed = $raw | ConvertFrom-Json
 $envelope = [ordered]@{

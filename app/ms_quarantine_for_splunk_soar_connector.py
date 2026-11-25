@@ -1281,9 +1281,11 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
 
         self.save_progress("Step 2/3: Starting protected list and waiting for completion...")
         try:
-            output = self._utils.run_action("list")
-            self.save_progress("Step 3/3: Validating the list result...")
-            self._normalise_list_result(output)
+            def validate_list(output):
+                self.save_progress("Step 3/3: Validating the list result...")
+                self._normalise_list_result(output)
+
+            self._utils.run_action("list", validate_result=validate_list)
         except (WebhookError, TokenError, JobTimeoutError,
                 JobFailedError, AutomationError) as exc:
             return action_result.set_status(

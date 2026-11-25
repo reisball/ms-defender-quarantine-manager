@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 import pytest
 
-from ms_quarantine_for_splunk_soar_utils import AutomationError
+from ms_quarantine_for_splunk_soar_utils import AutomationError, OversizedExportError
 
 if __package__:
     from .test_connector import make_utils
@@ -91,13 +91,33 @@ def test_exact_24_mib_export_is_protected_and_keeps_chunk_and_digest_contract(tm
     assert output["chunk_count"] == 132
     assert output["_eml_bytes"] == eml
     assert output["sha256"] == hashlib.sha256(eml).hexdigest()
-    path.write_bytes(base64.b64encode(eml + b"x"))
-    out, _ = run_fixture(
-        "test_runbook_export_transport.ps1", "-Base64Path", str(path),
-        "-ExpectedDecodedSize", str(len(eml) + 1), "-ProtectedOutputPublicKey", public_key(key),
-        success=False,
+
+
+def test_cap_plus_one_uses_production_export_and_returns_only_protected_error(tmp_path):
+    cap = 24 * 1024 * 1024
+    path = tmp_path / "oversized.b64"
+    path.write_bytes(base64.b64encode(b"x" * (cap + 1)))
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    raw, err = run_fixture(
+        "test_runbook_connection_contract.ps1", "-LiteralRequest",
+        "-RequestJson", json.dumps({
+            "action": "protected_export_v1", "identity": "__IDENTITY__",
+            "output_public_key": public_key(key),
+        }),
+        "-OrganizationVariable", "fixture.onmicrosoft.com",
+        "-SyntheticExportBase64Path", str(path),
     )
-    assert "ciphertext" not in out
+    assert not err and len(raw.strip().splitlines()) == 1
+    assert "export_oversized" not in raw
+    utils = make_utils()
+    result = json.loads(utils._decrypt_job_records(raw.strip(), "export", key))
+    assert result["error_code"] == "export_oversized"
+    assert result["handling"] == "fail_closed"
+    assert "eml" not in result
+    with pytest.raises(OversizedExportError) as exc:
+        utils._raise_for_runbook_error(result, "export", result["identity"])
+    assert exc.value.decoded_size == cap + 1
+    assert exc.value.max_decoded_size == cap
 
 
 @pytest.mark.parametrize("requested,code", [

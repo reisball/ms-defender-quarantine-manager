@@ -209,6 +209,10 @@ function Write-ErrorResult {
     # Only explicitly requested diagnostics include the optional evidence report.
     if ($Action -eq "diagnose" -and $Details.Count -gt 0) {
         $resultData.details = $Details
+    } elseif ($Action -eq "export" -and $ErrorCode -eq "export_oversized") {
+        $resultData.decoded_size = $Details.decoded_size
+        $resultData.max_decoded_size = $Details.max_decoded_size
+        $resultData.handling = "fail_closed"
     }
     if ($Action -in @("list", "export") -and $null -ne $script:protectedCipher) {
         Write-ProtectedOutput -Json ($resultData | ConvertTo-Json -Depth 10 -Compress) -Action $Action -Final
@@ -321,8 +325,8 @@ $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "1.0.0"
-$RunbookSourceRevision    = "sha256:ac14bc0f8f8e438b434d619257540ab21012e8c7b688f47ad81fb59b8730b7e4"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.ac14bc0f8f8e438b434d619257540ab21012e8c7b688f47ad81fb59b8730b7e4"
+$RunbookSourceRevision    = "sha256:0f122133505eab5524692c165c07808f99312edcfbfb5c961fdd4898a8ce0144"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.0f122133505eab5524692c165c07808f99312edcfbfb5c961fdd4898a8ce0144"
 $ReleaseContractId        = "identity_releasetoall"
 $DenyContractId           = "identity_releasetoall_actiontype_deny"
 $PostconditionMaxAttempts = 7
@@ -2960,7 +2964,6 @@ try {
                         identity         = $identity
                         decoded_size     = $decodedSize
                         max_decoded_size = $ExportMaxDecodedBytes
-                        handling         = "fail_closed"
                     } `
                     -Message "Exported EML size $decodedSize bytes exceeds the cloud-sandbox safety cap of $ExportMaxDecodedBytes bytes. The message remains quarantined; no Vault import, analysis, or release was started."
             }

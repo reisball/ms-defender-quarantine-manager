@@ -522,7 +522,7 @@ def test_hidden_asset_imports_large_chunked_mail(tmp_path, target, legacy_mode):
         with t.req_mock.Mocker() as mock:
             mock.post(t.TOKEN_URL, json={'access_token': t.MOCK_TOKEN})
             mock.get(t.job_output_url(), text=output)
-            result = c._utils.get_job_output(t.JOB_ID)
+            result = t.read_protected_fixture(c._utils, "export")
         assert 'eml' not in result
         assert result['_eml_bytes'] == c.eml
         return result

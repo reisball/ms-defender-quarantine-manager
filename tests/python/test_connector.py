@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 import types
+from unittest.mock import patch
 
 import pytest
 import requests
@@ -717,7 +718,7 @@ class TestTlsPolicy:
             verify_values.append(kwargs["verify"])
             if url == job_url():
                 return response({"properties": {"status": "Completed"}})
-            return response({"action": "list", "count": 0, "messages": []})
+            return response({"action": "reconcile", "observed_release_status": "Requested"})
 
         monkeypatch.setattr(utils._session, "post", post)
         monkeypatch.setattr(utils._session, "get", get)
@@ -725,7 +726,7 @@ class TestTlsPolicy:
         utils.get_mgmt_token()
         utils.fire_webhook("list", output_public_key="fixture-public-key")
         utils.poll_job(JOB_ID)
-        utils.get_job_output(JOB_ID)
+        utils.get_job_output(JOB_ID, "reconcile")
 
         assert verify_values == [True, True, True, True]
 
@@ -764,6 +765,30 @@ def protect_fixture_output(raw, body):
             record["wrapped_key"] = base64.b64encode(wrapped_key).decode("ascii")
         records.append(json.dumps(record))
     return "\n".join(records)
+
+
+def read_protected_fixture(utils, action):
+    """Encrypt the fixture after reading mock HTTP, before the real decoder."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    body = {
+        "action": f"protected_{action}_v1",
+        "output_public_key": base64.b64encode(key.public_key().public_bytes(
+            serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo,
+        )).decode("ascii"),
+    }
+    read_job_response = utils._read_job_response
+
+    def read(*args, **kwargs):
+        raw = read_job_response(*args, **kwargs).text
+        if raw.strip() and AZURE_STREAM_LIMIT_MESSAGE not in raw:
+            raw = protect_fixture_output(raw, body)
+        return types.SimpleNamespace(text=raw)
+
+    with patch.object(utils, "_read_job_response", side_effect=read):
+        return utils.get_job_output(JOB_ID, action=action, output_private_key=key)
 
 
 def mock_full_flow(
@@ -2176,13 +2201,25 @@ class TestPolling:
 
 class TestJobOutput:
 
+    def test_output_requires_expected_action_and_rejects_plaintext(self):
+        utils = make_utils()
+        with pytest.raises(TypeError):
+            utils.get_job_output(JOB_ID)
+        with pytest.raises(AutomationError, match="known expected action"):
+            utils.get_job_output(JOB_ID, action=None)
+        with req_mock.Mocker() as m:
+            m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
+            m.get(job_output_url(), json={"action": "list", "messages": []})
+            with pytest.raises(AutomationError, match="no matching job key"):
+                utils.get_job_output(JOB_ID, action="list")
+
     def test_output_parsed_as_json(self):
         utils = make_utils()
         payload = {"action": "list", "count": 1, "messages": []}
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=json.dumps(payload))
-            result = utils.get_job_output(JOB_ID)
+            result = read_protected_fixture(utils, "list")
         assert result["count"] == 1
 
     def test_output_429_retries_with_backoff(self, monkeypatch):
@@ -2213,7 +2250,7 @@ class TestJobOutput:
                 return payload
 
             m.get(job_output_url(), json=output_cb)
-            result = utils.get_job_output(JOB_ID)
+            result = read_protected_fixture(utils, "list")
 
         assert result["count"] == 1
         assert calls[0] == 2
@@ -2225,7 +2262,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text="")
             with pytest.raises(AutomationError):
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "list")
 
     def test_non_json_output_raises(self):
         utils = make_utils()
@@ -2233,7 +2270,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text="not json at all")
             with pytest.raises(AutomationError):
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "list")
 
     def test_last_json_line_used(self):
         """Verbose output before Write-Output should be ignored."""
@@ -2242,7 +2279,7 @@ class TestJobOutput:
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=verbose)
-            result = utils.get_job_output(JOB_ID)
+            result = read_protected_fixture(utils, "list")
         assert result["action"] == "list"
 
     def test_chunked_list_output_reassembled_in_index_order(self):
@@ -2256,7 +2293,7 @@ class TestJobOutput:
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
-            result = utils.get_job_output(JOB_ID)
+            result = read_protected_fixture(utils, "list")
         assert result["action"] == "list"
         assert result["count"] == 2
         assert [item["Subject"] for item in result["messages"]] == [
@@ -2270,7 +2307,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "list")
         assert "missing" in str(exc_info.value).lower()
         assert "list_complete" in str(exc_info.value)
 
@@ -2289,7 +2326,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "list")
         assert "duplicate chunk_index" in str(exc_info.value)
 
     def test_chunked_list_count_mismatch_is_rejected(self):
@@ -2299,7 +2336,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "list")
         assert "count mismatch" in str(exc_info.value).lower()
 
     def test_chunked_list_count_limit_is_enforced(self):
@@ -2313,7 +2350,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "list")
         assert "count must be between" in str(exc_info.value)
 
     @pytest.mark.parametrize("messages", [None, ["not-an-object"]])
@@ -2340,7 +2377,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
             with pytest.raises(AutomationError):
-                utils.get_job_output(JOB_ID, action="list")
+                read_protected_fixture(utils, "list")
 
 
     def test_runbook_error_flag_raises(self):
@@ -2383,7 +2420,7 @@ class TestJobOutput:
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=chunked_export_output())
-            result = utils.get_job_output(JOB_ID)
+            result = read_protected_fixture(utils, "export")
         assert result["action"] == "export"
         assert result["mode"] == "chunked"
         assert result["identity"] == IDENTITY
@@ -2395,7 +2432,7 @@ class TestJobOutput:
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=chunked_export_output())
-            result = utils.get_job_output(JOB_ID)
+            result = read_protected_fixture(utils, "export")
         assert "eml" not in result
         assert result["_eml_bytes"] == EML_RAW
 
@@ -2410,7 +2447,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=chunked_export_output())
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "export")
         assert "export_mode=vault" in str(exc_info.value)
 
     def test_chunked_export_ignores_output_order(self):
@@ -2420,7 +2457,7 @@ class TestJobOutput:
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
-            result = utils.get_job_output(JOB_ID)
+            result = read_protected_fixture(utils, "export")
         assert result["eml"] == EML_B64
 
     def test_chunked_export_missing_complete_raises(self):
@@ -2430,7 +2467,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "export")
         assert "chunked_complete" in str(exc_info.value)
 
     def test_chunked_export_missing_chunk_raises(self):
@@ -2441,7 +2478,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "export")
         assert "expected" in str(exc_info.value).lower()
 
     def test_chunked_export_duplicate_chunk_raises(self):
@@ -2453,7 +2490,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "export")
         assert "duplicate" in str(exc_info.value).lower()
 
     def test_chunked_export_identity_mismatch_raises(self):
@@ -2469,7 +2506,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text="\n".join(lines))
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "export")
         assert "identity mismatch" in str(exc_info.value).lower()
 
     def test_chunked_export_length_mismatch_raises(self):
@@ -2479,7 +2516,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "export")
         assert "length mismatch" in str(exc_info.value).lower()
 
     def test_chunked_export_sha256_mismatch_raises(self):
@@ -2489,7 +2526,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "export")
         assert "sha256 mismatch" in str(exc_info.value).lower()
 
     def test_chunked_export_decoded_size_mismatch_raises(self):
@@ -2499,7 +2536,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "export")
         assert "decoded_size mismatch" in str(exc_info.value).lower()
 
 
@@ -2623,7 +2660,7 @@ class TestJobOutput:
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
-            result = utils.get_job_output(JOB_ID)
+            result = read_protected_fixture(utils, "export")
         assert result["eml"] == EML_B64
 
     def test_chunked_export_size_cap_raises(self, monkeypatch):
@@ -2637,7 +2674,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=chunked_export_output())
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "export")
         assert "maximum" in str(exc_info.value).lower()
 
     def test_azure_stream_limit_message_has_actionable_error(self):
@@ -2646,7 +2683,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=AZURE_STREAM_LIMIT_MESSAGE)
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "export")
         assert "chunked export" in str(exc_info.value)
 
     def test_list_stream_limit_message_is_action_specific(self):
@@ -2666,7 +2703,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=json.dumps([{"action": "list"}]))
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID)
+                read_protected_fixture(utils, "export")
         assert "must be an object" in str(exc_info.value)
 
 
@@ -2895,6 +2932,15 @@ class TestConnectivity:
                   json={"error": {"code": "AuthorizationFailed"}})
             assert c._handle_test_connectivity({}) == APP_ERROR
         assert "AuthorizationFailed" in ar.get_message()
+
+    def test_connectivity_list_count_mismatch_retains_job_id(self):
+        c = make_connector()
+        ar = patch_ar(c)
+        with req_mock.Mocker() as m:
+            mock_full_flow(m, {"action": "list", "count": 1, "messages": []})
+            assert c._handle_test_connectivity({}) == APP_ERROR
+        assert "does not match" in ar.get_message()
+        assert JOB_ID in ar.get_message()
 
     def test_connectivity_unexpected_output_format(self):
         """Empty dict output is caught as malformed."""

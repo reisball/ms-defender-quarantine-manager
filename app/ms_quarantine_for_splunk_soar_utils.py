@@ -799,21 +799,21 @@ class MSQuarantineForSplunkSOARUtils:
     def get_job_output(
         self,
         job_id: str,
-        action: str = None,
+        action: str,
         deadline: float = None, *, output_private_key=None,
     ) -> dict:
         """
         Retrieve and parse the job's Write-Output content.
 
-        The public contract remains one parsed dict for every action. Legacy
-        runbooks write one JSON object. Newer runbooks may write chunked export
-        records; those are verified and normalised back to one export dict here.
+        List and export require authenticated job records. The other actions
+        return one JSON object. Chunked records are verified and reassembled.
 
         Reference:
         https://learn.microsoft.com/en-us/rest/api/automation/job/get-output
 
         Args:
             job_id: Azure Automation Job ID.
+            action: Expected action, which determines wire protection.
 
         Returns:
             Parsed dict from the runbook's Write-Output.
@@ -821,6 +821,8 @@ class MSQuarantineForSplunkSOARUtils:
         Raises:
             AutomationError on HTTP errors or parse failure.
         """
+        if action not in {"list", "export", "release", "deny", "reconcile", "diagnose"}:
+            raise AutomationError("Job output requires a known expected action.")
         if deadline is None:
             deadline = self.new_poll_deadline()
         while time.monotonic() < deadline:
@@ -1335,12 +1337,12 @@ class MSQuarantineForSplunkSOARUtils:
 
     def run_action(
         self, action: str, identity: str = None, page_size: int = None,
-        include_rbac: bool = None,
+        include_rbac: bool = None, *, validate_result=None,
     ) -> dict:
         """Submit exactly one webhook, then wait for its result."""
         if action not in PROTECTED_READ_ACTIONS:
             job_id = self.fire_webhook(action, identity, page_size, include_rbac=include_rbac)
-            return self.wait_for_action_result(job_id, action, identity)
+            return self.wait_for_action_result(job_id, action, identity, validate_result=validate_result)
         try:
             from cryptography.hazmat.primitives import serialization
             from cryptography.hazmat.primitives.asymmetric import rsa
@@ -1352,11 +1354,13 @@ class MSQuarantineForSplunkSOARUtils:
         except (ImportError, ValueError) as exc:
             raise AutomationError("Protected output cryptography is unavailable; no job was started.") from exc
         job_id = self.fire_webhook(action, identity, page_size, output_public_key=public_key)
-        return self.wait_for_action_result(job_id, action, identity, output_private_key=private_key)
+        return self.wait_for_action_result(
+            job_id, action, identity, output_private_key=private_key, validate_result=validate_result,
+        )
 
     def wait_for_action_result(
         self, job_id: str, action: str, identity: str = None,
-        requested_include_rbac: bool = None, *, output_private_key=None,
+        requested_include_rbac: bool = None, *, output_private_key=None, validate_result=None,
     ) -> dict:
         """Wait for the normal job and output using one shared deadline.
 
@@ -1372,6 +1376,8 @@ class MSQuarantineForSplunkSOARUtils:
             result = self.get_job_output(job_id, action=action, deadline=deadline, **kwargs)
             self._validate_runbook_result(result, action, identity)
             self._raise_for_runbook_error(result, action, identity)
+            if validate_result is not None:
+                validate_result(result)
             return result
         except AutomationError as exc:
             # Preserve the known job on every failure, including bad output
