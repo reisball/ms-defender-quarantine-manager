@@ -19,6 +19,7 @@ Run these checks with controlled test messages before enabling regular intake. R
 |---|---|
 | **test connectivity** | Succeeds |
 | Poll Now with one `Requested` message | Original EML, attachments and metadata are complete, then the event is published |
+| ES only: finding and linked SOAR container | Follow the finding’s container link and use `container:data.quarantine_identity` for the approved Release/Deny check below; no custom field registration is needed |
 | Combined layout | Exactly one email artifact, saved last, starts the configured playbook |
 | `NotReleased` message | Not imported |
 | Repeated poll | An already imported message is not imported again |

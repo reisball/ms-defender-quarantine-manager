@@ -178,7 +178,7 @@ def validate_identity_format(identity: str) -> str:
         return (
             f"Invalid identity format: '{identity}'. Expected GUID1\\GUID2, e.g. "
             "c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7. "
-            "Use quarantine_identity from the ingested event or finding."
+            "Use container:data.quarantine_identity from the SOAR event or the ES finding’s linked SOAR container."
         )
     return ""
 

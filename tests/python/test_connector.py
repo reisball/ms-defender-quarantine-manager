@@ -3884,7 +3884,9 @@ class TestIdentityFormatValidation:
 
     def test_garbage_rejected(self):
         from ms_quarantine_for_splunk_soar_connector import validate_identity_format
-        assert validate_identity_format("not-an-identity") != ""
+        error = validate_identity_format("not-an-identity")
+        assert "container:data.quarantine_identity" in error
+        assert "linked SOAR container" in error
 
 
     def test_release_rejects_bad_identity(self):
