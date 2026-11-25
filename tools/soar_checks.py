@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 import tarfile
 import tempfile
 from pathlib import Path
@@ -51,7 +52,24 @@ def lint():
         snapshot = Path(temporary) / "ms_quarantine_for_splunk_soar"
         snapshot.mkdir()
         source_snapshot(snapshot)
-        return subprocess.call(["soar-app-linter", "--single-repo", "--message-level", "error", str(snapshot)])
+        manifest = json.loads((snapshot / "ms_quarantine_for_splunk_soar.json").read_bytes())
+        wheels = [str(snapshot / entry["input_file"]) for entry in manifest["pip313_dependencies"]["wheel"]]
+        python = snapshot / ".venv/bin/python"
+        uv = [sys.executable, "-m", "uv"]
+        # This linter creates an inner venv and otherwise installs the latest
+        # pylint from PyPI there. Seed it with the same pinned tooling and the
+        # actual 3.13 runtime wheels; keep dependency checks enabled.
+        subprocess.run([sys.executable, "-m", "venv", str(python.parent.parent)], check=True)
+        subprocess.run([
+            *uv, "pip", "sync", "--python", str(python),
+            str(ROOT / "tools/soar-tooling/lint.txt"),
+        ], check=True)
+        subprocess.run([*uv, "pip", "install", "--python", str(python), "--no-deps", *wheels], check=True)
+        subprocess.run([*uv, "pip", "check", "--python", str(python)], check=True)
+        return subprocess.call(
+            ["soar-app-linter", "--single-repo", "--message-level", "error", str(snapshot)],
+            env={**os.environ, "PIP_NO_INDEX": "1"},
+        )
 
 
 def release_notes():
@@ -129,7 +147,7 @@ def static(strict=False):
         changed = sorted(str(p) for p in before.keys() | after.keys() if before.get(p) != after.get(p))
         if changed:
             failures["source_mutation"] = {"message": "Upstream checks modified source; apply and recheck explicitly", "files": changed}
-        if exit_code and not pending and not failures:
+        if exit_code != len(pending) and not failures:
             failures["runner"] = {"message": f"Unexplained upstream exit code: {exit_code}"}
         report = {
             "upstream_exit_code": exit_code,

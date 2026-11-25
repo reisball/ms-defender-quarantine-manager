@@ -66,13 +66,16 @@ then test both environments independently.
 
 The docs hook generates an upstream README in scratch space, not over this
 repository's maintained README. The linter checks errors and uses a disposable
-app copy with dependency installation enabled. The static report retains raw
+app copy seeded with the pinned tooling and the exact bundled Python 3.13
+wheels; upstream dependency checks stay enabled. The static report retains raw
 results; upstream reads the live registries when available and can fall back
 to bundled snapshots. `static-strict` additionally fails if registration is
 pending. A non-strict pass is not upstream acceptance or native SOAR validation.
 
 NOTICE is generated from license text in the exact hash-locked runtime wheels
-for both app interpreters, not from tooling or platform-provided dependencies.
+for both app interpreters, plus pinned upstream license texts for the OpenSSL
+and libffi components statically linked into those wheels. It excludes tooling
+and platform-provided dependencies.
 When wheels change, review their bundled license files and native components,
 update the wheel lock, and run `python3 tools/render_notice.py`.
 
