@@ -102,7 +102,7 @@ def test_validated_runbook_outcomes(code, expected):
     assert (row["outcome"], row["error_code"], row["azure_job_id"]) == (expected, code, JOB_ID)
 
 
-@pytest.mark.parametrize("phase", ["webhook", "Stopped", "Suspended", "malformed"])
+@pytest.mark.parametrize("phase", ["webhook", "Stopped", "Suspended", "malformed", "bad_status", "bad_mode"])
 def test_ambiguous_azure_result_is_unknown_without_replay(phase):
     connector = make_connector()
     with requests_mock.Mocker() as mock:
@@ -111,13 +111,29 @@ def test_ambiguous_azure_result_is_unknown_without_replay(phase):
         else:
             mock.post(WEBHOOK_URL, json={"JobIds": [JOB_ID]})
             mock.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
-            status = "Completed" if phase == "malformed" else phase
+            status = "Completed" if phase in {"malformed", "bad_status", "bad_mode"} else phase
             mock.get(job_url(), json={"properties": {"status": status}})
             if phase == "malformed":
                 mock.get(job_output_url(), text="not a disposition result")
+            elif phase in {"bad_status", "bad_mode"}:
+                payload = released_output("deny")
+                payload["status" if phase == "bad_status" else "mode"] = []
+                mock.get(job_output_url(), json=payload)
         assert connector._handle_deny_quarantine_release({"identity": IDENTITY}) == APP_ERROR
         assert sum(r.url == WEBHOOK_URL for r in mock.request_history) == 1
     row = outcome(connector)
     assert (row["outcome"], row["error_code"]) == ("unknown", "outcome_unknown")
     assert row["azure_job_id"] == ("" if phase == "webhook" else JOB_ID)
     assert "Do not retry" in row["message"]
+
+
+def test_legacy_code_is_classified_consistently_with_published_code():
+    connector = make_connector()
+    with requests_mock.Mocker() as mock:
+        mock_full_flow(mock, {
+            "action": "release", "identity": IDENTITY, "error": True,
+            "message": "No write performed.", "code": "precondition_unconfirmed",
+        })
+        assert connector._handle_release_quarantine_message({"identity": IDENTITY}) == APP_ERROR
+    row = outcome(connector)
+    assert (row["outcome"], row["error_code"]) == ("not_executed", "precondition_unconfirmed")

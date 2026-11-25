@@ -327,8 +327,8 @@ $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "1.0.0"
-$RunbookSourceRevision    = "sha256:fb0f031008ed55091883c8f1d104f07d8af3a92708d003fea638d96532affd75"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.fb0f031008ed55091883c8f1d104f07d8af3a92708d003fea638d96532affd75"
+$RunbookSourceRevision    = "sha256:9782a5a730da22da5a6d50431e9945c841367b44228ce05e10ab58f87c7e0512"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.9782a5a730da22da5a6d50431e9945c841367b44228ce05e10ab58f87c7e0512"
 $ReleaseContractId        = "identity_releasetoall"
 $DenyContractId           = "identity_releasetoall_actiontype_deny"
 $PostconditionMaxAttempts = 7
@@ -2427,8 +2427,8 @@ function Invoke-RequestedDisposition {
     }
     $after = Wait-QuarantinePostcondition -Identity $Identity -ExpectedStatus $expectedStatus
     if (-not $after.Confirmed) {
-        if ($Action -eq "release" -and $after.ObservedStatus -ieq "PreparingToRelease") {
-            Write-ErrorResult -Action $Action -ErrorCode "release_pending" -ErrorContext "Get-QuarantineMessage" -Message "Exchange is preparing to release this message but has not confirmed Released. Check Exchange before starting another action."
+        if ($after.ObservedStatus -ieq "PreparingToRelease") {
+            Write-ErrorResult -Action $Action -ErrorCode "release_pending" -ErrorContext "Get-QuarantineMessage" -Message "Exchange reports PreparingToRelease; a release is pending and the requested disposition is not confirmed. Check Exchange before starting another action."
         }
         $message = "The command returned without error, but Exchange did not confirm ReleaseStatus=$expectedStatus for identity '$Identity' after $($after.Attempts) checks. Outcome is unknown; inspect Exchange before deciding on a new action."
         if ($after.LastError) { $message += " Last status read: $($after.LastError)" }

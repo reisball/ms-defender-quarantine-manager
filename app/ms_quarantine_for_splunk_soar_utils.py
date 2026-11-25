@@ -849,9 +849,11 @@ class MSQuarantineForSplunkSOARUtils:
                     "Job output JSON must be an object. "
                     f"Got {type(parsed).__name__}."
                 )
+            mode = parsed.get("mode")
+            if "mode" in parsed and not isinstance(mode, str):
+                raise AutomationError("Runbook protocol error: field 'mode' must be a string.")
             if (
-                parsed.get("mode")
-                in {
+                mode in {
                     LIST_CHUNK_MODE,
                     LIST_COMPLETE_MODE,
                     CHUNKED_EXPORT_MODE,
@@ -975,7 +977,7 @@ class MSQuarantineForSplunkSOARUtils:
         list_records = [
             record for record in records
             if record.get("action") == "list"
-            and record.get("mode") in {LIST_CHUNK_MODE, LIST_COMPLETE_MODE}
+            and record.get("mode") in (LIST_CHUNK_MODE, LIST_COMPLETE_MODE)
         ]
         has_list_complete = any(
             record.get("mode") == LIST_COMPLETE_MODE
@@ -996,7 +998,7 @@ class MSQuarantineForSplunkSOARUtils:
         chunk_records = [
             record for record in records
             if record.get("action") == "export"
-            and record.get("mode") in {CHUNKED_EXPORT_MODE, CHUNKED_COMPLETE_MODE}
+            and record.get("mode") in (CHUNKED_EXPORT_MODE, CHUNKED_COMPLETE_MODE)
         ]
 
         has_chunked_complete = any(
@@ -1412,7 +1414,8 @@ class MSQuarantineForSplunkSOARUtils:
             return
         if requested_action in {"release", "deny"}:
             expected = "released" if requested_action == "release" else "denied"
-            if result.get("status") not in {expected, f"already_{expected}"}:
+            status = result.get("status")
+            if not isinstance(status, str) or status not in {expected, f"already_{expected}"}:
                 raise AutomationError(f"Runbook protocol error: successful {requested_action} requires status={expected} or already_{expected}.")
             if not self._quarantine_identities_match(result.get("observed_identity"), requested_identity):
                 raise AutomationError("Runbook protocol error: observed_identity does not match requested identity.")

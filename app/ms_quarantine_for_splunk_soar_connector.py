@@ -1680,8 +1680,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             )
         except AutomationError as exc:
             data = dict(exc.result) if isinstance(exc, RunbookActionError) else {}
-            native_code = data.get("error_code")
-            code = native_code if native_code is not None else data.get("code")
+            code = data.get("error_code", data.get("code"))
             if not isinstance(code, str) or not code.strip():
                 code = "outcome_unknown"
             # Only use validated, explicit runbook evidence to assert that
@@ -1690,7 +1689,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 "precondition_unconfirmed": "not_executed",
                 "disposition_failed": "failed",
                 "release_pending": "pending",
-            }.get(native_code if isinstance(native_code, str) else "", "unknown")
+            }.get(code, "unknown")
             message = self._map_error(exc, action)
             if outcome == "unknown":
                 message += (

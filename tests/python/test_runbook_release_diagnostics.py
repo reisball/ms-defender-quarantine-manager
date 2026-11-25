@@ -95,6 +95,7 @@ def test_optional_diagnostics_do_not_gate_success(action, terminal, switch):
     ("release", "Requested,PreparingToRelease", 1),
     ("release", "PreparingToRelease", 0),
     ("deny", "PreparingToRelease", 0),
+    ("deny", "Requested,PreparingToRelease", 1),
 ])
 def test_preparing_to_release_is_reported_as_pending_without_rewrite(
     action, statuses, expected_writes,
