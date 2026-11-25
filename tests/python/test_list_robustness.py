@@ -31,7 +31,10 @@ def test_direct_identity_type_rejected_without_any_http(handler, identity):
     with requests_mock.Mocker() as m:
         assert getattr(c, handler)({"identity": identity}) == APP_ERROR
         assert "identity" in ar.get_message().lower()
-        assert ar.get_data() == []
+        row, = ar.get_data()
+        assert row["identity"] == ""
+        assert row["error_code"] == "invalid_identity"
+        assert row["outcome"] == ar.get_summary()["outcome"] == "not_executed"
         assert m.call_count == 0
 
 
