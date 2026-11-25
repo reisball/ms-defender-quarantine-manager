@@ -36,7 +36,7 @@ App and runbook share one version. Deploy them as a matching pair; see the [comp
 | Identities, TLS and quarantined content | [Security](docs/security.md) |
 | Building, testing and releasing | [Development and release](docs/development.md) |
 
-The installed app also includes a field and action reference on its **Documentation** page ([HTML help](app/readme.html)). Release notes are published in [GitHub Releases](https://github.com/reisball/ms-quarantine-for-splunk-soar/releases).
+The installed app also includes a quick start and troubleshooting guidance on its **Documentation** page ([HTML help](app/readme.html)). Release notes are published in [GitHub Releases](https://github.com/reisball/ms-quarantine-for-splunk-soar/releases).
 
 ## Support and contributing
 

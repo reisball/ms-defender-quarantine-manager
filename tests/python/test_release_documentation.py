@@ -121,7 +121,11 @@ def test_help_explains_automatic_files_and_no_legacy_ui_controls():
     assert "enable_on_poll_ingestion" not in prose
     assert "update quarantine work item" not in prose
     assert "No custom ES fields are required" in prose
-    assert "Do not retry blindly" in " ".join(prose.split())
+    assert "Do not start another disposition while one is pending" in prose
+    assert "a timeout does not cancel Azure" in prose
+    assert "mail headers, body text (up to 256,000 characters)" in prose
+    assert "Attachment content stays in the SOAR Vault" in prose
+    assert "Restoring older state can roll back import records" in prose
 
 
 

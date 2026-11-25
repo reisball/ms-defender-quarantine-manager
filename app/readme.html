@@ -27,8 +27,8 @@ artifact after the uploads; it references the original EML. Separate-field SOAR 
 uses a final Ready artifact. For the optional SAA example, import the inactive
 playbook and set its asset bindings, event label and approver before enabling it.</li>
 <li><strong>ES findings (optional):</strong> Enable the native ES target and set its
-security domain. No custom ES fields are required. ES receives mail metadata and
-Vault links; verify the external HTTPS download URL from the analyst interface.
+security domain. No custom ES fields are required. ES receives mail headers, body text (up to 256,000 characters), and Vault download
+links. Attachment content stays in the SOAR Vault; verify the external HTTPS download URL from the analyst interface.
 A finding receipt does not mean analysis has finished.</li>
 </ul>
 <p>For Release/Deny, use <code>container:data.quarantine_identity</code> from the
@@ -44,16 +44,23 @@ candidates and does not guarantee pagination. The original EML limit is 24 MiB.<
 event, Vault files or ES finding. Once the cause is fixed, use Poll Now to retry
 an eligible message. If the ES response was lost, check for an existing finding
 first: a retry could duplicate it.</td></tr>
-<tr><td>Release/Deny is pending or unknown</td><td>Read the outcome and error code.
+<tr><td>Release/Deny failed, is pending or is unknown</td><td>Read the outcome and error code.
 Inspect the original Azure job if its ID is known, otherwise check job history
-and the current Microsoft status. A timeout does not cancel Azure. Do not
-retry blindly.</td></tr>
+and the current Microsoft status using <strong>inspect release environment</strong>.
+A failure does not rule out a remote effect; a timeout does not cancel Azure.
+Do not start another disposition while one is pending or before resolving an
+unknown outcome.</td></tr>
 <tr><td>Connectivity or download failed</td><td>Check the matching runbook, webhook,
 job-reader permissions and Exchange identity. For ES links, check the HTTPS address
 and analyst access.</td></tr>
 </tbody>
 </table>
+<h2>Backup and removal</h2>
+<p>Back up the app package, asset settings and app state securely. Before removal
+or restore, pause intake and dependent playbooks and check unresolved jobs and
+imports. Restoring older state can roll back import records. Never clear app
+state to force a retry.</p>
 <p>Do not share webhook URLs, secrets or quarantined mail in support reports.
 Include app and runbook versions, the action error and any known Azure job ID.</p>
-<p><a href="https://github.com/reisball/ms-quarantine-for-splunk-soar#documentation">Full documentation</a> (repository access required).</p>
+<p><a href="https://github.com/reisball/ms-quarantine-for-splunk-soar#documentation">Full documentation</a>.</p>
 </body></html>
