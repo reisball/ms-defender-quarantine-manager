@@ -8,7 +8,7 @@
 - An Azure Automation Account with a system-assigned Managed Identity and a PowerShell runtime that includes the ExchangeOnlineManagement module.
 - An Entra App Registration that can read Azure Automation job status and output.
 - Exchange/Defender quarantine permissions for the Managed Identity.
-- For ES ingestion: a connected ES environment with the [additional fields](ingestion.md#enterprise-security) registered.
+- For ES ingestion: a connected ES environment; see [ES-only setup](ingestion.md#enterprise-security).
 
 Two identities are involved, and neither substitutes for the other:
 

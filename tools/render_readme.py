@@ -69,8 +69,7 @@ and output. Enter its tenant ID, client ID and client secret value.</li>
 <code>ExchangeOrganization</code>; the asset value takes precedence.</li>
 <li>Use one ingesting asset per tenant. Select the target before starting
 Requested-only intake. Configure the container label and schedule in Ingest Settings;
-disable the schedule to pause automatic imports. Use Poll Now for a manual import. For ES, use the native ES ingest settings
-and register the five additional fields below.</li>
+disable the schedule to pause automatic imports. Use Poll Now for a manual import. For ES, use the native ES ingest settings below.</li>
 <li>Configure the analysis playbook's asset bindings, analyst/approver settings,
 notification recipients, portal links and routing label before activation.
 Publish and confirm the matching runbook first, install the matching app, then activate its compatible playbook.
@@ -127,10 +126,7 @@ stored field selections remain readable. ES uses its configured native
 threat-analysis and automation settings unchanged. Publication acceptance does
 not prove that an analysis workflow finished.</p>
 <h2>Native ES prerequisites</h2>
-<p>Register <code>quarantine_identity</code>, <code>work_item_id</code>,
-<code>source_data_identifier</code>, <code>quarantine</code> and
-<code>eml_sha256</code> as accepted additional fields in the target ES environment.
-The app does not register them. Configure a valid security domain; urgency and
+<p>No custom ES fields are required. For Release/Deny use <code>container:data.quarantine_identity</code> from the linked SOAR container. Configure a valid security domain; urgency and
 investigation type are optional native settings. Analyst download links use the
 validated external HTTPS base URL from SOAR system information. Test their
 reachability and mail/attachment rendering from the analyst interface. ES is a

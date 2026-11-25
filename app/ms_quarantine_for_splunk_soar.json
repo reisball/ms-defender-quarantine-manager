@@ -765,7 +765,7 @@
             "read_only": false,
             "parameters": {
                 "identity": {
-                    "description": "Quarantine message Identity in the exact format GUID1\\GUID2 (e.g. c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7). Use container:data.quarantine_identity from the ingested SOAR event or quarantine_identity from the ES finding. The format is validated before the webhook fires - malformed values fail immediately without starting a runbook job.",
+                    "description": "Quarantine message Identity in the exact format GUID1\\GUID2 (e.g. c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7). Use container:data.quarantine_identity from the ingested SOAR event (the linked SOAR container for an ES finding). The format is validated before the webhook fires - malformed values fail immediately without starting a runbook job.",
                     "data_type": "string",
                     "required": true,
                     "primary": true,
@@ -934,7 +934,7 @@
             "read_only": false,
             "parameters": {
                 "identity": {
-                    "description": "Quarantine message Identity in the exact format GUID1\\GUID2 (e.g. c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7). Use container:data.quarantine_identity from the ingested SOAR event or quarantine_identity from the ES finding. The format is validated before the webhook fires - malformed values fail immediately without starting a runbook job.",
+                    "description": "Quarantine message Identity in the exact format GUID1\\GUID2 (e.g. c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7). Use container:data.quarantine_identity from the ingested SOAR event (the linked SOAR container for an ES finding). The format is validated before the webhook fires - malformed values fail immediately without starting a runbook job.",
                     "data_type": "string",
                     "required": true,
                     "primary": true,

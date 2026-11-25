@@ -6,7 +6,6 @@ Wire contract: splunk-soar-sdk 6.1.5 abstract.SOARClient and Finding models.
 No SDK runtime dependency, decorator batching, or additional stored credentials.
 """
 
-import hashlib
 import ipaddress
 import json
 from urllib.parse import quote, urljoin, urlsplit
@@ -411,13 +410,6 @@ def _build_finding_from_parsed(
         "run_threat_analysis": ingest.get("es_run_threat_analysis", False),
         "launch_automation": ingest.get("es_launch_automation", False),
         "finding_source": ingest.get("_finding_source", "MS Quarantine for Splunk SOAR"),
-        "additional_fields": {
-            "quarantine_identity": identity,
-            "work_item_id": work_item_id,
-            "source_data_identifier": source_id,
-            "quarantine": dict(message),
-            "eml_sha256": hashlib.sha256(eml_bytes).hexdigest(),
-        },
         "email": {"headers": headers, "body": body[:256000], "attachments": []},
     }
     finding = {key: value for key, value in finding.items() if value is not None}

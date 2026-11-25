@@ -139,7 +139,13 @@ def test_native_handle_action_captures_runtime_and_reads_live_asset(platform, mo
         assert isinstance(c._ingest_es_client_instance, es.NativeESClient)
         posts = [r for r in m.request_history if r.method == "POST"]
         assert len(posts) == 1
-        assert isinstance(posts[0].json()["findings"][0]["additional_fields"], list)
+        payload = posts[0].json()
+        assert payload["container_ids"] == [100]
+        finding = payload["findings"][0]
+        assert "additional_fields" not in finding
+        assert finding["rule_title"].startswith("Quarantine release request:")
+        assert finding["email"]["raw_email_link"].startswith("https://soar.example.test/")
+        assert finding["email"]["attachments"]
         assert all(r.verify is False for r in m.request_history)
 
 

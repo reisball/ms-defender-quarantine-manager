@@ -10,7 +10,7 @@ Run these checks with controlled test messages before enabling regular intake. R
 - [ ] Native SOAR execution (no Automation Broker).
 - [ ] Azure job access (App Registration) and Exchange permissions (Managed Identity) verified separately.
 - [ ] One ingesting asset per tenant, with a small active-message limit.
-- [ ] ES only: [additional fields](ingestion.md#enterprise-security) registered, security domain set, external HTTPS SOAR URL verified.
+- [ ] ES only: security domain set, external HTTPS SOAR URL verified.
 - [ ] Playbook assets, approver, label and routing configured; only the intended automation enabled.
 
 ## Import

@@ -66,14 +66,12 @@ The app does not edit or activate playbooks. See the [SAA example](../examples/M
 
 Use this section only when the asset targets **ES findings**. This path uploads the original EML and attachments to the SOAR Vault and submits a finding to ES after the uploads succeed. It does not use the SOAR event and email-artifact layout described above.
 
-Before enabling ES intake, register these additional fields in ES (the app does not register them):
-
-`quarantine_identity`, `work_item_id`, `source_data_identifier`, `quarantine`, `eml_sha256`
+No custom ES field registration is needed. For Release/Deny, use `container:data.quarantine_identity` from the linked SOAR container.
 
 - Configure the ES target and security domain. Urgency and investigation type are optional.
 - **on es poll** requires an ES target. **on poll** uses the asset's target selection.
 - Original-mail and attachment links use the external SOAR URL (`es_soar_base_url` or the platform URL). It must be HTTPS and reachable by analysts; check downloads from the analyst interface.
-- ES receives headers (max 8,192 characters per original header value), body text (max 256,000 characters, plain text preferred over HTML), attachment links and the correlation fields. Attachment content is not sent.
+- ES receives headers (max 8,192 characters per original header value), body text (max 256,000 characters, plain text preferred over HTML), and attachment links. Attachment content is not sent.
 - Drilldowns are optional. Searches need `name`, `search`, `earliest` and `latest`. Dashboard drilldowns need `app`, `dashboard_id` and `name`. Tokens need a name and a string value.
 
 Native ES threat-analysis and automation settings control what happens next. ES accepting a finding does not mean analysis completed.
