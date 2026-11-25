@@ -1,5 +1,6 @@
 param(
     [switch] $RawOutput,
+    [string] $ProtectedOutputPublicKey,
 
     [ValidateSet("release_requested", "needs_review")]
     [string] $SelectionMode = "release_requested",
@@ -144,7 +145,16 @@ function Get-QuarantineMessage {
     return $messages
 }
 
-$request = @{ action = "list"; quarantine_selection_mode = $SelectionMode }
+. (Join-Path $PSScriptRoot "protected_output_fixture.ps1")
+$rsa = if (-not $ProtectedOutputPublicKey) { New-FixtureRsa }
+$publicKey = if ($ProtectedOutputPublicKey) { $ProtectedOutputPublicKey } else {
+    [Convert]::ToBase64String($rsa.ExportSubjectPublicKeyInfo())
+}
+$request = @{
+    action = "protected_list_v1"
+    quarantine_selection_mode = $SelectionMode
+    output_public_key = $publicKey
+}
 if ($RequestedPageSize -gt 0) {
     $request.page_size = $RequestedPageSize
 }
@@ -153,7 +163,13 @@ $webhookData = [pscustomobject]@{
 }
 
 $output = @(& $runbookPath -WebhookData $webhookData)
-$jsonLines = @($output | Where-Object {
+if ($ProtectedOutputPublicKey) {
+    $output | Write-Output
+    exit 0
+}
+$jsonLines = @(ConvertFrom-FixtureProtectedOutput -Lines $output -Action "list" -Rsa $rsa)
+$rsa.Dispose()
+$jsonLines = @($jsonLines | Where-Object {
     $_ -is [string] -and $_.TrimStart().StartsWith("{")
 })
 if ($jsonLines.Count -lt 1) {

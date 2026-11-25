@@ -12,6 +12,42 @@
     "product_version_regex": ".*",
     "min_phantom_version": "8.5.0",
     "python_version": "3.9, 3.13",
+    "pip39_dependencies": {
+        "wheel": [
+            {
+                "module": "cffi",
+                "input_file": "wheels/py39/cffi-2.0.0-cp39-cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"
+            },
+            {
+                "module": "cryptography",
+                "input_file": "wheels/py3/cryptography-50.0.0-cp39-abi3-manylinux_2_28_x86_64.whl"
+            },
+            {
+                "module": "pycparser",
+                "input_file": "wheels/py3/pycparser-2.23-py3-none-any.whl"
+            },
+            {
+                "module": "typing_extensions",
+                "input_file": "wheels/py3/typing_extensions-4.16.0-py3-none-any.whl"
+            }
+        ]
+    },
+    "pip313_dependencies": {
+        "wheel": [
+            {
+                "module": "cffi",
+                "input_file": "wheels/py313/cffi-2.1.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"
+            },
+            {
+                "module": "cryptography",
+                "input_file": "wheels/py3/cryptography-50.0.0-cp39-abi3-manylinux_2_28_x86_64.whl"
+            },
+            {
+                "module": "pycparser",
+                "input_file": "wheels/py3/pycparser-3.12-py3-none-any.whl"
+            }
+        ]
+    },
     "main_module": "ms_quarantine_for_splunk_soar_connector.py",
     "logo": "ms_quarantine_for_splunk_soar.svg",
     "logo_dark": "ms_quarantine_for_splunk_soar_dark.svg",

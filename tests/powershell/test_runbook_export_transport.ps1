@@ -6,7 +6,8 @@ param(
     [long] $ExpectedDecodedSize,
 
     [ValidateSet("InspectOnly", "Stream")]
-    [string] $Mode = "Stream"
+    [string] $Mode = "Stream",
+    [string] $ProtectedOutputPublicKey
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,10 +37,29 @@ if ($Mode -eq "InspectOnly") {
     exit 0
 }
 
+. (Join-Path $PSScriptRoot "protected_output_fixture.ps1")
+$rsa = if (-not $ProtectedOutputPublicKey) { New-FixtureRsa }
+$publicKey = if ($ProtectedOutputPublicKey) { $ProtectedOutputPublicKey } else {
+    [Convert]::ToBase64String($rsa.ExportSubjectPublicKeyInfo())
+}
+Initialize-ProtectedOutput -PublicKey $publicKey
 [System.GC]::Collect()
+if ($ProtectedOutputPublicKey) {
+    Write-ChunkedExport `
+        -Base64 $base64 `
+        -Identity "00000000-0000-0000-0000-000000000000\11111111-1111-1111-1111-111111111111" `
+        -Base64Length $info.Base64Length `
+        -DecodedSize $info.DecodedSize `
+        -HasWhitespace $info.HasWhitespace
+    exit 0
+}
 Write-ChunkedExport `
     -Base64 $base64 `
     -Identity "00000000-0000-0000-0000-000000000000\11111111-1111-1111-1111-111111111111" `
     -Base64Length $info.Base64Length `
     -DecodedSize $info.DecodedSize `
-    -HasWhitespace $info.HasWhitespace
+    -HasWhitespace $info.HasWhitespace |
+    ForEach-Object -Begin { $lines = @() } -Process { $lines += $_ } -End {
+        ConvertFrom-FixtureProtectedOutput -Lines $lines -Action "export" -Rsa $rsa
+        $rsa.Dispose()
+    }

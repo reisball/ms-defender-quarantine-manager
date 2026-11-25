@@ -18,7 +18,9 @@ param(
 
     [switch] $EnableVerbose,
 
-    [switch] $OrganizationVariableReadFailure
+    [switch] $OrganizationVariableReadFailure,
+
+    [switch] $LiteralRequest
 )
 
 $ErrorActionPreference = "Stop"
@@ -200,6 +202,15 @@ if (
 ) {
     $requestBody.identity = $global:ConnTestIdentity
 }
+$rsa = $null
+if (-not $LiteralRequest -and $requestBody.action -eq "list") {
+    . (Join-Path $PSScriptRoot "protected_output_fixture.ps1")
+    $rsa = New-FixtureRsa
+    $requestBody.action = "protected_list_v1"
+    $requestBody | Add-Member -NotePropertyName output_public_key -NotePropertyValue (
+        [Convert]::ToBase64String($rsa.ExportSubjectPublicKeyInfo())
+    )
+}
 $webhookData = [pscustomobject]@{
     RequestBody = ($requestBody | ConvertTo-Json -Compress)
 }
@@ -224,6 +235,11 @@ $verboseRecords = @(
 )
 $raw = ($successStream | Out-String).Trim()
 $allText = (@($allStreams | ForEach-Object { [string] $_ }) -join "`n")
+if ($rsa) {
+    $lines = @(ConvertFrom-FixtureProtectedOutput -Lines $successStream -Action "list" -Rsa $rsa)
+    $rsa.Dispose()
+    $raw = $lines[-1]
+}
 $parsed = $raw | ConvertFrom-Json
 $envelope = [ordered]@{
     result = $parsed

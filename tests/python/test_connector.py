@@ -723,11 +723,47 @@ class TestTlsPolicy:
         monkeypatch.setattr(utils._session, "get", get)
 
         utils.get_mgmt_token()
-        utils.fire_webhook("list")
+        utils.fire_webhook("list", output_public_key="fixture-public-key")
         utils.poll_job(JOB_ID)
         utils.get_job_output(JOB_ID)
 
         assert verify_values == [True, True, True, True]
+
+
+def protect_fixture_output(raw, body):
+    """Mock Azure's protected wire response using the actual request's public key."""
+    if body.get("action") not in {"protected_list_v1", "protected_export_v1"}:
+        return raw
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    mode = "msq-protected-v1"
+    action = body["action"].split("_")[1]
+    public_key = serialization.load_der_public_key(base64.b64decode(body["output_public_key"]))
+    key = AESGCM.generate_key(bit_length=256)
+    wrapped_key = public_key.encrypt(key, padding.OAEP(
+        mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None,
+    ))
+    cipher = AESGCM(key)
+    lines = raw.strip().split("\n")
+    records = []
+    for index, line in enumerate(lines):
+        final = index == len(lines) - 1
+        nonce = index.to_bytes(12, "big")
+        encrypted = cipher.encrypt(
+            nonce, line.encode(), f"{mode}:{action}:{index}:{int(final)}".encode("ascii"),
+        )
+        record = {
+            "mode": mode, "index": index, "final": final,
+            "nonce": base64.b64encode(nonce).decode("ascii"),
+            "ciphertext": base64.b64encode(encrypted[:-16]).decode("ascii"),
+            "tag": base64.b64encode(encrypted[-16:]).decode("ascii"),
+        }
+        if index == 0:
+            record["wrapped_key"] = base64.b64encode(wrapped_key).decode("ascii")
+        records.append(json.dumps(record))
+    return "\n".join(records)
 
 
 def mock_full_flow(
@@ -789,7 +825,7 @@ def mock_full_flow(
     def job_output(request, context):
         if irreversible and state["action"] == "config_check":
             return json.dumps(config_check_for_request(state["body"]))
-        return json.dumps(output_json)
+        return protect_fixture_output(json.dumps(output_json), state["body"])
 
     # Webhook
     m.post(WEBHOOK_URL, json=webhook)
@@ -832,11 +868,17 @@ def preflight_webhook_bodies(m):
 
 
 def mock_full_flow_text(m, output_text: str, job_id=JOB_ID, status="Completed"):
-    """Register all endpoints for a complete flow with raw job output text."""
+    """Register the status and wire output for the submitted job."""
+    body = {}
+
+    def webhook(request, context):
+        body.update(request.json())
+        return {"JobIds": [job_id]}
+
     m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN, "expires_in": 3600})
-    m.post(WEBHOOK_URL, json={"JobIds": [job_id]})
+    m.post(WEBHOOK_URL, json=webhook)
     m.get(job_url(job_id), json={"properties": {"status": status}})
-    m.get(job_output_url(job_id), text=output_text)
+    m.get(job_output_url(job_id), text=lambda *_: protect_fixture_output(output_text, body))
 
 
 def postcondition_error_output(
@@ -1724,7 +1766,7 @@ class TestWebhook:
         utils = make_utils()
         with req_mock.Mocker() as m:
             m.post(WEBHOOK_URL, json={"JobIds": [JOB_ID]})
-            job_id = utils.fire_webhook("list")
+            job_id = utils.fire_webhook("list", output_public_key="fixture-public-key")
         assert job_id == JOB_ID
 
     def test_webhook_sends_action(self):
@@ -1736,8 +1778,8 @@ class TestWebhook:
                 ctx.status_code = 200
                 return {"JobIds": [JOB_ID]}
             m.post(WEBHOOK_URL, json=cb)
-            utils.fire_webhook("list")
-        assert bodies[0]["action"] == "list"
+            utils.fire_webhook("list", output_public_key="fixture-public-key")
+        assert bodies[0]["action"] == "protected_list_v1"
 
     def test_webhook_sends_identity(self):
         utils = make_utils()
@@ -1748,7 +1790,7 @@ class TestWebhook:
                 ctx.status_code = 200
                 return {"JobIds": [JOB_ID]}
             m.post(WEBHOOK_URL, json=cb)
-            utils.fire_webhook("export", identity=IDENTITY)
+            utils.fire_webhook("export", identity=IDENTITY, output_public_key="fixture-public-key")
         assert bodies[0]["identity"] == IDENTITY
 
 
@@ -1783,7 +1825,7 @@ class TestWebhook:
                 ctx.status_code = 200
                 return {"JobIds": [JOB_ID]}
             m.post(WEBHOOK_URL, json=cb)
-            utils.fire_webhook("list")
+            utils.fire_webhook("list", output_public_key="fixture-public-key")
         assert "identity" not in bodies[0]
 
     def test_webhook_404_raises(self):
@@ -1791,7 +1833,7 @@ class TestWebhook:
         with req_mock.Mocker() as m:
             m.post(WEBHOOK_URL, status_code=404)
             with pytest.raises(WebhookError) as exc:
-                utils.fire_webhook("list")
+                utils.fire_webhook("list", output_public_key="fixture-public-key")
         assert "expired" in str(exc.value).lower() or "404" in str(exc.value)
 
     def test_webhook_empty_job_ids_raises(self):
@@ -1799,7 +1841,7 @@ class TestWebhook:
         with req_mock.Mocker() as m:
             m.post(WEBHOOK_URL, json={"JobIds": []})
             with pytest.raises(WebhookError):
-                utils.fire_webhook("list")
+                utils.fire_webhook("list", output_public_key="fixture-public-key")
 
     def test_webhook_transport_exception_never_persists_url_token(self):
         utils = make_utils()
@@ -1813,7 +1855,7 @@ class TestWebhook:
                 exc=requests.exceptions.ConnectionError(leaked),
             )
             with pytest.raises(WebhookError) as exc:
-                utils.fire_webhook("list")
+                utils.fire_webhook("list", output_public_key="fixture-public-key")
         message = str(exc.value)
         assert "abc123" not in message
         assert WEBHOOK_URL not in message
@@ -2023,7 +2065,7 @@ class TestPolling:
             ("status", job_id, deadline)
         ) or "Completed"
         utils.get_job_output = (
-            lambda job_id, action=None, deadline=None: calls.append(
+            lambda job_id, action=None, deadline=None, **kwargs: calls.append(
                 ("output", job_id, deadline)
             ) or {
                 "action": "list",
@@ -2083,6 +2125,15 @@ class TestPolling:
         utils._mgmt_token = MOCK_TOKEN
         now = [0.0]
         output_calls = [0]
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        body = {
+            "action": "protected_list_v1",
+            "output_public_key": base64.b64encode(key.public_key().public_bytes(
+                serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo,
+            )),
+        }
 
         def sleep(seconds):
             now[0] += seconds
@@ -2101,18 +2152,18 @@ class TestPolling:
                 if output_calls[0] == 1:
                     context.status_code = 429
                     context.headers["Retry-After"] = "0.5"
-                    return {"code": 429}
+                    return '{"code": 429}'
                 context.status_code = 200
-                return {
+                return protect_fixture_output(json.dumps({
                     "action": "list",
                     "count": 0,
                     "messages": [],
                     **build_metadata(),
-                }
+                }), body)
 
             m.get(job_url(), json=status_cb)
-            m.get(job_output_url(), json=output_cb)
-            result = utils.wait_for_action_result(JOB_ID, "list")
+            m.get(job_output_url(), text=output_cb)
+            result = utils.wait_for_action_result(JOB_ID, "list", output_private_key=key)
 
         assert result["count"] == 0
         assert now[0] == 9.5
@@ -2205,7 +2256,7 @@ class TestJobOutput:
         with req_mock.Mocker() as m:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
-            result = utils.get_job_output(JOB_ID, action="list")
+            result = utils.get_job_output(JOB_ID)
         assert result["action"] == "list"
         assert result["count"] == 2
         assert [item["Subject"] for item in result["messages"]] == [
@@ -2219,7 +2270,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID, action="list")
+                utils.get_job_output(JOB_ID)
         assert "missing" in str(exc_info.value).lower()
         assert "list_complete" in str(exc_info.value)
 
@@ -2238,7 +2289,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID, action="list")
+                utils.get_job_output(JOB_ID)
         assert "duplicate chunk_index" in str(exc_info.value)
 
     def test_chunked_list_count_mismatch_is_rejected(self):
@@ -2248,7 +2299,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID, action="list")
+                utils.get_job_output(JOB_ID)
         assert "count mismatch" in str(exc_info.value).lower()
 
     def test_chunked_list_count_limit_is_enforced(self):
@@ -2262,7 +2313,7 @@ class TestJobOutput:
             m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
             m.get(job_output_url(), text=output)
             with pytest.raises(AutomationError) as exc_info:
-                utils.get_job_output(JOB_ID, action="list")
+                utils.get_job_output(JOB_ID)
         assert "count must be between" in str(exc_info.value)
 
     @pytest.mark.parametrize("messages", [None, ["not-an-object"]])
@@ -2301,10 +2352,7 @@ class TestJobOutput:
             **build_metadata(),
         }
         with req_mock.Mocker() as m:
-            m.post(TOKEN_URL, json={"access_token": MOCK_TOKEN})
-            m.post(WEBHOOK_URL, json={"JobIds": [JOB_ID]})
-            m.get(job_url(), json={"properties": {"status": "Completed"}})
-            m.get(job_output_url(), text=json.dumps(error_output))
+            mock_full_flow(m, error_output)
             with pytest.raises(AutomationError) as exc_info:
                 utils.run_action("list")
         assert "Connect-ExchangeOnline" in str(exc_info.value)
@@ -3520,12 +3568,15 @@ def dispatch_flow(m, outputs):
     def webhook(request, context):
         body = request.json()
         bodies.append(body)
-        state["action"] = body["action"]
+        state["body"] = body
+        state["action"] = {"protected_list_v1": "list", "protected_export_v1": "export"}.get(
+            body["action"], body["action"],
+        )
         context.status_code = 200
         return {"JobIds": [JOB_ID]}
 
     def job_output(request, context):
-        return json.dumps(outputs[state["action"]])
+        return protect_fixture_output(json.dumps(outputs[state["action"]]), state["body"])
 
     m.post(WEBHOOK_URL, json=webhook)
     m.get(job_url(), json={"properties": {"status": "Completed"}})
@@ -3548,7 +3599,8 @@ def fire_every_route(utils, m):
         action: {"action": action} for action in ALL_WEBHOOK_ACTIONS
     })
     for action in ("list", "export", "diagnose", "release", "deny"):
-        utils.fire_webhook(action, identity=IDENTITY)
+        kwargs = {"output_public_key": "fixture-public-key"} if action in {"list", "export"} else {}
+        utils.fire_webhook(action, identity=IDENTITY, **kwargs)
     return bodies
 
 
@@ -3561,8 +3613,11 @@ class TestExchangeConnectionAssets:
         }
         with req_mock.Mocker() as m:
             bodies = dispatch_flow(m, {"list": {"action": "list"}})
-            c._utils.fire_webhook("list")
-        assert bodies == [{"action": "list", "auth_method": "ManagedIdentity"}]
+            c._utils.fire_webhook("list", output_public_key="fixture-public-key")
+        assert bodies == [{
+            "action": "protected_list_v1", "auth_method": "ManagedIdentity",
+            "output_public_key": "fixture-public-key",
+        }]
 
     def test_missing_organization_asset_forwards_managed_identity_only(self):
         c = make_connector()
@@ -3589,7 +3644,7 @@ class TestExchangeConnectionAssets:
         with req_mock.Mocker() as m:
             bodies = fire_every_route(c._utils, m)
         assert [body["action"] for body in bodies] == [
-            "list", "export", "diagnose", "release", "deny",
+            "protected_list_v1", "protected_export_v1", "diagnose", "release", "deny",
         ]
         for body in bodies:
             for key, value in expected.items():
@@ -3597,7 +3652,7 @@ class TestExchangeConnectionAssets:
             assert ("organization" in body) == ("organization" in expected)
             assert set(body) <= {
                 "action", "identity", "operation_action", "auth_method",
-                "organization", "page_size", "include_rbac",
+                "organization", "page_size", "include_rbac", "output_public_key",
             }
 
     @pytest.mark.parametrize("stale", [

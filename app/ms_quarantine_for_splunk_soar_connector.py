@@ -1279,23 +1279,13 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             )
         self.save_progress("Token acquired.")
 
-        self.save_progress("Step 2/3: Firing webhook (action=list)...")
+        self.save_progress("Step 2/3: Starting protected list and waiting for completion...")
         try:
-            job_id = self._utils.fire_webhook("list")
+            output = self._utils.run_action("list")
+            self.save_progress("Step 3/3: Validating the list result...")
+            self._normalise_list_result(output)
         except (WebhookError, TokenError, JobTimeoutError,
                 JobFailedError, AutomationError) as exc:
-            return action_result.set_status(
-                phantom.APP_ERROR,
-                self._map_error(exc, "test connectivity")
-            )
-        self.save_progress(f"Job started: {job_id}")
-
-        self.save_progress("Step 3/3: Polling for job completion...")
-        try:
-            output = self._utils.wait_for_action_result(job_id, "list")
-            self._normalise_list_result(output)
-        except AutomationError as exc:
-            exc.job_id = job_id
             return action_result.set_status(
                 phantom.APP_ERROR, self._map_error(exc, "test connectivity")
             )

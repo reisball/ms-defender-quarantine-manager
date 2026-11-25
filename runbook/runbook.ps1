@@ -23,7 +23,7 @@
         deny    -> Release-QuarantineMessage -Identity <identity> -ReleaseToAll -ActionType Deny -Confirm:$false
 
     Expected webhook body (JSON):
-        { "action": "list" }
+        { "action": "protected_list_v1", "output_public_key": "<base64 DER RSA public key>" }
         { "action": "export",  "identity": "GUID1\\GUID2" }
         { "action": "diagnose", "identity": "GUID1\\GUID2", "include_rbac": false }
         { "action": "reconcile", "identity": "GUID1\\GUID2" }
@@ -56,7 +56,9 @@
     evidence names the effective method (ManagedIdentity), the organization and
     where each value came from (webhook, automation_variable or default).
 
-    Output format (always JSON, written via Write-Output):
+    Output format:
+        List and export JSON is encrypted before Write-Output. The paired app
+        decrypts and validates the records into the following logical results.
         list:
             { "action": "list", "count": 2, "messages": [ {...}, {...} ] }
         export, small EML:
@@ -208,9 +210,76 @@ function Write-ErrorResult {
     if ($Action -eq "diagnose" -and $Details.Count -gt 0) {
         $resultData.details = $Details
     }
-    Write-ErrorEnvelope -Data $resultData
+    if ($Action -in @("list", "export") -and $null -ne $script:protectedCipher) {
+        Write-ProtectedOutput -Json ($resultData | ConvertTo-Json -Depth 10 -Compress) -Action $Action -Final
+    } else {
+        Write-ErrorEnvelope -Data $resultData
+    }
     # Azure job completion is transport success; error=true is application failure.
     exit 0
+}
+
+# Protect only mail-bearing responses. The webhook contains a public key,
+# never the per-job AES key. Bind each record's position and final flag to its tag.
+function Initialize-ProtectedOutput {
+    param([object] $PublicKey)
+    if ($PublicKey -isnot [string] -or $PublicKey.Length -gt 600) {
+        throw "A 2048-bit RSA public key is required."
+    }
+    $der = [Convert]::FromBase64String($PublicKey)
+    $rsa = [System.Security.Cryptography.RSA]::Create()
+    try {
+        [int] $consumed = 0
+        $rsa.ImportSubjectPublicKeyInfo($der, [ref] $consumed)
+        if ($rsa.KeySize -ne 2048 -or $consumed -ne $der.Length) {
+            throw "Invalid protected-output RSA key."
+        }
+        $key = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
+        try {
+            $script:protectedWrappedKey = [Convert]::ToBase64String(
+                $rsa.Encrypt($key, [System.Security.Cryptography.RSAEncryptionPadding]::OaepSHA256)
+            )
+            $script:protectedCipher = [System.Security.Cryptography.AesGcm]::new($key)
+            $script:protectedIndex = 0
+        } finally {
+            [Array]::Clear($key, 0, $key.Length)
+        }
+    } finally {
+        $rsa.Dispose()
+    }
+}
+
+function Write-ProtectedOutput {
+    param([string] $Json, [string] $Action, [switch] $Final)
+    if ($null -eq $script:protectedCipher) {
+        throw "Protected-output cipher not initialized."
+    }
+    $finalMarker = if ($Final) { 1 } else { 0 }
+    $aad = [Text.Encoding]::ASCII.GetBytes(
+        "msq-protected-v1:${Action}:$($script:protectedIndex):$finalMarker"
+    )
+    $plain = [Text.Encoding]::UTF8.GetBytes($Json)
+    $nonce = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(12)
+    $ciphertext = [byte[]]::new($plain.Length)
+    $tag = [byte[]]::new(16)
+    try {
+        $script:protectedCipher.Encrypt($nonce, $plain, $ciphertext, $tag, $aad)
+    } finally {
+        [Array]::Clear($plain, 0, $plain.Length)
+    }
+    $record = @{
+        mode = "msq-protected-v1"
+        index = $script:protectedIndex
+        final = $Final.IsPresent
+        nonce = [Convert]::ToBase64String($nonce)
+        ciphertext = [Convert]::ToBase64String($ciphertext)
+        tag = [Convert]::ToBase64String($tag)
+    }
+    if ($script:protectedIndex -eq 0) {
+        $record.wrapped_key = $script:protectedWrappedKey
+    }
+    $script:protectedIndex++
+    Write-Output ($record | ConvertTo-Json -Compress)
 }
 
 function ConvertTo-RunbookJson {
@@ -231,15 +300,20 @@ function Write-SuccessResult {
             }
         }
     }
-    Write-Output (ConvertTo-RunbookJson -Data $Data)
+    $json = ConvertTo-RunbookJson -Data $Data
+    if ($Data.action -in @("list", "export")) {
+        Write-ProtectedOutput -Json $json -Action $Data.action -Final:($Data.mode -ne "chunked")
+    } else {
+        Write-Output $json
+    }
 }
 
 # ---------------------------------------------------------------------------
 # Transport limits. These values intentionally mirror the SOAR parser.
 # ---------------------------------------------------------------------------
-$ListMaxRecordBytes        = 900 * 1024
+$ListMaxRecordBytes        = 700 * 1024
 $ListMaxResultCount        = 1000
-$ExportChunkThresholdBytes = 750 * 1024
+$ExportChunkThresholdBytes = 700 * 1024
 $ExportChunkSizeChars     = 250 * 1024
 $ExportMaxChunkCount      = 200
 $ExportMaxDecodedBytes    = 24 * 1024 * 1024
@@ -247,8 +321,8 @@ $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "1.0.0"
-$RunbookSourceRevision    = "sha256:fa3c859db6f45459a301f6ede1ffdef148586bdbad4f5d607ed8861d39f4c6bc"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.fa3c859db6f45459a301f6ede1ffdef148586bdbad4f5d607ed8861d39f4c6bc"
+$RunbookSourceRevision    = "sha256:ac14bc0f8f8e438b434d619257540ab21012e8c7b688f47ad81fb59b8730b7e4"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.ac14bc0f8f8e438b434d619257540ab21012e8c7b688f47ad81fb59b8730b7e4"
 $ReleaseContractId        = "identity_releasetoall"
 $DenyContractId           = "identity_releasetoall_actiontype_deny"
 $PostconditionMaxAttempts = 7
@@ -2068,7 +2142,7 @@ function Write-ChunkedList {
     }
 
     foreach ($jsonChunk in $jsonChunks) {
-        Write-Output $jsonChunk
+        Write-ProtectedOutput -Json $jsonChunk -Action "list"
     }
     Write-SuccessResult @{
         action      = "list"
@@ -2393,7 +2467,6 @@ if (
 }
 
 # Extract and validate action
-# Note: avoid the ?? operator so the script also runs on PS 5.1, not only 7.2
 if ($null -ne $body.action -and $body.action -isnot [string]) {
     Write-ErrorResult `
         -Action "unknown" `
@@ -2418,6 +2491,11 @@ if ($action.Length -gt 32) {
         -ErrorCode "invalid_action_length" `
         -ErrorContext "webhook_body_validation" `
         -Message "Webhook field 'action' exceeds the supported length."
+}
+
+$protectedRequested = $action -in @("protected_list_v1", "protected_export_v1")
+if ($protectedRequested) {
+    $action = if ($action -eq "protected_list_v1") { "list" } else { "export" }
 }
 
 $validActions = @(
@@ -2460,6 +2538,19 @@ if (
         -ErrorCode "invalid_identity_format" `
         -ErrorContext "webhook_body_validation" `
         -Message "Webhook field 'identity' must be an exact GUID1\\GUID2 pair."
+}
+
+if ($action -in @("list", "export")) {
+    if (-not $protectedRequested) {
+        Write-ErrorResult -Action $action -ErrorCode "protected_output_required" `
+            -Message "List and export require the paired app's protected-output transport."
+    }
+    try {
+        Initialize-ProtectedOutput -PublicKey $body.output_public_key
+    } catch {
+        Write-ErrorResult -Action $action -ErrorCode "protected_output_unavailable" `
+            -Message "Protected output requires a valid public key and a supported PowerShell 7 runtime."
+    }
 }
 
 function Get-OptionalWebhookSetting {
@@ -2808,7 +2899,7 @@ try {
             }
             $listJson = ConvertTo-RunbookJson -Data $listResult
             if ((Get-Utf8ByteCount -Content $listJson) -le $ListMaxRecordBytes) {
-                Write-Output $listJson
+                Write-ProtectedOutput -Json $listJson -Action "list" -Final
             } else {
                 Write-ChunkedList -Messages @($normalised)
             }
@@ -3103,5 +3194,6 @@ try {
 
 } finally {
     # Always disconnect; cleanup failure never changes the action result.
+    if ($null -ne $script:protectedCipher) { $script:protectedCipher.Dispose() }
     $null = Close-ExchangeSessionBestEffort
 }

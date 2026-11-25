@@ -471,7 +471,19 @@ def test_missing_business_payload_is_error_with_known_job(utils, clock, action, 
 def test_runbook_error_retains_job_context_for_native_poll(utils, clock):
     payload = {'action': 'export', 'identity': IDENTITY, 'error': True,
                'message': 'Exchange export: permission denied', 'error_code': 'export_failed'}
-    utils._session.get.side_effect = [job('Completed'), response(payload)]
+    if __package__:
+        from .test_connector import protect_fixture_output
+    else:
+        from test_connector import protect_fixture_output
+
+    def protected_output():
+        return response(text=protect_fixture_output(
+            json.dumps(payload), utils._session.post.call_args.kwargs["json"],
+        ))
+
+    utils._session.get.side_effect = lambda *args, **kwargs: (
+        protected_output() if "/output" in args[0] else job("Completed")
+    )
     with pytest.raises(u.RunbookActionError) as caught:
         utils.run_action('export', IDENTITY)
     assert caught.value.job_id == JOB_ID

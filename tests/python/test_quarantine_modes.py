@@ -40,7 +40,7 @@ def test_obsolete_asset_setting_cannot_change_requested_intake(value):
         })
         result = c._utils.run_action("list")
         rows = c._normalise_list_result(result)
-    assert [b["action"] for b in bodies] == ["list"]
+    assert [b["action"] for b in bodies] == ["protected_list_v1"]
     assert all("quarantine_selection_mode" not in b for b in bodies)
     assert rows[0]["ReleaseStatus"] == "Requested"
 

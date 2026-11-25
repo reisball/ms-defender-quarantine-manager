@@ -50,7 +50,7 @@ def test_valid_https_keeps_job_and_payload_contract(url):
     connector = t.make_connector(config_overrides={"webhook_url": url})
     with t.req_mock.Mocker() as mock:
         mock.post(url, status_code=202, json={"JobIds": [t.JOB_ID]})
-        assert connector._utils.fire_webhook("list", page_size=2) == t.JOB_ID
+        assert connector._utils.fire_webhook("list", page_size=2, output_public_key="fixture-public-key") == t.JOB_ID
         assert mock.call_count == 1
         assert mock.last_request.json()["page_size"] == 2
         assert mock.last_request.verify  # True or the configured CA bundle.

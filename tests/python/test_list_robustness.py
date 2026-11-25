@@ -82,7 +82,7 @@ def test_poll_validates_entire_list_before_any_container():
         assert c._handle_on_poll({}) == APP_ERROR
         assert c._saved_containers == []
         assert ar.get_data() == []
-        assert [body["action"] for body in bodies] == ["list"]
+        assert [body["action"] for body in bodies] == ["protected_list_v1"]
 
 
 @pytest.mark.parametrize("count", [True, 1.9, 1.0, float("inf"), "1.9"])
