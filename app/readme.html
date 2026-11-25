@@ -20,9 +20,12 @@ ExchangeOnlineManagement module in its PowerShell runtime.</li>
 Exchange/Defender permissions for the quarantine actions you intend to use.
 Exchange sign-in uses Managed Identity, not the asset's client secret.</li>
 <li>Create a runbook webhook. Enter its direct HTTPS URL and the Automation
-Account coordinates in the asset. Configure a separate App Registration with
-Automation Job Operator access on that account for reading Azure job status
-and output. Enter its tenant ID, client ID and client secret value.</li>
+Account coordinates in the asset. The webhook starts jobs. For the separate App
+Registration, assign a custom read-only role at the Automation Account scope with
+<code>Microsoft.Automation/automationAccounts/jobs/read</code> and
+<code>Microsoft.Automation/automationAccounts/jobs/output/read</code> only.
+Check inherited assignments for broader permissions. Enter the App
+Registration's tenant ID, client ID and client secret value.</li>
 <li>Set the Exchange tenant domain in the asset or in the Automation Variable
 <code>ExchangeOrganization</code>; the asset value takes precedence.</li>
 <li>Use one ingesting asset per tenant. Select the target before starting

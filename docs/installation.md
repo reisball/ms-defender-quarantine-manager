@@ -54,7 +54,18 @@ Microsoft references: [Managed Identity authentication](https://learn.microsoft.
 
 ## 3. Configure Azure job access
 
-Create an Entra App Registration with a client secret. Assign its service principal **Automation Job Operator** on the Automation Account. Record the tenant ID, the client ID and the secret **value** (not the secret ID).
+Create an Entra App Registration with a client secret. Create a custom Azure RBAC role with exactly these **Actions** and no **DataActions**:
+
+| Action | Used for |
+|---|---|
+| `Microsoft.Automation/automationAccounts/jobs/read` | Read the status of the known job: `GET .../jobs/{jobName}`. |
+| `Microsoft.Automation/automationAccounts/jobs/output/read` | Read its result: `GET .../jobs/{jobName}/output`. |
+
+Make the custom role available in the resource group containing the Automation Account, then assign it to the service principal **on that Automation Account**, not at the resource group or subscription. The account is the narrowest practical assignment scope because the webhook creates new job IDs dynamically. Record the tenant ID, the client ID and the secret **value** (not the secret ID).
+
+The HTTPS webhook URL starts jobs; these ARM permissions do not grant job creation, control or writes. Do not grant **Automation Job Operator** to the job-reader identity: it includes job creation. When replacing an existing assignment, check the principal's effective access on the account, including inherited and group assignments. A custom read role does not cancel a write permission granted elsewhere. In a shared account, the reader can read output for other runbooks too; use a dedicated account for quarantine and review who inherits job-output access.
+
+Microsoft references: [Automation RBAC operations](https://learn.microsoft.com/en-us/azure/automation/automation-role-based-access-control), [Jobs – Get](https://learn.microsoft.com/en-us/rest/api/automation/job/get), [Jobs – Get Output](https://learn.microsoft.com/en-us/rest/api/automation/job/get-output), [custom roles](https://learn.microsoft.com/en-us/azure/role-based-access-control/custom-roles).
 
 ## 4. Install the app and create an asset
 

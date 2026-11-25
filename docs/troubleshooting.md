@@ -6,7 +6,7 @@ Start with the SOAR action result: its status, the Azure/Exchange error text and
 
 | Symptom | Next step |
 |---|---|
-| Azure authorization or job-read failure | Check the App Registration credentials, the Automation Account fields and the **Automation Job Operator** assignment |
+| Azure authorization or job-read failure | Check the App Registration credentials, the Automation Account fields and the two [job-reader permissions](installation.md#3-configure-azure-job-access) and their effective assignment at the account |
 | Exchange connection or permission error | Check the Managed Identity, the organization and the permission named in the error ([installation](installation.md#2-grant-exchange-permissions)) |
 | Missing organization | Set `exchange_organization` in the asset or the `ExchangeOrganization` Automation Variable |
 | Cmdlet failure | Read the returned error and job output |

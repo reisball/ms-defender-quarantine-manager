@@ -2837,7 +2837,7 @@ class TestConnectivity:
             assert c._handle_test_connectivity({}) == APP_SUCCESS
 
     def test_connectivity_403_job_poll_hint(self):
-        """403 on job poll gives Automation Job Operator role hint."""
+        """403 on job poll preserves the Azure authorization error."""
         c = make_connector()
         ar = patch_ar(c)
         with req_mock.Mocker() as m:
