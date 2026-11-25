@@ -11,6 +11,11 @@ from zipfile import ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def license_text(data):
+    # Keep the legal text intact while normalizing trailing whitespace.
+    return "\n".join(line.rstrip() for line in data.decode("utf-8").splitlines()).rstrip()
+
+
 def render(app, lock):
     blocks = [
         "MS Quarantine for Splunk SOAR\nCopyright 2026 Kai Seidenschnur",
@@ -39,14 +44,14 @@ def render(app, lock):
                 f"Wheel: {relative}\nSource: {entry['url']}\nLicense: {license_name}"
             )
             for name in sorted(paths):
-                blocks.append(f"--- {name[len(prefix):]} ---\n" + archive.read(name).decode("utf-8").rstrip())
+                blocks.append(f"--- {name[len(prefix):]} ---\n" + license_text(archive.read(name)))
 
     for source in lock.get("native_notices", []):
         notice = ROOT / "tools/soar-tooling/notices" / source["file"]
         data = notice.read_bytes()
         if hashlib.sha256(data).hexdigest() != source["sha256"]:
             raise ValueError(f"Native notice SHA-256 mismatch: {notice.name}")
-        blocks.append(f"=== {source['component']} ===\nSource: {source['url']}\n" + data.decode("utf-8").rstrip())
+        blocks.append(f"=== {source['component']} ===\nSource: {source['url']}\n" + license_text(data))
     return ("\n\n".join(blocks) + "\n").encode("utf-8")
 
 
