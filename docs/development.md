@@ -41,7 +41,10 @@ CI runs the pinned pre-commit quality hooks against the generated SDK archive,
 excluding third-party wheels (whose inventory, attribution and hashes are
 verified by the build). Run the same hooks locally with pre-commit 4.5.1 and
 `python tools/soar_checks.py sdk-quality path/to/package.tgz`.
-The legacy reference tooling remains manual and does not gate SDK releases.
+CI also runs the pinned Splunk static checks and App Linter on separate
+staged SDK projects. Only the two exact missing-registration diagnostics are
+reported as pending; other static failures block CI. The legacy reference
+tooling remains manual and does not gate SDK releases.
 Splunk-hosted integration and registration checks are not covered by this CI.
 
 The SDK release NOTICE includes separate reviewed Rust attribution for the

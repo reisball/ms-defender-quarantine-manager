@@ -488,7 +488,7 @@ class QuarantineMail:
             "source": "MS Quarantine for Splunk SOAR",
             "quarantine_identity": identity,
             "eml_sha256": hashes["sha256"],
-            "container_id": self.get_container_id(),
+            "container_id": self.get_container_id(),  # pylint: disable=no-member
         }
         if vault_id:
             correlation["vault_id"] = vault_id
@@ -617,7 +617,7 @@ class QuarantineMail:
         if messages_value is None:
             messages = []
         elif legacy_single_message:
-            self.save_progress("Runbook returned one list result as an object; normalising it to a one-element list. Upgrade the runbook.")
+            self.save_progress("Runbook returned one list result as an object; normalising it to a one-element list. Upgrade the runbook.")  # pylint: disable=no-member
             messages = [messages_value]
         elif isinstance(messages_value, list):
             messages = messages_value
@@ -662,18 +662,18 @@ class QuarantineMail:
 
     def _on_poll_container_limit(self, param: dict) -> int:
         """Resolve scheduled versus Poll Now container limits."""
-        if not self.is_poll_now():
-            return self._on_poll_max_containers
+        if not self.is_poll_now():  # pylint: disable=no-member
+            return self._on_poll_max_containers  # pylint: disable=no-member
 
         raw_value = param.get("container_count")
         if raw_value in (None, ""):
-            return self._on_poll_max_containers
+            return self._on_poll_max_containers  # pylint: disable=no-member
         try:
             requested = _parse_poll_integer(raw_value)
         except (TypeError, ValueError) as exc:
             raise AutomationError("container_count must be an integer.") from exc
         if requested <= 0:
-            return self._on_poll_max_containers
+            return self._on_poll_max_containers  # pylint: disable=no-member
         return min(requested, ON_POLL_MAX_CONTAINERS)
 
     def _build_poll_container(self, claim: dict) -> dict:
@@ -720,7 +720,7 @@ class QuarantineMail:
         name = subject or "[No subject]"
         return {
             "name": name,
-            "description": (f"{self._utils.selection_release_status} quarantine message ingested by MS Defender Quarantine Manager."),
+            "description": (f"{self._utils.selection_release_status} quarantine message ingested by MS Defender Quarantine Manager."),  # pylint: disable=no-member
             "source_data_identifier": source_id,
             "severity": "medium",
             "data": {

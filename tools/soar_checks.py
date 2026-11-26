@@ -189,7 +189,7 @@ def classify_static_results(results, registration_messages):
     return pending, failures
 
 
-def static(strict=False):
+def static(strict=False, *, sdk=False):
     # These imports belong to the pinned dev-cicd-tools hook environment, not
     # the app runtime or the separate SOAR linter environment.
     from local_hooks.app_tests.json_tests import (  # pylint: disable=import-error
@@ -206,12 +206,15 @@ def static(strict=False):
     # directory. A clean /tmp snapshot also isolates its possible auto-fixes.
     with tempfile.TemporaryDirectory(prefix="msqsoar-static-", dir="/tmp") as temporary:
         snapshot = Path(temporary) / "ms_quarantine_for_splunk_soar"
-        snapshot.mkdir()
-        source_snapshot(snapshot)
+        if sdk:
+            subprocess.run([sys.executable, str(ROOT / "tools/stage_sdk.py"), str(snapshot)], check=True)
+        else:
+            snapshot.mkdir()
+            source_snapshot(snapshot)
         before = {p.relative_to(snapshot): p.read_bytes() for p in snapshot.rglob("*") if p.is_file()}
         exit_code, results = TestRunner(app_directory=snapshot).run()
         pending, failures = classify_static_results(results, messages)
-        after = {p.relative_to(snapshot): p.read_bytes() for p in snapshot.rglob("*") if p.is_file()}
+        after = {p.relative_to(snapshot): p.read_bytes() for p in snapshot.rglob("*") if p.is_file() and not {".venv", "__pycache__"}.intersection(p.relative_to(snapshot).parts)}
         changed = sorted(str(p) for p in before.keys() | after.keys() if before.get(p) != after.get(p))
         if changed:
             failures["source_mutation"] = {"message": "Upstream checks modified source; apply and recheck explicitly", "files": changed}
@@ -233,7 +236,7 @@ def static(strict=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("check", choices=["sdk-quality", "quality", "copyright", "lint", "docs", "notes", "static", "static-strict"])
+    parser.add_argument("check", choices=["sdk-quality", "sdk-static", "quality", "copyright", "lint", "docs", "notes", "static", "static-strict"])
     parser.add_argument("package", type=Path, nargs="?")
     args = parser.parse_args()
     if args.check == "sdk-quality":
@@ -242,7 +245,7 @@ def main():
         return sdk_quality(args.package)
     if args.package is not None:
         parser.error("package is only supported for sdk-quality")
-    return {"quality": quality, "copyright": copyright_audit, "lint": lint, "docs": docs, "notes": release_notes, "static": static, "static-strict": lambda: static(strict=True)}[args.check]()
+    return {"sdk-static": lambda: static(sdk=True), "quality": quality, "copyright": copyright_audit, "lint": lint, "docs": docs, "notes": release_notes, "static": static, "static-strict": lambda: static(strict=True)}[args.check]()
 
 
 if __name__ == "__main__":

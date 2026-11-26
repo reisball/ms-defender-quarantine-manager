@@ -134,7 +134,7 @@ def test_manifest_and_sdk_dispatch():
         assert not handler(
             handler.meta.parameters(identity="invalid"), asset=fake_asset
         )
-        result = fixture_app.actions_manager.add_result.call_args.args[0]
+        result = fixture_app.actions_manager.add_result.call_args.args[0]  # pylint: disable=no-member
         assert "identity" in result.get_message().lower()
     azure.run_action.assert_not_called()
 

@@ -479,6 +479,20 @@ jobs:
           python -m pip install pre-commit==4.5.1
           python tools/soar_checks.py sdk-quality release-artifacts/ms-defender-quarantine-manager-*.tgz
 
+      - name: Run pinned Splunk static checks and App Linter on SDK source
+        run: |
+          set -euo pipefail
+          for tool in hooks lint; do
+            uv venv --python "$(command -v python)" "$RUNNER_TEMP/soar-$tool"
+            uv pip sync --python "$RUNNER_TEMP/soar-$tool/bin/python" \
+              --build-constraints tools/soar-tooling/build-constraints.txt \
+              "tools/soar-tooling/$tool.txt"
+          done
+          PATH="$RUNNER_TEMP/soar-hooks/bin:$PATH" python tools/soar_checks.py sdk-static
+          python tools/stage_sdk.py "$RUNNER_TEMP/soar-sdk-lint"
+          (cd "$RUNNER_TEMP/soar-sdk-lint" && PATH="$RUNNER_TEMP/soar-lint/bin:$PATH" \
+            soar-app-linter --single-repo --message-level error --output-format json .)
+
       - name: Upload deterministic release artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
