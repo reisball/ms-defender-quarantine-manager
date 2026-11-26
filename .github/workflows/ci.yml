@@ -479,7 +479,7 @@ jobs:
           python -m pip install pre-commit==4.5.1
           python tools/soar_checks.py sdk-quality release-artifacts/ms-defender-quarantine-manager-*.tgz
 
-      - name: Run pinned Splunk static checks and App Linter on SDK source
+      - name: Run pinned Splunk static checks, release notes hook and App Linter on SDK source
         run: |
           set -euo pipefail
           for tool in hooks lint; do
@@ -489,8 +489,14 @@ jobs:
               "tools/soar-tooling/$tool.txt"
           done
           PATH="$RUNNER_TEMP/soar-hooks/bin:$PATH" python tools/soar_checks.py sdk-static
+          python tools/stage_sdk.py "$RUNNER_TEMP/soar-sdk-notes"
+          notes="$RUNNER_TEMP/soar-sdk-notes/release_notes/unreleased.md"
+          cp "$notes" "$RUNNER_TEMP/soar-sdk-unreleased.original"
+          "$RUNNER_TEMP/soar-hooks/bin/release-notes" "$RUNNER_TEMP/soar-sdk-notes"
+          diff -u "$RUNNER_TEMP/soar-sdk-unreleased.original" "$notes"
           python tools/stage_sdk.py "$RUNNER_TEMP/soar-sdk-lint"
-          (cd "$RUNNER_TEMP/soar-sdk-lint" && PATH="$RUNNER_TEMP/soar-lint/bin:$PATH" \
+          (cd "$RUNNER_TEMP/soar-sdk-lint" && UV_CONSTRAINT="$GITHUB_WORKSPACE/tools/soar-tooling/lint.txt" \
+            PATH="$RUNNER_TEMP/soar-lint/bin:$PATH" \
             soar-app-linter --single-repo --message-level error --output-format json .)
 
       - name: Upload deterministic release artifacts

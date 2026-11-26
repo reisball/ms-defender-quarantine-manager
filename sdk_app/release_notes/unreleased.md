@@ -1,3 +1,3 @@
 **Unreleased**
 
-- Refactor to SOAR SDK.
+* Refactor to SOAR SDK.
