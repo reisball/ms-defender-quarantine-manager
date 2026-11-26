@@ -714,7 +714,7 @@ def test_distinct_worker_temp_dirs_contend_on_same_ledger_lock(tmp_path, monkeyp
 def test_sdk_disposition_keeps_submission_evidence(action, expected, scenario):
     azure = Mock()
     azure.redact_sensitive_text.side_effect = lambda value, **_: value
-    azure.fire_webhook.return_value = "fixture-job"
+    azure.start_job.return_value = "fixture-job"
     azure.wait_for_action_result.return_value = {"status": expected, "observed_release_status": expected}
     if scenario == "preflight_failure":
         azure.get_mgmt_token.side_effect = AutomationError("Reader unavailable")
@@ -729,12 +729,12 @@ def test_sdk_disposition_keeps_submission_evidence(action, expected, scenario):
     success = handler(handler.meta.parameters(identity=IDENTITY), asset=SimpleNamespace(azure_tenant_id=IDENTITY.split("\\", maxsplit=1)[0]))
     summary = sink.call_args.args[0].get_summary()
     if scenario == "preflight_failure":
-        azure.fire_webhook.assert_not_called()
+        azure.start_job.assert_not_called()
         assert not success
         assert summary["outcome"] == "not_executed"
     else:
         assert azure.method_calls[0][0] == "get_mgmt_token"
-        azure.fire_webhook.assert_called_once()
+        azure.start_job.assert_called_once()
         assert summary["azure_job_id"] == "fixture-job"
         assert summary["outcome"] == ("confirmed" if success else "unknown")
         assert bool(success) == (scenario == "confirmed")

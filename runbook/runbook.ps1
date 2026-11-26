@@ -4,8 +4,8 @@
 
 .DESCRIPTION
     Manages Exchange Online quarantined emails on behalf of Splunk SOAR.
-    Called via Azure Automation Webhook. Results are written via Write-Output
-    and retrieved by SOAR through the Azure Automation Job Output API.
+    Started via Azure Automation Jobs REST API or a legacy webhook. Results are
+    written via Write-Output and retrieved through the Automation Job Output API.
 
     Target runtime: the same Automation Account, system-assigned identity,
              runtime environment and ExchangeOnlineManagement module version
@@ -22,7 +22,7 @@
         release -> Release-QuarantineMessage -Identity <identity> -ReleaseToAll -Confirm:$false
         deny    -> Release-QuarantineMessage -Identity <identity> -ReleaseToAll -ActionType Deny -Confirm:$false
 
-    Expected webhook body (JSON):
+    Expected request (JSON):
         { "action": "protected_list_v1", "output_public_key": "<base64 DER RSA public key>" }
         { "action": "protected_export_v1", "identity": "GUID1\\GUID2", "output_public_key": "<base64 DER RSA public key>" }
         { "action": "diagnose", "identity": "GUID1\\GUID2", "include_rbac": false }
@@ -33,7 +33,7 @@
     Intake selects only ReleaseStatus Requested (a recipient release request).
     Release/deny require that source status before invoking the existing cmdlet.
     Only exact Released/Denied readback proves success. Obsolete selection-mode
-    webhook fields do not alter this fixed behavior.
+    request fields do not alter this fixed behavior.
 
     Optional connection settings, accepted on every action (all are strings;
     surrounding whitespace is trimmed; blank values count as omitted):
@@ -54,7 +54,8 @@
     The former ExchangeAuthMethod Automation Variable is no longer read; a
     stale value cannot change the sign-in. Every result that reports connection
     evidence names the effective method (ManagedIdentity), the organization and
-    where each value came from (webhook, automation_variable or default).
+    where each value came from (request_json, webhook, automation_variable
+    or default).
 
     Output format:
         List and export JSON is encrypted before Write-Output. The paired app
@@ -84,7 +85,7 @@
         - System-assigned Managed Identity enabled
         - ExchangeOnlineManagement module installed from PowerShell Gallery
         - The Exchange organization (e.g. contoso.onmicrosoft.com) from the
-          webhook "organization" field or the ExchangeOrganization Automation
+          request "organization" field or the ExchangeOrganization Automation
           Variable
         - No Automation Credential asset, user name, password or Azure app
           client secret is used for Exchange authentication
@@ -100,6 +101,10 @@
 .PARAMETER WebhookData
     Provided automatically by Azure Automation when triggered via webhook.
     Contains the HTTP request body with action and identity parameters.
+
+.PARAMETER RequestJson
+    JSON string passed as an Automation job parameter by the Jobs REST API.
+    Supply exactly one of RequestJson and WebhookData.
 
 .NOTES
     Author:  Kai Seidenschnur
@@ -171,7 +176,10 @@
 
 param (
     [Parameter(Mandatory = $false)]
-    [object] $WebhookData
+    [object] $WebhookData,
+
+    [Parameter(Mandatory = $false)]
+    [string] $RequestJson
 )
 
 # ---------------------------------------------------------------------------
@@ -234,7 +242,7 @@ function Write-ErrorResult {
     exit 0
 }
 
-# Protect only mail-bearing responses. The webhook contains a public key,
+# Protect only mail-bearing responses. The request contains a public key,
 # never the per-job AES key. Bind each record's position and final flag to its tag.
 function Initialize-ProtectedOutput {
     param([object] $PublicKey)
@@ -335,8 +343,8 @@ $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "1.1.0"
-$RunbookSourceRevision    = "sha256:2ef885b86e4bc73d19cdc83048b297ae2994ca76a2837cfeb16679ce6ac1bdff"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.1.0+sha256.2ef885b86e4bc73d19cdc83048b297ae2994ca76a2837cfeb16679ce6ac1bdff"
+$RunbookSourceRevision    = "sha256:2e603f82ff8a5b4afd94e9506fc638cc5b4fbeebc7a6589b5c83bfc044a90fc7"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.1.0+sha256.2e603f82ff8a5b4afd94e9506fc638cc5b4fbeebc7a6589b5c83bfc044a90fc7"
 $ReleaseContractId        = "identity_releasetoall"
 $PostconditionMaxAttempts = 7
 $PostconditionPollSeconds = 10
@@ -2413,16 +2421,43 @@ function Invoke-RequestedDisposition {
 }
 
 # ---------------------------------------------------------------------------
-# Step 1: Validate webhook input
+# Step 1: Validate webhook input or the direct job parameter
 # ---------------------------------------------------------------------------
 
-if (-not $WebhookData) {
-    Write-ErrorResult -Action "unknown" -Message "No WebhookData received. This runbook must be triggered via webhook."
+# Reject conflicting bindings even when one was supplied with an empty value.
+$hasWebhookData = $PSBoundParameters.ContainsKey("WebhookData")
+$hasRequestJson = $PSBoundParameters.ContainsKey("RequestJson")
+if ($hasWebhookData -and $hasRequestJson) {
+    Write-ErrorResult -Action "unknown" -ErrorCode "ambiguous_request_input" -ErrorContext "request_input" `
+        -Message "Supply either WebhookData or RequestJson, not both."
+}
+if (-not $hasWebhookData -and -not $hasRequestJson) {
+    Write-ErrorResult -Action "unknown" -ErrorCode "missing_request_input" -ErrorContext "request_input" `
+        -Message "No WebhookData or RequestJson received. Supply exactly one request input."
 }
 
-if (-not $WebhookData.RequestBody) {
-    Write-ErrorResult -Action "unknown" -Message "WebhookData.RequestBody is empty."
+if ($hasRequestJson) {
+    if ([string]::IsNullOrWhiteSpace($RequestJson)) {
+        Write-ErrorResult -Action "unknown" -ErrorCode "empty_request_json" -ErrorContext "request_input" `
+            -Message "RequestJson is empty."
+    }
+    $rawRequest = $RequestJson
+    $requestSource = "request_json"
+    $requestLabel = "Request JSON"
+    $requestParameter = "RequestJson"
+} else {
+    if (-not $WebhookData) {
+        Write-ErrorResult -Action "unknown" -Message "No WebhookData received."
+    }
+    $rawRequest = $WebhookData.RequestBody
+    if (-not $rawRequest) {
+        Write-ErrorResult -Action "unknown" -Message "WebhookData.RequestBody is empty."
+    }
+    $requestSource = "webhook"
+    $requestLabel = "Webhook"
+    $requestParameter = "WebhookData.RequestBody"
 }
+$requestValidationContext = "${requestSource}_body_validation"
 
 # Progress is not a redirectable stream; suppress it in this script scope.
 $ProgressPreference = "SilentlyContinue"
@@ -2430,24 +2465,28 @@ $ProgressPreference = "SilentlyContinue"
 # Parse exactly one JSON document without unrolling a root array.
 $body = $null
 try {
-    if ($WebhookData.RequestBody -is [string]) {
-        $body = ConvertFrom-Json -InputObject $WebhookData.RequestBody -NoEnumerate -ErrorAction Stop
+    if ($rawRequest -is [string]) {
+        $body = ConvertFrom-Json -InputObject $rawRequest -NoEnumerate -ErrorAction Stop
     }
 } catch {
-    # The parser can echo an excerpt of the webhook body in its exception.
+    # The parser can echo part of the request. Report only a fixed message.
+    $parseCode = if ($hasRequestJson) { "invalid_request_json" } else { "invalid_webhook_json" }
+    $parseContext = if ($hasRequestJson) { "request_json_parse" } else { "webhook_json_parse" }
     Write-ErrorResult `
         -Action "unknown" `
-        -ErrorCode "invalid_webhook_json" `
-        -ErrorContext "webhook_json_parse" `
-        -Message "WebhookData.RequestBody is not valid JSON."
+        -ErrorCode $parseCode `
+        -ErrorContext $parseContext `
+        -Message "$requestParameter is not valid JSON."
 }
 # The [pscustomobject] accelerator also matches wrapped non-object roots.
 if ($body -isnot [System.Management.Automation.PSCustomObject]) {
+    $bodyTypeCode = if ($hasRequestJson) { "invalid_request_body_type" } else { "invalid_webhook_body_type" }
+    $jsonBodyLabel = if ($hasRequestJson) { "Request JSON body" } else { "Webhook JSON body" }
     Write-ErrorResult `
         -Action "unknown" `
-        -ErrorCode "invalid_webhook_body_type" `
-        -ErrorContext "webhook_body_validation" `
-        -Message "Webhook JSON body must be an object."
+        -ErrorCode $bodyTypeCode `
+        -ErrorContext $requestValidationContext `
+        -Message "$jsonBodyLabel must be an object."
 }
 
 # Extract and validate action
@@ -2455,8 +2494,8 @@ if ($null -ne $body.action -and $body.action -isnot [string]) {
     Write-ErrorResult `
         -Action "unknown" `
         -ErrorCode "invalid_action_type" `
-        -ErrorContext "webhook_body_validation" `
-        -Message "Webhook field 'action' must be a string."
+        -ErrorContext $requestValidationContext `
+        -Message "$requestLabel field 'action' must be a string."
 }
 $action = if ($null -ne $body.action) {
     ([string] $body.action).Trim().ToLowerInvariant()
@@ -2466,15 +2505,15 @@ if (-not $action) {
     Write-ErrorResult `
         -Action "unknown" `
         -ErrorCode "missing_action" `
-        -ErrorContext "webhook_body_validation" `
-        -Message "Required field 'action' is missing from webhook body."
+        -ErrorContext $requestValidationContext `
+        -Message "Required field 'action' is missing from the $($requestLabel.ToLowerInvariant()) body."
 }
 if ($action.Length -gt 32) {
     Write-ErrorResult `
         -Action "unknown" `
         -ErrorCode "invalid_action_length" `
-        -ErrorContext "webhook_body_validation" `
-        -Message "Webhook field 'action' exceeds the supported length."
+        -ErrorContext $requestValidationContext `
+        -Message "$requestLabel field 'action' exceeds the supported length."
 }
 
 $protectedRequested = $action -in @("protected_list_v1", "protected_export_v1")
@@ -2499,8 +2538,8 @@ if ($null -ne $body.identity -and $body.identity -isnot [string]) {
     Write-ErrorResult `
         -Action $action `
         -ErrorCode "invalid_identity_type" `
-        -ErrorContext "webhook_body_validation" `
-        -Message "Webhook field 'identity' must be a string."
+        -ErrorContext $requestValidationContext `
+        -Message "$requestLabel field 'identity' must be a string."
 }
 $identity = if ($null -ne $body.identity) {
     ([string] $body.identity).Trim()
@@ -2510,7 +2549,7 @@ if ($action -ne "list" -and -not $identity) {
     Write-ErrorResult `
         -Action $action `
         -ErrorCode "missing_identity" `
-        -ErrorContext "webhook_body_validation" `
+        -ErrorContext $requestValidationContext `
         -Message "Required field 'identity' is missing for action '$action'."
 }
 if (
@@ -2520,8 +2559,8 @@ if (
     Write-ErrorResult `
         -Action $action `
         -ErrorCode "invalid_identity_format" `
-        -ErrorContext "webhook_body_validation" `
-        -Message "Webhook field 'identity' must be an exact GUID1\\GUID2 pair."
+        -ErrorContext $requestValidationContext `
+        -Message "$requestLabel field 'identity' must be an exact GUID1\\GUID2 pair."
 }
 
 if ($action -in @("list", "export")) {
@@ -2537,7 +2576,7 @@ if ($action -in @("list", "export")) {
     }
 }
 
-function Get-OptionalWebhookSetting {
+function Get-OptionalRequestSetting {
     param(
         [string] $Name,
         [string] $TypeErrorCode
@@ -2551,34 +2590,34 @@ function Get-OptionalWebhookSetting {
         Write-ErrorResult `
             -Action $action `
             -ErrorCode $TypeErrorCode `
-            -ErrorContext "webhook_body_validation" `
-            -Message "Webhook field '$Name' must be a string."
+            -ErrorContext $requestValidationContext `
+            -Message "$requestLabel field '$Name' must be a string."
     }
     $setting = ([string] $property.Value).Trim()
     if ($setting.Length -gt $ExchangeSettingMaxLength) {
         Write-ErrorResult `
             -Action $action `
             -ErrorCode "invalid_${Name}_length" `
-            -ErrorContext "webhook_body_validation" `
-            -Message "Webhook field '$Name' exceeds the supported length."
+            -ErrorContext $requestValidationContext `
+            -Message "$requestLabel field '$Name' exceeds the supported length."
     }
     if ($setting -match "[\x00-\x1F\x7F]") {
         Write-ErrorResult `
             -Action $action `
             -ErrorCode "invalid_${Name}_value" `
-            -ErrorContext "webhook_body_validation" `
-            -Message "Webhook field '$Name' contains control characters."
+            -ErrorContext $requestValidationContext `
+            -Message "$requestLabel field '$Name' contains control characters."
     }
     return $setting
 }
 
-$requestedOrganization = Get-OptionalWebhookSetting `
+$requestedOrganization = Get-OptionalRequestSetting `
     -Name "organization" `
     -TypeErrorCode "invalid_organization_type"
-$requestedAuthMethod = Get-OptionalWebhookSetting `
+$requestedAuthMethod = Get-OptionalRequestSetting `
     -Name "auth_method" `
     -TypeErrorCode "invalid_auth_method_type"
-$requestedCredentialName = Get-OptionalWebhookSetting `
+$requestedCredentialName = Get-OptionalRequestSetting `
     -Name "credential_name" `
     -TypeErrorCode "invalid_credential_name_type"
 
@@ -2597,7 +2636,7 @@ if ($requestedCredentialName) {
         -Action $action `
         -ErrorCode "unsupported_credential_name" `
         -ErrorContext "credential_name" `
-        -Message "Webhook field 'credential_name' is no longer supported. Exchange Online authentication is ManagedIdentity only."
+        -Message "$requestLabel field 'credential_name' is no longer supported. Exchange Online authentication is ManagedIdentity only."
 }
 
 $includeRbac = $false
@@ -2606,15 +2645,15 @@ if ($null -ne $body.include_rbac) {
         Write-ErrorResult `
             -Action $action `
             -ErrorCode "invalid_include_rbac_type" `
-            -ErrorContext "webhook_body_validation" `
-            -Message "Webhook field 'include_rbac' must be a boolean."
+            -ErrorContext $requestValidationContext `
+            -Message "$requestLabel field 'include_rbac' must be a boolean."
     }
     if ($action -ne "diagnose") {
         Write-ErrorResult `
             -Action $action `
             -ErrorCode "include_rbac_not_supported" `
-            -ErrorContext "webhook_body_validation" `
-            -Message "Webhook field 'include_rbac' is supported only for action 'diagnose'."
+            -ErrorContext $requestValidationContext `
+            -Message "$requestLabel field 'include_rbac' is supported only for action 'diagnose'."
     }
     $includeRbac = [bool] $body.include_rbac
 }
@@ -2638,8 +2677,8 @@ if ($null -ne $body.page_size) {
         Write-ErrorResult `
             -Action $action `
             -ErrorCode "invalid_page_size" `
-            -ErrorContext "webhook_body_validation" `
-            -Message "Webhook field 'page_size' must be an integer between 1 and 1000."
+            -ErrorContext $requestValidationContext `
+            -Message "$requestLabel field 'page_size' must be an integer between 1 and 1000."
     }
     $pageSize = $parsedSize
 }
@@ -2656,14 +2695,14 @@ Write-Verbose "IncludeRBAC: $includeRbac"
 # Effective Exchange connection. Authentication is ALWAYS the system-assigned
 # Managed Identity (unsupported auth_method/credential_name values were already
 # rejected above). The ExchangeAuthMethod Automation Variable is deliberately
-# not read. The organization comes from the webhook field when present, else
+# not read. The organization comes from the request field when present, else
 # from the ExchangeOrganization Automation Variable, which is then required.
 $authMethod = "ManagedIdentity"
-$authMethodSource = if ($requestedAuthMethod) { "webhook" } else { "default" }
+$authMethodSource = if ($requestedAuthMethod) { $requestSource } else { "default" }
 
 if ($requestedOrganization) {
     $organization = $requestedOrganization
-    $organizationSource = "webhook"
+    $organizationSource = $requestSource
 } else {
     try {
         $organizationVariable = Get-AutomationVariable `
@@ -2685,7 +2724,7 @@ if ($requestedOrganization) {
             -Action $action `
             -ErrorCode "automation_variable_empty" `
             -ErrorContext "ExchangeOrganization" `
-            -Message "Managed Identity authentication requires an Exchange organization: neither the webhook field 'organization' nor the Automation Variable 'ExchangeOrganization' is set."
+            -Message "Managed Identity authentication requires an Exchange organization: neither the $($requestLabel.ToLowerInvariant()) field 'organization' nor the Automation Variable 'ExchangeOrganization' is set."
     }
     $organizationSource = "automation_variable"
 }

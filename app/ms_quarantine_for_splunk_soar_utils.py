@@ -26,6 +26,7 @@ from threading import Event, Thread
 from types import SimpleNamespace
 from typing import Optional
 from urllib.parse import parse_qsl, quote, quote_plus, urlsplit
+from uuid import uuid4
 
 import requests
 
@@ -426,12 +427,15 @@ class MSQuarantineForSplunkSOARUtils:
         retain_chunked_base64: bool = True,
         exchange_organization: Optional[str] = None,
         progress_callback=None,
+        *,
+        runbook_name: Optional[str] = None,
     ):
         self._connection_settings = normalize_exchange_connection_settings(
             exchange_organization,
         )
         self.selection_release_status = "Requested"
-        self._webhook_url = validate_webhook_url(webhook_url)
+        self._webhook_url = validate_webhook_url(webhook_url) if runbook_name is None else None
+        self._runbook_name = runbook_name
         self._tenant_id = tenant_id
         self._client_id = client_id
         self._client_secret = client_secret
@@ -579,6 +583,50 @@ class MSQuarantineForSplunkSOARUtils:
     # Webhook
     # -----------------------------------------------------------------------
 
+    def _job_input(self, action, identity, page_size, include_rbac, output_public_key):
+        body = {"action": action}
+        if action in PROTECTED_READ_ACTIONS:
+            if not output_public_key:
+                raise AutomationError("Protected list/export requires a per-job public key.")
+            body = {"action": f"protected_{action}_v1", "output_public_key": output_public_key}
+        body.update(self._connection_settings)
+        if identity:
+            body["identity"] = identity
+        if page_size is not None:
+            body["page_size"] = page_size
+        if include_rbac is not None:
+            body["include_rbac"] = include_rbac
+        return body
+
+    def start_job(self, action, identity=None, page_size=None, include_rbac=None, *, output_public_key=None):
+        """Submit once through the configured transport without fallback."""
+        if self._runbook_name is None:
+            if output_public_key is not None:
+                return self.fire_webhook(action, identity, page_size, output_public_key=output_public_key)
+            return self.fire_webhook(action, identity, page_size, include_rbac=include_rbac)
+        body = self._job_input(action, identity, page_size, include_rbac, output_public_key)
+        headers = self._mgmt_headers()
+        job_id = str(uuid4())
+        url = self._job_url(job_id).replace(f"api-version={MGMT_API_VERSION}", "api-version=2024-10-23")
+        try:
+            with self._session.put(
+                url,
+                headers=headers,
+                json={"properties": {"runbook": {"name": self._runbook_name}, "parameters": {"RequestJson": json.dumps(body)}}},
+                timeout=30,
+                allow_redirects=False,
+            ) as response:
+                if response.status_code not in (200, 201, 202):
+                    raise AutomationError(f"Azure REST job submission returned HTTP {response.status_code}. Check job history before retrying.")
+        except requests.exceptions.RequestException:
+            error = AutomationError("Azure REST job submission could not be confirmed. Check job history before retrying.")
+            error.job_id = job_id
+            raise error from None
+        except AutomationError as error:
+            error.job_id = job_id
+            raise
+        return job_id
+
     def fire_webhook(
         self,
         action: str,
@@ -608,18 +656,7 @@ class MSQuarantineForSplunkSOARUtils:
         Raises:
             WebhookError on failure.
         """
-        body = {"action": action}
-        if action in PROTECTED_READ_ACTIONS:
-            if not output_public_key:
-                raise AutomationError("Protected list/export requires a per-job public key.")
-            body = {"action": f"protected_{action}_v1", "output_public_key": output_public_key}
-        body.update(self._connection_settings)
-        if identity:
-            body["identity"] = identity
-        if page_size is not None:
-            body["page_size"] = page_size
-        if include_rbac is not None:
-            body["include_rbac"] = include_rbac
+        body = self._job_input(action, identity, page_size, include_rbac, output_public_key)
 
         try:
             response = self._session.post(
@@ -1282,9 +1319,9 @@ class MSQuarantineForSplunkSOARUtils:
         *,
         validate_result=None,
     ) -> dict:
-        """Submit exactly one webhook, then wait for its result."""
+        """Submit exactly one job, then wait for its result."""
         if action not in PROTECTED_READ_ACTIONS:
-            job_id = self.fire_webhook(action, identity, page_size, include_rbac=include_rbac)
+            job_id = self.start_job(action, identity, page_size, include_rbac=include_rbac)
             return self.wait_for_action_result(job_id, action, identity, validate_result=validate_result)
         try:
             from cryptography.hazmat.primitives import serialization
@@ -1299,7 +1336,7 @@ class MSQuarantineForSplunkSOARUtils:
             ).decode("ascii")
         except (ImportError, ValueError) as exc:
             raise AutomationError("Protected output cryptography is unavailable; no job was started.") from exc
-        job_id = self.fire_webhook(action, identity, page_size, output_public_key=public_key)
+        job_id = self.start_job(action, identity, page_size, output_public_key=public_key)
         return self.wait_for_action_result(
             job_id,
             action,
