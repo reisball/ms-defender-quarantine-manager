@@ -605,10 +605,8 @@ def test_poll_es_acknowledgement_survives_later_budget_error(setup, monkeypatch)
     setup.soar.create_findings_bulk.assert_called_once()
 
 
-@pytest.mark.parametrize("persisted", [False, True])
-def test_poll_es_counts_receipt_even_when_completion_save_raises(
-    setup, monkeypatch, persisted
-):
+@pytest.fixture
+def es_setup(setup):
     setup.soar.get.side_effect = lambda path: Mock(
         **{
             "json.return_value": {
@@ -633,7 +631,14 @@ def test_poll_es_counts_receipt_even_when_completion_save_raises(
         "container_ids": [23],
         "errors": [],
     }
+    return setup
 
+
+@pytest.mark.parametrize("persisted", [False, True])
+def test_poll_es_counts_receipt_even_when_completion_save_raises(
+    es_setup, monkeypatch, persisted
+):
+    setup = es_setup
     save = setup.state.put_all
 
     def save_checkpoint(data):
@@ -659,6 +664,25 @@ def test_poll_es_counts_receipt_even_when_completion_save_raises(
     if persisted:
         assert row["finding_id"] == "f-1"
     setup.soar.create_findings_bulk.assert_called_once()
+
+
+@pytest.mark.parametrize("receipt_id", [True, 1.0, "1", 2])
+def test_poll_es_rejects_unlinked_or_non_integer_receipts(es_setup, receipt_id):
+    es_setup.soar.container.create.return_value = 1
+    es_setup.soar.create_findings_bulk.return_value["container_ids"] = [receipt_id]
+
+    result = es_setup.run(es=True)
+
+    assert not result.get_status()
+    assert result.get_summary()["messages_published"] == 0
+    assert result.get_summary()["containers_created"] == 0
+    assert result.get_summary()["errors"] == 1
+    assert "Native ES did not confirm one linked finding." in result.get_message()
+    (row,) = es_setup.state.data[INGEST_STATE_KEY]["records"].values()
+    assert row["status"] == "failed"
+    assert row["publication_started"] is True
+    assert not row.get("finding_id")
+    es_setup.soar.create_findings_bulk.assert_called_once()
 
 
 def test_distinct_worker_temp_dirs_contend_on_same_ledger_lock(tmp_path, monkeypatch):

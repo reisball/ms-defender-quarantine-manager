@@ -652,6 +652,13 @@ class NativeIngestionMixin:
         self._ingest_update(key, publication_started=True)
         if is_es:
             response = self._ingest_es_client().request("POST", "/rest/enterprise_security/findings/bulk_create", json=payload)
+            container_ids = response.get("container_ids")
+            linked = (
+                isinstance(container_ids, list)
+                and len(container_ids) == 1
+                and type(container_ids[0]) is int
+                and container_ids[0] == row["container_id"]
+            )
             if (
                 response.get("status") in {"success", "error", "failed", "partial_success"}
                 and isinstance(response.get("errors"), list)
@@ -660,7 +667,7 @@ class NativeIngestionMixin:
                 and type(response.get("failed")) is int
                 and response["failed"] == 1
                 and response.get("findings") == []
-                and response.get("container_ids") in ([], [row["container_id"]])
+                and (container_ids == [] or linked)
             ):
                 raise AutomationError("Native ES rejected the finding: " + json.dumps(response["errors"]))
             if (
@@ -670,7 +677,7 @@ class NativeIngestionMixin:
                 or type(response.get("failed")) is not int
                 or response["failed"] != 0
                 or response.get("errors")
-                or response.get("container_ids") != [row["container_id"]]
+                or not linked
                 or not isinstance(response.get("findings"), list)
                 or len(response["findings"]) != 1
                 or not isinstance(response["findings"][0], str)

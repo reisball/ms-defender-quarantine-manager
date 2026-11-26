@@ -82,7 +82,7 @@ Native ES threat-analysis and automation settings control what happens next. ES 
 | Field | Meaning |
 |---|---|
 | `candidates`, `candidate_window`, `results_may_be_truncated` | Messages found, window size, and whether the window was full |
-| `containers_created` | Imports recorded as complete in this poll |
+| `containers_created` | Imports whose completion checkpoint was saved without reporting an error in this poll |
 | `messages_published` | For ES, linked findings confirmed by ES in this poll, even if saving the completion checkpoint fails. For SOAR, completed publications (same as `containers_created`). |
 | `active_messages`, `active_limit` | Unresolved messages and the configured limit |
 | `requested_containers`, `terminal_observed` | Attempt limit for this poll and confirmed `Released`/`Denied` observations |
