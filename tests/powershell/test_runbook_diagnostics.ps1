@@ -11,6 +11,8 @@ param(
         "mixed_role_error",
         "alternate_principal_error_only",
         "alternate_principal_mixed",
+        "alternate_principal_error_only_terminating",
+        "alternate_principal_mixed_terminating",
         "empty_contracts"
     )]
     [string] $AssignmentMode = "role_group",
@@ -218,12 +220,15 @@ function Get-ServicePrincipal {
         throw "Unexpected service-principal identity."
     }
     if ($Identity -eq $global:DiagnosticTestAppId -and
-        $global:DiagnosticTestAssignmentMode -in @("alternate_principal_error_only", "alternate_principal_mixed")) {
-        if ($global:DiagnosticTestAssignmentMode -eq "alternate_principal_mixed") {
+        $global:DiagnosticTestAssignmentMode -like "alternate_principal_*") {
+        if ($global:DiagnosticTestAssignmentMode -like "alternate_principal_mixed*") {
             [pscustomobject]@{
                 AppId = $global:DiagnosticTestAppId
                 Identity = "RejectThisUnconfirmedPrincipal"
             }
+        }
+        if ($global:DiagnosticTestAssignmentMode -like "*_terminating") {
+            Write-Error "Authorization: Bearer SyntheticRbacCredentialMarker" -ErrorAction $ErrorAction
         }
         Write-Error "Authorization: Bearer SyntheticRbacCredentialMarker" -ErrorAction Continue
         return

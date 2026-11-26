@@ -335,8 +335,8 @@ $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "1.1.0"
-$RunbookSourceRevision    = "sha256:4a860c37bf603206335676c3d6f76e283b58a6339fa3927d5a7f14aa9221f744"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.1.0+sha256.4a860c37bf603206335676c3d6f76e283b58a6339fa3927d5a7f14aa9221f744"
+$RunbookSourceRevision    = "sha256:2ef885b86e4bc73d19cdc83048b297ae2994ca76a2837cfeb16679ce6ac1bdff"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.1.0+sha256.2ef885b86e4bc73d19cdc83048b297ae2994ca76a2837cfeb16679ce6ac1bdff"
 $ReleaseContractId        = "identity_releasetoall"
 $PostconditionMaxAttempts = 7
 $PostconditionPollSeconds = 10
@@ -1231,48 +1231,45 @@ function Get-QuarantineRbacDiagnosticEvidence {
     [bool] $servicePrincipalLookupHadError = $false
     if (@($expectedIdentityValues).Count -gt 0) {
         foreach ($candidate in @($expectedIdentityValues)) {
+            # Collect incrementally: a terminating provider error can follow
+            # rows and would otherwise discard them before we see the mixture.
+            $candidateResults = [System.Collections.Generic.List[object]]::new()
             try {
-                $candidateResults = @(
-                    Get-ServicePrincipal `
-                        -Identity $candidate `
-                        -ErrorAction Stop 2>&1
-                )
-                $queryErrors = @(
-                    $candidateResults | Where-Object {
-                        $_ -is [System.Management.Automation.ErrorRecord]
-                    }
-                )
-                if ($queryErrors.Count -gt 0) {
-                    $servicePrincipalLookupHadError = $true
-                    if ($queryErrors.Count -eq $candidateResults.Count) {
-                        # Error-only is equivalent to a terminating lookup failure.
-                        $servicePrincipalLookupError = $queryErrors[0]
-                    } else {
-                        # Mixed output is ambiguous even if another lookup succeeds.
-                        Add-PermissionQueryError `
-                            -Errors $errors `
-                            -Query "exchange_service_principal" `
-                            -ErrorRecord $queryErrors[0]
-                    }
-                    continue
-                }
-                $servicePrincipalLookupSucceeded = $true
-                $registeredServicePrincipal = @(
-                    $candidateResults |
-                        Where-Object {
-                            Test-ObjectIdentityMatch `
-                                -InputObject $_ `
-                                -ExpectedValues $expectedIdentityValues
-                        }
-                ) | Select-Object -First 1
-                if ($null -ne $registeredServicePrincipal) {
-                    break
-                }
+                Get-ServicePrincipal `
+                    -Identity $candidate `
+                    -ErrorAction Stop 2>&1 |
+                    ForEach-Object { $candidateResults.Add($_) }
             } catch {
-                # Different Exchange builds accept either app ID or object ID.
-                # Do not mark a successful alternate lookup as partial.
-                $servicePrincipalLookupError = $_
+                $candidateResults.Add($_)
+            }
+            $queryErrors = @(
+                $candidateResults | Where-Object {
+                    $_ -is [System.Management.Automation.ErrorRecord]
+                }
+            )
+            if ($queryErrors.Count -gt 0) {
                 $servicePrincipalLookupHadError = $true
+                if ($queryErrors.Count -eq $candidateResults.Count) {
+                    # A different Exchange build may accept only the other GUID.
+                    $servicePrincipalLookupError = $queryErrors[0]
+                } else {
+                    # Mixed output is ambiguous even if another lookup succeeds.
+                    Add-PermissionQueryError `
+                        -Errors $errors `
+                        -Query "exchange_service_principal" `
+                        -ErrorRecord $queryErrors[0]
+                }
+                continue
+            }
+            $servicePrincipalLookupSucceeded = $true
+            $registeredServicePrincipal = $candidateResults |
+                Where-Object {
+                    Test-ObjectIdentityMatch `
+                        -InputObject $_ `
+                        -ExpectedValues $expectedIdentityValues
+                } | Select-Object -First 1
+            if ($null -ne $registeredServicePrincipal) {
+                break
             }
         }
         if (

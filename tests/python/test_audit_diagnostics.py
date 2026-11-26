@@ -106,9 +106,12 @@ def test_mixed_rbac_role_error_is_partial_without_leaking_credentials():
 
 @pytest.mark.skipif(shutil.which("pwsh") is None, reason="PowerShell is not installed")
 @pytest.mark.parametrize("error_only", [True, False])
-def test_alternate_principal_requires_clean_guid_match(error_only):
+@pytest.mark.parametrize("terminating", [True, False])
+def test_alternate_principal_requires_clean_guid_match(error_only, terminating):
     script = Path(__file__).resolve().parents[1] / "powershell" / "test_runbook_diagnostics.ps1"
     mode = "alternate_principal_error_only" if error_only else "alternate_principal_mixed"
+    if terminating:
+        mode += "_terminating"
     result = subprocess.run(
         ["pwsh", "-NoLogo", "-NoProfile", "-File", str(script), "-AssignmentMode", mode],
         check=True, text=True, capture_output=True, timeout=30,
