@@ -19,9 +19,6 @@ from datetime import datetime, timedelta, timezone
 from email import policy
 from email.feedparser import BytesFeedParser
 
-import phantom.app as phantom
-from phantom.action_result import ActionResult
-
 from ms_quarantine_for_splunk_soar_utils import MAX_DECODED_EML_BYTES, AutomationError
 
 
@@ -323,7 +320,7 @@ class NativeIngestionMixin:
     def _ingest_save(self, state, data):
         state[INGEST_STATE_KEY] = data
         saved = self.save_state(state)
-        if saved is False or phantom.is_fail(saved):
+        if saved is False or self._ingest_failed(saved):
             raise AutomationError("Native intake state could not be saved.")
 
     def _ingest_records(self):
@@ -492,7 +489,7 @@ class NativeIngestionMixin:
             "run_automation": publish,
         }
         status, _message, artifact_id = self.save_artifact(artifact)
-        if phantom.is_fail(status):
+        if self._ingest_failed(status):
             raise AutomationError("SOAR rejected the ingestion artifact: " + str(_message))
         if not artifact_id:
             raise AutomationError("SOAR did not confirm the ingestion artifact.")
@@ -536,7 +533,7 @@ class NativeIngestionMixin:
                 artifact["run_automation"] = False
             self._ingest_budget_check()
             status, _message, container_id = self.save_container(container)
-            if phantom.is_fail(status) or type(container_id) is not int or container_id <= 0:
+            if self._ingest_failed(status) or type(container_id) is not int or container_id <= 0:
                 raise AutomationError("SOAR did not confirm the ingestion container: " + str(_message))
             self._ingest_update(key, container_id=container_id)
             row["container_id"] = container_id
@@ -697,7 +694,7 @@ class NativeIngestionMixin:
         return self._ingest_update(key, status="completed", ready_artifact_id=artifact_id, last_error="")
 
     def _run_native_poll(self, param, *, require_es=False):
-        ar = self.add_action_result(ActionResult(dict(param)))
+        ar = self._ingest_action_result(param)
         try:
             self._ingest_settings()
             if require_es and self._ingest_target != "es":
@@ -772,10 +769,10 @@ class NativeIngestionMixin:
                     }
                 )
                 if errors:
-                    return ar.set_status(phantom.APP_ERROR, "; ".join(errors[:10]))
+                    return ar.set_status(self._ingest_status(False), "; ".join(errors[:10]))
                 message = f"Imported {created} mail(s); resolved {terminal} tracked status(es)."
                 if failed:
                     message += f" {failed} failed import(s) retained; scheduled retries disabled. Inspect native evidence, then use Poll Now for Requested candidates in the first 50."
-                return ar.set_status(phantom.APP_SUCCESS, message)
+                return ar.set_status(self._ingest_status(True), message)
         except Exception as exc:
-            return ar.set_status(phantom.APP_ERROR, self._map_error(exc, "on poll"))
+            return ar.set_status(self._ingest_status(False), self._map_error(exc, "on poll"))

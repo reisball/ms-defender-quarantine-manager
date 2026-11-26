@@ -164,3 +164,26 @@ The 24 MiB EML cap is conservative because local tests cannot measure memory in 
 Verify all Azure job streams contain no readable EML, the aggregate Job Output API returns the full encrypted stream, and the installed SOAR package decrypts it on the supported interpreter. Use synthetic mail.
 
 For each run, record the app/runbook versions and commit, the PowerShell runtime and module versions, the job ID and timestamps, the size, chunk count and SHA-256, and peak memory if available. Never record webhook URLs, tokens or mail content. Keep 24 MiB only if the exact-boundary runs stay below the limit with a reserve. Otherwise, propose a lower cap or a Hybrid Runbook Worker approach. Attach sanitized evidence to [#18](https://github.com/reisball/ms-defender-quarantine-manager/issues/18).
+
+## SDK candidate (#42)
+
+Build and test the Python 3.13 SDK project from a clean staging directory:
+
+```sh
+scratch=$(mktemp -d)
+python3 tools/stage_sdk.py "$scratch/project"
+(cd "$scratch/project" && uv run --locked --python 3.13 python -m pytest -q tests)
+bash tools/build_sdk.sh "$scratch/ms-defender-quarantine-manager-1.0.0-sdk.tgz"
+```
+
+The SDK project pins `splunk-soar-sdk` 8.0.2 and shares the transport, bounded
+MIME parsing, and intake logic with the regression suite. The SDK build does
+not modify the separately deployed Azure runbook. The SDK packager selects
+runtime wheels; the build generates NOTICE from those exact wheels and checks
+that the final archive bundles the same wheel inventory. These commands do not
+perform a SOAR installation, contact Azure, or publish a release.
+
+SOAR intake and SOAR-proxied ES findings use acknowledged SDK client calls
+instead of decorator buffering because automation must follow the final Vault
+upload and a stored publication checkpoint. The progress log reports the
+counts; the SDK poll wrappers supply their own final action status message.

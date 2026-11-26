@@ -30,6 +30,7 @@ for source_file in \
     ms_quarantine_for_splunk_soar_utils.py \
     ms_quarantine_for_splunk_soar_ingestion.py \
     ms_quarantine_for_splunk_soar_es_ingestion.py \
+    ms_quarantine_for_splunk_soar_mail.py \
     ms_quarantine_for_splunk_soar.svg \
     ms_quarantine_for_splunk_soar_dark.svg; do
     source_path="app/${source_file}"
@@ -134,6 +135,7 @@ expected_members=$(printf '%s\n' \
     "${app_dir_name}/ms_quarantine_for_splunk_soar_dark.svg" \
     "${app_dir_name}/ms_quarantine_for_splunk_soar_utils.py" \
     "${app_dir_name}/ms_quarantine_for_splunk_soar_es_ingestion.py" \
+    "${app_dir_name}/ms_quarantine_for_splunk_soar_mail.py" \
     "${app_dir_name}/ms_quarantine_for_splunk_soar_ingestion.py" \
     "${app_dir_name}/readme.html" \
     "${wheel_members}" | LC_ALL=C sort)
