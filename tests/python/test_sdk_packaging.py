@@ -184,7 +184,7 @@ def test_unknown_openssl_requires_notice_review():
 
 
 def test_non_sdk_manifest_fails_before_publish(tmp_path):
-    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "1.0.0"\n')
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "1.1.0"\n')
     with pytest.raises(ValueError, match="generated manifest appid"):
         packaging.validate({"manifest.json": b'{"python_version":"3.9"}'}, tmp_path)
 
@@ -230,7 +230,7 @@ def test_default_release_uses_sdk_manifest_and_keeps_companion_separate(
     # wrapper, SDK-shaped manifest, source provenance, fingerprint and checksums.
     manifest = {
         "appid": packaging.APP_ID,
-        "app_version": "1.0.0",
+        "app_version": "1.1.0",
         "main_module": "src.app:app",
     }
     fixture_tar(
@@ -245,14 +245,14 @@ def test_default_release_uses_sdk_manifest_and_keeps_companion_separate(
     monkeypatch.delenv("SOURCE_COMMIT", raising=False)
     monkeypatch.setenv("SOURCE_DATE_EPOCH", str(EPOCH))
     assert_success(run(repo, "bash", "tools/build_release.sh", str(output)))
-    package = output / "ms-defender-quarantine-manager-1.0.0.tgz"
-    companion = output / "ms-defender-quarantine-manager-runbook-1.0.0.ps1"
+    package = output / "ms-defender-quarantine-manager-1.1.0.tgz"
+    companion = output / "ms-defender-quarantine-manager-runbook-1.1.0.ps1"
     assert package.read_bytes() == (repo / "sdk-fixture.tgz").read_bytes()
     assert companion.read_bytes() == (repo / "runbook/runbook.ps1").read_bytes()
     assert set(packaging.files_of(package)) == {"manifest.json"}
     metadata = json.loads((output / "BUILD_METADATA.json").read_bytes())
     assert metadata["source_commit"] == git(repo, "rev-parse", "HEAD")
-    assert metadata["app_version"] == metadata["runbook_version"] == "1.0.0"
+    assert metadata["app_version"] == metadata["runbook_version"] == "1.1.0"
     assert_success(run(output, "sha256sum", "-c", "SHA256SUMS"))
 
     previous = {p.name: p.read_bytes() for p in output.iterdir()}

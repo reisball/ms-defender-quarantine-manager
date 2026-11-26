@@ -1,6 +1,6 @@
 [project]
 name = "ms-defender-quarantine-manager"
-version = "1.0.0"
+version = "1.1.0"
 description = "Ingest Microsoft Defender quarantine emails through Azure Automation into native SOAR or ES workflows. Inspect, release or deny quarantine messages."
 license = "Apache-2.0"
 requires-python = ">=3.13,<3.14"

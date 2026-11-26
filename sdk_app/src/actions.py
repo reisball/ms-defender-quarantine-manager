@@ -172,7 +172,7 @@ class ReleaseQuarantineMessageOutput(ActionOutput):
         ]
     )
     action: str = OutputField(example_values=["release"])
-    runbook_version: str = OutputField(example_values=["1.0.0"])
+    runbook_version: str = OutputField(example_values=["1.1.0"])
     azure_job_id: str = OutputField(
         example_values=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]
     )
@@ -204,7 +204,7 @@ class DenyQuarantineReleaseOutput(ActionOutput):
         ]
     )
     action: str = OutputField(example_values=["deny"])
-    runbook_version: str = OutputField(example_values=["1.0.0"])
+    runbook_version: str = OutputField(example_values=["1.1.0"])
     azure_job_id: str = OutputField(
         example_values=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]
     )

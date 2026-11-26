@@ -14,7 +14,7 @@ The SOAR app and the Azure runbook share one release version. Matching version l
 
 | SOAR app | Azure runbook | Validation scope |
 |---|---|---|
-| 1.0.0 | 1.0.0 | Intended release pair. Build and contract checks are not evidence of a live deployment or end-to-end acceptance. |
+| 1.1.0 | 1.1.0 | Intended release pair. Build and contract checks are not evidence of a live deployment or end-to-end acceptance. |
 
 Use the matching runbook and app from the same build. The app installer does not update the runbook in Azure. Other pairings are not verified.
 

@@ -3,16 +3,16 @@
 Copyright 2026 Kai Seidenschnur
 Licensed under the Apache License, Version 2.0.
 -->
-<html lang="en"><head><meta charset="utf-8"><title>MS Defender Quarantine Manager 1.0.0</title></head>
+<html lang="en"><head><meta charset="utf-8"><title>MS Defender Quarantine Manager 1.1.0</title></head>
 <body>
-<h1>MS Defender Quarantine Manager 1.0.0</h1>
+<h1>MS Defender Quarantine Manager 1.1.0</h1>
 <p>Publisher: Kai Seidenschnur. Copyright 2026 Kai Seidenschnur.
 Apache-2.0; see the included <a href="LICENSE">LICENSE</a>.</p>
 <p>Import Microsoft Defender quarantine mail with a recipient release request
 (<code>Requested</code>). Import does not release or deny mail.</p>
 <h2>Quick start</h2>
 <ol>
-<li>Publish the matching Azure Automation Runbook 1.0.0 separately.
+<li>Publish the matching Azure Automation Runbook 1.1.0 separately.
 Use the supported PowerShell runtime with ExchangeOnlineManagement and a system-assigned Managed Identity with the required Exchange quarantine permissions.</li>
 <li>Configure one ingesting asset per tenant. The direct HTTPS webhook starts jobs;
 the separate Entra app registration only reads job status and output. Pause any

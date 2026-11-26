@@ -122,7 +122,7 @@ def test_manifest_and_sdk_dispatch():
     }
     azure = Mock()
     fixture_app = new_app()
-    register_actions(fixture_app, app_version="1.0.0", azure_factory=lambda _: azure)
+    register_actions(fixture_app, app_version="1.1.0", azure_factory=lambda _: azure)
     fake_asset = object()
     for name in [
         "release_quarantine_message",
@@ -243,7 +243,7 @@ def test_bad_asset_validation_never_serializes_inputs(monkeypatch, capsys, ident
     fixture_app = new_app()
     azure = Mock()
     register_polling(fixture_app, azure_factory=azure)
-    register_actions(fixture_app, app_version="1.0.0", azure_factory=azure)
+    register_actions(fixture_app, app_version="1.1.0", azure_factory=azure)
 
     salts = []
     secrets = {
@@ -275,7 +275,7 @@ def test_bad_asset_validation_never_serializes_inputs(monkeypatch, capsys, ident
                     **{k: v for k, v in CONFIG.items() if k != "azure_client_id"},
                     "webhook_url": "encrypted_webhook",
                     "azure_client_secret": "encrypted_client_secret",
-                    "app_version": "1.0.0",
+                    "app_version": "1.1.0",
                     "directory": "app",
                     "main_module": "src.app",
                 },
@@ -309,14 +309,14 @@ def test_connectivity_registered_summary_and_manifest(monkeypatch):
         "runbook_version": "1.0.1",
         "runbook_build_id": build,
     }
-    register_actions(fixture_app, app_version="1.0.0", azure_factory=lambda _: azure)
+    register_actions(fixture_app, app_version="1.1.0", azure_factory=lambda _: azure)
     monkeypatch.setattr(fixture_app, "_raw_asset_config", CONFIG, raising=False)
     manager = fixture_app.actions_manager
     manager.action_identifier = "test_connectivity"
     manager.handle_action({})
     (result,) = manager.get_results()
     assert result.get_status()
-    assert result.get_summary()["app_version"] == "1.0.0"
+    assert result.get_summary()["app_version"] == "1.1.0"
     assert result.get_summary()["runbook_version"] == "1.0.1"
     assert result.get_summary()["runbook_build_id"] == build
     assert "differs" in result.get_summary()["version_warning"]
