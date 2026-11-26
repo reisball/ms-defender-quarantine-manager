@@ -5,7 +5,7 @@ from pydantic import ConfigDict
 from soar_sdk.app import App
 from soar_sdk.asset import AssetField, BaseAsset
 
-from .actions import register_actions
+from .actions import register_connectivity, register_quarantine_actions
 from .polling import register_polling
 from .version import APP_VERSION
 
@@ -78,8 +78,9 @@ app = App(
 )
 
 
-register_actions(app, app_version=APP_VERSION)
+register_connectivity(app, app_version=APP_VERSION)
 register_polling(app)
+register_quarantine_actions(app)
 
 
 if __name__ == "__main__":

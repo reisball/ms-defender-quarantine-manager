@@ -280,15 +280,15 @@ def validate(files: dict, project: Path) -> dict:
     } or manifest["pip315_dependencies"] != {"wheel": []}:
         raise ValueError("Only Python 3.13 may have packaged dependencies")
     actions = [action["identifier"] for action in manifest["actions"]]
-    if len(set(actions)) != len(actions) or not {
+    if actions != [
         "test_connectivity",
-        "inspect_release_environment",
-        "release_quarantine_message",
-        "deny_quarantine_release",
         "on_poll",
         "on_es_poll",
-    }.issubset(actions):
-        raise ValueError(f"Unexpected SDK action registry: {actions}")
+        "deny_quarantine_release",
+        "release_quarantine_message",
+        "inspect_release_environment",
+    ]:
+        raise ValueError(f"Unexpected SDK action order: {actions}")
 
     declared = set()
     entries = manifest["pip313_dependencies"]["wheel"]

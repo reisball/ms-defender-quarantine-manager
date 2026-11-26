@@ -653,8 +653,8 @@ def _dispose(params: DispositionParams, asset: BaseAsset, action: str, azure_fac
         return _run_disposition(params, action, identity, azure)
 
 
-def register_actions(app: App, *, app_version: str, azure_factory: Callable = build_azure) -> None:
-    """Register the four SDK actions on the app's existing App instance."""
+def register_connectivity(app: App, *, app_version: str, azure_factory: Callable = build_azure) -> None:
+    """Register the connectivity test before the other SDK actions."""
 
     def test_connectivity(_params: Params, _soar, asset: BaseAsset) -> ActionResult:
         azure = azure_factory(asset)
@@ -703,22 +703,8 @@ def register_actions(app: App, *, app_version: str, azure_factory: Callable = bu
         test_connectivity,
     )
 
-    register_special(
-        app,
-        ActionMeta(
-            action="inspect release environment",
-            identifier="inspect_release_environment",
-            description="Read-only inspection of the runbook, Exchange cmdlets and one exact quarantine identity; tenant RBAC diagnostics require opt-in",
-            verbose="Checks the exact quarantine identity without releasing or denying it. Set include_rbac=true to also inspect tenant role contracts and relevant role-group membership.",
-            type="investigate",
-            read_only=True,
-            parameters=InspectReleaseEnvironmentParams,
-            output=InspectReleaseEnvironmentOutput,
-        ),
-        InspectSummary,
-        lambda params, _soar, asset: _inspect(params, asset, azure_factory),
-    )
 
+def register_quarantine_actions(app: App, *, azure_factory: Callable = build_azure) -> None:
     def register_disposition(operation, name, description, output):
         register_special(
             app,
@@ -745,14 +731,30 @@ def register_actions(app: App, *, app_version: str, azure_factory: Callable = bu
         )
 
     register_disposition(
+        "deny",
+        "deny quarantine release",
+        "Deny a user's request to release a quarantined message",
+        DenyQuarantineReleaseOutput,
+    )
+    register_disposition(
         "release",
         "release quarantine message",
         "Release a quarantined message to all original recipients",
         ReleaseQuarantineMessageOutput,
     )
-    register_disposition(
-        "deny",
-        "deny quarantine release",
-        "Deny a user's request to release a quarantined message",
-        DenyQuarantineReleaseOutput,
+
+    register_special(
+        app,
+        ActionMeta(
+            action="inspect release environment",
+            identifier="inspect_release_environment",
+            description="Read-only inspection of the runbook, Exchange cmdlets and one exact quarantine identity; tenant RBAC diagnostics require opt-in",
+            verbose="Checks the exact quarantine identity without releasing or denying it. Set include_rbac=true to also inspect tenant role contracts and relevant role-group membership.",
+            type="investigate",
+            read_only=True,
+            parameters=InspectReleaseEnvironmentParams,
+            output=InspectReleaseEnvironmentOutput,
+        ),
+        InspectSummary,
+        lambda params, _soar, asset: _inspect(params, asset, azure_factory),
     )

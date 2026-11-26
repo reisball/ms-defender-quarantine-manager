@@ -13,7 +13,7 @@ from soar_sdk.app import platform_encryption_backend
 from soar_sdk.asset_state import AssetState
 from soar_sdk.params import OnPollParams
 
-from src.actions import register_actions
+from src.actions import register_connectivity, register_quarantine_actions
 from src.app import Asset, app
 from src.ms_quarantine_for_splunk_soar_ingestion import INGEST_STATE_KEY
 from src.ms_quarantine_for_splunk_soar_utils import AutomationError
@@ -21,6 +21,11 @@ from src.polling import SDKIntake, _IntakeStateBackend, _PollResult, register_po
 
 IDENTITY = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\\bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 MAIL = b"From: sender@example.invalid\r\nTo: recipient@example.invalid\r\nSubject: Fixture\r\n\r\nTest\r\n"
+
+
+def register_actions(app, *, app_version, azure_factory):
+    register_connectivity(app, app_version=app_version, azure_factory=azure_factory)
+    register_quarantine_actions(app, azure_factory=azure_factory)
 
 
 class State:
@@ -721,7 +726,7 @@ def test_sdk_disposition_keeps_submission_evidence(action, expected, scenario):
     handler = fixture_app.actions_manager.get_action(action)
     sink = Mock()
     fixture_app.actions_manager.add_result = sink
-    success = handler(handler.meta.parameters(identity=IDENTITY), asset=SimpleNamespace(azure_tenant_id=IDENTITY.split("\\")[0]))
+    success = handler(handler.meta.parameters(identity=IDENTITY), asset=SimpleNamespace(azure_tenant_id=IDENTITY.split("\\", maxsplit=1)[0]))
     summary = sink.call_args.args[0].get_summary()
     if scenario == "preflight_failure":
         azure.fire_webhook.assert_not_called()
