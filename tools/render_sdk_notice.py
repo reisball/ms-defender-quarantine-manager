@@ -28,6 +28,50 @@ APP_ID = "2e21b2c5-a6a6-4fb4-8df7-9dd1135ab08e"
 # SDK 8.0.2 verifies the sdist against uv.lock, then builds it locally.
 LOCAL_WHEEL = "red_black_tree_mod-1.22-py3-none-any.whl"
 OPENSSL_LICENSES = {"4.0.3": "openssl-4.0.3.txt"}
+RUST_NOTICES = {
+    "cryptography": (
+        "cryptography-sdk-rust.txt",
+        "sboms/cryptography-rust.cyclonedx.json",
+    ),
+    "pydantic-core": (
+        "pydantic-core-sdk-rust.txt",
+        "sboms/pydantic-core.cyclonedx.json",
+    ),
+}
+
+
+def check_rust_notice(text: str, wheel: str, digest: str, components: list) -> None:
+    reviewed_wheels = re.findall(
+        r"^Wheel SHA-256: ([0-9a-f]{64})  (\S+)$", text, re.MULTILINE
+    )
+    if (digest, wheel) not in reviewed_wheels:
+        raise ValueError(f"Review Rust attribution for {wheel}")
+    reviewed_crates = set(
+        re.findall(
+            r"^(\S+) (\S+) \(.*\)\nhttps://static\.crates\.io/[^\n]+\nSHA-256: ([0-9a-f]{64})$",
+            text,
+            re.MULTILINE,
+        )
+    )
+    registry = []
+    for component in components:
+        purl = component.get("purl", "")
+        if purl.startswith("pkg:cargo/") and "?download_url=file:" in purl:
+            continue  # first-party path crate, covered by wheel licensing
+        checksums = [
+            h["content"] for h in component.get("hashes", []) if h["alg"] == "SHA-256"
+        ]
+        if (
+            len(checksums) != 1
+            or (component["name"], component["version"], checksums[0])
+            not in reviewed_crates
+        ):
+            raise ValueError(
+                f"Review source attribution for {component['name']} in {wheel}"
+            )
+        registry.append(component["name"])
+    if not registry:
+        raise ValueError(f"No Cargo registry inventory in {wheel}")
 
 
 def files_of(package: Path) -> dict:
@@ -102,11 +146,13 @@ def render_notice(files: dict, commit: str | None = None) -> str:
     native = []
     openssl_versions = set()
     bundled_libffi = False
+    rust_notices = {}
     for path, data in sorted(files.items()):
         if not path.endswith(".whl"):
             continue
         wheel = Path(path).name
-        inventory.append(f"{wheel}: sha256:{sha(data)}")
+        digest = sha(data)
+        inventory.append(f"{wheel}: sha256:{digest}")
         with ZipFile(io.BytesIO(data)) as contents:
             (metadata_path,) = (
                 n
@@ -132,7 +178,8 @@ def render_notice(files: dict, commit: str | None = None) -> str:
                     sboms[n.removeprefix(dist_info)] = json.loads(contents.read(n))[
                         "components"
                     ]
-            if meta["Name"].lower() == "cryptography":
+            dist_name = meta["Name"].lower().replace("_", "-")
+            if dist_name == "cryptography":
                 (openssl,) = [
                     c["version"]
                     for c in sboms["sboms/sbom.json"]
@@ -143,7 +190,16 @@ def render_notice(files: dict, commit: str | None = None) -> str:
                         f"OpenSSL {openssl} needs a reviewed license notice"
                     )
                 openssl_versions.add(openssl)
-            if meta["Name"].lower() == "cffi":
+            if dist_name in RUST_NOTICES:
+                filename, sbom = RUST_NOTICES[dist_name]
+                if dist_name not in rust_notices:
+                    rust_notices[dist_name] = (
+                        source_bytes(NOTICES / filename, commit).decode("utf-8").strip()
+                    )
+                check_rust_notice(
+                    rust_notices[dist_name], wheel, digest, sboms.get(sbom, [])
+                )
+            if dist_name == "cffi":
                 if meta["Version"] != "2.1.1" or "manylinux" not in wheel:
                     raise ValueError(f"Review libffi attribution for {wheel}")
                 bundled_libffi = True
@@ -194,6 +250,8 @@ def render_notice(files: dict, commit: str | None = None) -> str:
             source_bytes(NOTICES / "libffi-3.4.6.txt", commit).decode("utf-8").strip()
         )
         blocks.append("=== libffi (bundled in CFFI Linux wheels) ===\n" + license_text)
+    for dist_name, notice in sorted(rust_notices.items()):
+        blocks.append(f"=== {dist_name} Rust native license notices ===\n" + notice)
     return "\n\n".join(blocks) + "\n"
 
 

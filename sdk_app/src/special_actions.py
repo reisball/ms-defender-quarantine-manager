@@ -16,9 +16,14 @@ from soar_sdk.types import action_protocol
 
 
 def register_special(
-    app: App, meta: ActionMeta, summary_type: type[ActionOutput], execute: Callable
+    app: App,
+    meta: ActionMeta,
+    summary_type: type[ActionOutput],
+    execute: Callable,
+    *,
+    invalid_asset: Callable | None = None,
 ) -> None:
-    """Keep SDK dispatcher metadata without the fixed-result decorators.
+    """Keep SDK dispatcher metadata and guard validation before handlers run.
 
     Intake must acknowledge the Vault and persist intent *before* an immediate
     linked publication; a buffered yield cannot preserve that ordering. Both
@@ -34,10 +39,22 @@ def register_special(
         try:
             validated = meta.parameters.model_validate({} if params is None else params)
             safe_params = validated.model_dump()
-            config = app.asset if asset is None else asset
-            result = execute(
-                validated, app.soar_client if soar is None else soar, config
-            )
+            try:
+                config = app.asset if asset is None else asset
+            except Exception:
+                # Asset validation may retain decrypted input in an exception.
+                # Do not inspect or attach it. Nothing has been dispatched yet.
+                result = (
+                    invalid_asset(validated)
+                    if invalid_asset is not None
+                    else ActionResult(
+                        False, "Invalid asset configuration.", safe_params
+                    )
+                )
+            else:
+                result = execute(
+                    validated, app.soar_client if soar is None else soar, config
+                )
         except ValidationError:
             result = ActionResult(
                 False, "Invalid action parameters or asset configuration.", safe_params

@@ -103,6 +103,12 @@ results; upstream reads the live registries when available and can fall back
 to bundled snapshots. `static-strict` additionally fails if registration is
 pending. A non-strict pass is not upstream acceptance or native SOAR validation.
 
+The SDK release NOTICE includes separate reviewed Rust attribution for the
+Linux cryptography and pydantic-core wheel pairs, including their exact wheel
+SHA-256s, Cargo source hashes and compiler/runtime license texts. When either
+wheel changes, verify both architectures against the new SBOM and source
+archives, then refresh the matching `*-sdk-rust.txt` before building again.
+
 The historical reference NOTICE is generated from its own hash-locked wheels
 plus pinned notices for OpenSSL, libffi and Rust components.
 The Rust notice records source checksums and distinguishes the all-target
@@ -205,9 +211,9 @@ For each run, record the app/runbook versions and commit, the PowerShell runtime
 SOAR intake and SOAR-proxied ES findings use acknowledged SDK client calls
 instead of decorator buffering because automation must follow the final Vault
 upload and a stored publication checkpoint. The actions use the SDK dispatcher
-with structured summaries rather than the fixed-result poll and connectivity
-decorators. Intake requires a native authenticated SOAR session. It keeps an
+with structured summaries and guarded asset validation. Intake requires a native authenticated SOAR session. It keeps an
 encrypted per-asset ledger in the SDK state directory, separate from deferred
-action state, and verifies each checkpoint from disk before publication.
+action state, and verifies each checkpoint from disk before publication. The
+per-asset poll lock lives in that same state directory.
 The local fixture tests exercise restart and missing-write behavior; storage
 and Vault behavior on an installed SOAR instance still need native validation.

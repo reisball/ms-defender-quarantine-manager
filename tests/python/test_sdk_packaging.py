@@ -15,6 +15,7 @@ import render_sdk_notice as packaging
 import stage_sdk
 
 EPOCH = 1700000000
+CRATE_HASH = "a" * 64
 
 
 def wheel(files, *, year=2024):
@@ -66,6 +67,7 @@ def crypto_wheel(*, openssl="4.0.3"):
                     {
                         "name": "rust-component",
                         "version": "1",
+                        "hashes": [{"alg": "SHA-256", "content": CRATE_HASH}],
                         "licenses": [{"expression": "MIT"}],
                     }
                 ]
@@ -85,6 +87,36 @@ def fixture_tar(path, files, *, reverse=False):
             archive.addfile(record, io.BytesIO(data))
 
 
+def rust_fixture_notice(wheel_name, data):
+    return (
+        f"Wheel SHA-256: {packaging.sha(data)}  {wheel_name}\n"
+        "rust-component 1 (wheel SBOM)\n"
+        "https://static.crates.io/crates/rust-component/rust-component-1.crate\n"
+        f"SHA-256: {CRATE_HASH}\n\nNative copyright text"
+    )
+
+
+def test_rust_notice_rejects_unknown_wheel_or_crate():
+    name = "cryptography-fixture.whl"
+    wheel_bytes = crypto_wheel()
+    notice = rust_fixture_notice(name, wheel_bytes)
+    digest = packaging.sha(wheel_bytes)
+    component = {
+        "name": "rust-component",
+        "version": "1",
+        "hashes": [{"alg": "SHA-256", "content": CRATE_HASH}],
+    }
+    packaging.check_rust_notice(notice, name, digest, [component])
+    with pytest.raises(ValueError, match="Review Rust attribution"):
+        packaging.check_rust_notice(notice, name, "b" * 64, [component])
+    with pytest.raises(ValueError, match="Review source attribution"):
+        packaging.check_rust_notice(
+            notice, name, digest, [dict(component, version="2")]
+        )
+    with pytest.raises(ValueError, match="No Cargo registry inventory"):
+        packaging.check_rust_notice(notice, name, digest, [])
+
+
 def test_archive_normalization_and_notice(tmp_path, monkeypatch):
     project = tmp_path / "project"
     project.mkdir()
@@ -98,6 +130,16 @@ def test_archive_normalization_and_notice(tmp_path, monkeypatch):
     local = "wheels/shared/" + packaging.LOCAL_WHEEL
     crypto = "wheels/shared/cryptography-50.0.2-cp311-abi3-manylinux_2_28_x86_64.whl"
     original_crypto = crypto_wheel()
+    original_source_bytes = packaging.source_bytes
+    monkeypatch.setattr(
+        packaging,
+        "source_bytes",
+        lambda path, commit: (
+            rust_fixture_notice(Path(crypto).name, original_crypto).encode()
+            if path.name == "cryptography-sdk-rust.txt"
+            else original_source_bytes(path, commit)
+        ),
+    )
     files = {
         local: wheel(local_entries(), year=2024),
         crypto: original_crypto,
@@ -120,6 +162,7 @@ def test_archive_normalization_and_notice(tmp_path, monkeypatch):
     assert packaged[crypto] == original_crypto
     assert b"=== OpenSSL 4.0.3" in packaged["NOTICE"]
     assert b"rust-component / 1 / MIT" in packaged["NOTICE"]
+    assert b"Native copyright text" in packaged["NOTICE"]
     assert packaging.sha(packaged[local]).encode() in packaged["NOTICE"]
     with tarfile.open(final_one) as archive:
         assert archive.getmembers()[0].name == packaging.APP

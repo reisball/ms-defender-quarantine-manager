@@ -5,6 +5,7 @@
 
 from contextlib import nullcontext
 from functools import partial
+from pathlib import Path
 
 from soar_sdk.abstract import SOARClient
 from soar_sdk.action_results import ActionOutput, ActionResult
@@ -86,9 +87,10 @@ class _IntakeStateBackend:
     def save_state(self, state: dict) -> None:
         self.manager.save_state_to_file(self.key, state)
 
-
-def _intake_state(manager, asset_id: str) -> AssetState:
-    return AssetState(_IntakeStateBackend(manager, asset_id), "ingest", asset_id)
+    def poll_lock(self):
+        return _execution_lock(
+            "ingest", self.key, parent=Path(self.manager.get_state_dir())
+        )
 
 
 class _LinkedES:
@@ -127,11 +129,22 @@ class _LinkedES:
 
 
 class SDKIntake(NativeIngestionMixin, QuarantineMail):
+    _ingest_separate_request = True
+
     def __init__(
-        self, soar, asset, params, *, state, result, azure_factory=build_azure
+        self,
+        soar,
+        asset,
+        params,
+        *,
+        state,
+        poll_lock,
+        result,
+        azure_factory=build_azure,
     ):
         self.soar = soar
         self.state = state
+        self._poll_lock = poll_lock
         self.result = result
         self.params = params
         self.config = asset.model_dump()
@@ -161,9 +174,7 @@ class SDKIntake(NativeIngestionMixin, QuarantineMail):
         self.config["ingest"] = asset.get("configuration", {}).get("ingest", {})
         self._ingest_runtime.pop("asset_id", None)
         settings = super()._ingest_settings()
-        self._asset_label = self.config["ingest"].get("container_label") or asset.get(
-            "label"
-        )
+        self._asset_label = settings.get("container_label")
         if not isinstance(self._asset_label, str) or not self._asset_label.strip():
             raise AutomationError(
                 "A container label must be configured for native intake."
@@ -185,7 +196,7 @@ class SDKIntake(NativeIngestionMixin, QuarantineMail):
         return super()._ingest_load(state)
 
     def _ingest_poll_lock(self):
-        return _execution_lock("ingest", self.get_asset_id())
+        return self._poll_lock()
 
     def _operation_state_lock(self):
         # The whole poll, including each read/write, is serialized.
@@ -222,7 +233,7 @@ class SDKIntake(NativeIngestionMixin, QuarantineMail):
 
     def save_artifact(self, artifact):
         artifact_id = self.soar.artifact.create(artifact)
-        return bool(artifact_id), "", artifact_id
+        return type(artifact_id) is int and artifact_id > 0, "", artifact_id
 
     def _store_in_vault(self, content, identity, *, container_id, file_name):
         vault_id = self.soar.vault.create_attachment(container_id, content, file_name)
@@ -268,11 +279,13 @@ def register_polling(app: App, *, azure_factory=build_azure) -> None:
             )
         asset_id = _asset_id(soar)
         result = _PollResult(params_dict, es=es)
+        backend = _IntakeStateBackend(app.actions_manager, asset_id)
         intake = SDKIntake(
             soar,
             asset,
             params,
-            state=_intake_state(app.actions_manager, asset_id),
+            state=AssetState(backend, "ingest", asset_id),
+            poll_lock=backend.poll_lock,
             result=result,
             azure_factory=azure_factory,
         )

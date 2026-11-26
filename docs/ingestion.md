@@ -4,7 +4,7 @@
 
 ## How import works
 
-The app imports only messages with Microsoft status `Requested`, meaning a recipient has requested release. There is no source-mode setting; obsolete settings from older versions are ignored. `NotReleased` mail is not imported.
+The app imports only messages with Microsoft status `Requested`, meaning a recipient has requested release. `NotReleased` mail is not imported.
 
 Both targets export and validate the original EML. A MIME or size problem stops publication rather than importing incomplete mail.
 
@@ -23,7 +23,7 @@ Use **one ingesting asset per tenant**. Each asset has its own state, so two ass
 
 Schedule and container label are set in the asset's **Ingest Settings**. Disabling the schedule pauses automatic imports.
 
-On upgrade, existing state is kept. Earlier `needs_review` scopes become Requested-only, published messages are not republished, and unfinished attempts are marked failed rather than replayed.
+The SDK app starts with a fresh per-asset ledger. On the same asset, an interrupted import is marked failed rather than replayed by a scheduled poll.
 
 ## Active-message limit
 
@@ -50,7 +50,7 @@ With `artifact_layout` = `combined`, each message produces **one event and one e
 
 The Vault holds the original EML and all attachments, including inline parts and attached messages. Duplicate filenames get stable prefixes, and path components and control characters are removed. The original EML is always the authoritative copy.
 
-The SOAR `separate` layout still uses Request, file, field and final Ready artifacts. The SOAR artifact layout does not apply to ES findings. Historical artifacts are not rewritten.
+The SOAR `separate` layout creates and confirms the Request artifact before uploading mail or publishing the final Ready artifact. A manual retry that reuses the event must confirm the Request artifact again. The SOAR artifact layout does not apply to ES findings. Historical artifacts are not rewritten.
 
 ### Updating an existing playbook
 

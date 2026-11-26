@@ -2,6 +2,7 @@
 # Licensed under the Apache License, Version 2.0.
 
 import json
+from contextlib import nullcontext
 from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -9,12 +10,14 @@ from unittest.mock import Mock
 import httpx2
 import pytest
 from soar_sdk.app import platform_encryption_backend
+from soar_sdk.asset_state import AssetState
 from soar_sdk.params import OnPollParams
 
 from src.actions import register_actions
 from src.app import Asset, app
 from src.ms_quarantine_for_splunk_soar_ingestion import INGEST_STATE_KEY
-from src.polling import SDKIntake, _intake_state, _PollResult, register_polling
+from src.ms_quarantine_for_splunk_soar_utils import AutomationError
+from src.polling import SDKIntake, _IntakeStateBackend, _PollResult, register_polling
 
 IDENTITY = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\\bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 MAIL = b"From: sender@example.invalid\r\nTo: recipient@example.invalid\r\nSubject: Fixture\r\n\r\nTest\r\n"
@@ -72,7 +75,11 @@ def setup():
         "configuration": {"ingest": {"container_label": "events"}},
     }
 
-    def run(count=0, *, es=False):
+    def run(count=0, *, es=False, layout="combined"):
+        asset.model_dump = lambda: {
+            "azure_tenant_id": "test-tenant",
+            "artifact_layout": layout,
+        }
         params = OnPollParams(container_count=count)
         result = _PollResult(params.model_dump(), es=es)
         SDKIntake(
@@ -80,6 +87,7 @@ def setup():
             asset,
             params,
             state=state,
+            poll_lock=nullcontext,
             result=result,
             azure_factory=lambda _: azure,
         )._run_native_poll(params.model_dump(), require_es=es)
@@ -221,10 +229,21 @@ CONFIG = {
 }
 
 
-def test_bad_asset_validation_never_serializes_inputs(monkeypatch, capsys):
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        "on_poll",
+        "test_connectivity",
+        "inspect_release_environment",
+        "release_quarantine_message",
+        "deny_quarantine_release",
+    ],
+)
+def test_bad_asset_validation_never_serializes_inputs(monkeypatch, capsys, identifier):
     fixture_app = new_app()
     azure = Mock()
     register_polling(fixture_app, azure_factory=azure)
+    register_actions(fixture_app, app_version="1.0.0", azure_factory=azure)
 
     salts = []
     secrets = {
@@ -244,10 +263,13 @@ def test_bad_asset_validation_never_serializes_inputs(monkeypatch, capsys):
         "get",
         Mock(return_value=Mock(**{"json.return_value": {}})),
     )
-    fixture_app.handle(
+    response = fixture_app.handle(
         json.dumps(
             {
-                "identifier": "on_poll",
+                "identifier": identifier,
+                "parameters": [{"identity": IDENTITY}]
+                if identifier not in {"on_poll", "test_connectivity"}
+                else [{}],
                 "asset_id": "938122",
                 "config": {
                     **{k: v for k, v in CONFIG.items() if k != "azure_client_id"},
@@ -265,7 +287,15 @@ def test_bad_asset_validation_never_serializes_inputs(monkeypatch, capsys):
     (result,) = manager.get_results()
     assert not result.get_status()
     assert "asset configuration" in result.get_message()
-    out = result.get_message() + str(result.get_param()) + str(capsys.readouterr())
+    if identifier in {"release_quarantine_message", "deny_quarantine_release"}:
+        assert result.get_summary()["outcome"] == "not_executed"
+        assert result.get_data()[0]["error_code"] == "invalid_asset_configuration"
+    out = (
+        str(response)
+        + result.get_message()
+        + str(result.get_param())
+        + str(capsys.readouterr())
+    )
     assert "webhook-marker" not in out
     assert "client-secret-marker" not in out
     azure.assert_not_called()
@@ -340,6 +370,7 @@ def test_registered_poll_http_and_process_restart(
         calls.append((path, payload))
         if path == "/rest/container":
             assert payload["label"] == "quarantine"
+            assert payload["artifacts"] == []
             assert payload["run_automation"] is False
             return httpx2.Response(200, json={"id": 23})
         if path == "/rest/artifact":
@@ -371,7 +402,9 @@ def test_registered_poll_http_and_process_restart(
     def reader_state():
         reader = new_app().actions_manager
         monkeypatch.setattr(reader, "get_state_dir", lambda: str(tmp_path))
-        return _intake_state(reader, "938122").get_all()
+        return AssetState(
+            _IntakeStateBackend(reader, "938122"), "ingest", "938122"
+        ).get_all()
 
     def dispatch():
         fixture_app = new_app()
@@ -399,6 +432,10 @@ def test_registered_poll_http_and_process_restart(
 
     def vault(cid, content, _name):
         assert (cid, content) == (23, MAIL)
+        if es:
+            assert calls[-1][0] == "/rest/artifact"
+            assert calls[-1][1]["name"] == "Quarantine release request"
+            assert calls[-1][1]["run_automation"] is False
         calls.append(("vault", {}))
         return "test-vault-id"
 
@@ -457,11 +494,13 @@ def test_missing_persistent_checkpoint_is_not_acknowledged(
     monkeypatch.setattr(manager, "get_state_dir", lambda: str(tmp_path))
     monkeypatch.setattr(manager, "save_state_to_file", lambda *_: None)
     params = OnPollParams()
+    backend = _IntakeStateBackend(manager, "938122")
     intake = SDKIntake(
         setup.soar,
         SimpleNamespace(model_dump=lambda: CONFIG),
         params,
-        state=_intake_state(manager, "938122"),
+        state=AssetState(backend, "ingest", "938122"),
+        poll_lock=backend.poll_lock,
         result=_PollResult({}, es=False),
         azure_factory=lambda _: setup.azure,
     )
@@ -470,3 +509,116 @@ def test_missing_persistent_checkpoint_is_not_acknowledged(
     assert "did not persist" in intake.result.result.get_message()
     setup.soar.container.create.assert_not_called()
     setup.soar.artifact.create.assert_not_called()
+
+
+def test_separate_layout_confirms_request_on_container_reuse(setup):
+    request_ids = []
+    request_receipts = iter([0, True, 42])
+
+    def create(artifact):
+        if artifact["name"] == "Quarantine release request":
+            assert artifact["container_id"] == 23
+            assert artifact["run_automation"] is False
+            request_ids.append(artifact["source_data_identifier"])
+            return next(request_receipts)
+        assert len(request_ids) == 3
+        return 99
+
+    setup.soar.artifact.create.side_effect = create
+    for count in (0, 1):
+        result = setup.run(count, layout="separate")
+        assert not result.get_status()
+        assert "did not confirm the Quarantine Request artifact" in result.get_message()
+        setup.soar.vault.create_attachment.assert_not_called()
+    assert setup.run(1, layout="separate").get_status()
+    assert len(request_ids) == 3
+    assert len(set(request_ids)) == 1
+    setup.soar.container.create.assert_called_once()
+    assert setup.soar.container.create.call_args.args[0]["artifacts"] == []
+    assert setup.soar.artifact.create.call_args.args[0]["run_automation"] is True
+
+
+def test_poll_rejects_missing_ingest_label_even_if_top_level_label_exists(setup):
+    setup.soar.get.return_value.json.return_value = {
+        "label": "unrelated",
+        "configuration": {"ingest": {}},
+    }
+    result = setup.run()
+    assert not result.get_status()
+    assert "container label must be configured" in result.get_message()
+    setup.azure.run_action.assert_not_called()
+    setup.soar.container.create.assert_not_called()
+    assert not setup.state.data
+
+
+def test_poll_es_acknowledgement_survives_later_budget_error(setup, monkeypatch):
+    other = IDENTITY.replace("aaaaaaaa", "cccccccc")
+    second = {"Identity": other, "ReleaseStatus": "Requested"}
+    dispatch = setup.azure.run_action.side_effect
+
+    def azure(name, **params):
+        if name == "list":
+            original = dispatch(name)
+            return {"messages": [*original["messages"], second], "count": 2}
+        return dispatch(name, **params)
+
+    setup.azure.run_action.side_effect = azure
+
+    def get(path):
+        data = {
+            "/rest/system_info": {"base_url": "https://soar.example.invalid"},
+            "/rest/asset/938122": {
+                "configuration": {
+                    "ingest": {
+                        "container_label": "quarantine",
+                        "use_es_ingest": True,
+                        "es_security_domain": "threat",
+                    }
+                }
+            },
+        }
+        return Mock(**{"json.return_value": data[path]})
+
+    setup.soar.get.side_effect = get
+
+    def publish(_findings, containers):
+        def expire(self):
+            raise AutomationError("Poll phase time budget exhausted.")
+
+        monkeypatch.setattr(SDKIntake, "_ingest_budget_check", expire)
+        return {
+            "status": "success",
+            "created": 1,
+            "failed": 0,
+            "findings": ["f-1"],
+            "container_ids": containers,
+            "errors": [],
+        }
+
+    setup.soar.create_findings_bulk.side_effect = publish
+    result = setup.run(es=True)
+    assert not result.get_status()
+    assert result.get_summary()["messages_published"] == 1
+    assert result.get_summary()["errors"] == 1
+    assert "Acknowledged 1 linked ES finding(s)" in result.get_message()
+    assert "time budget exhausted" in result.get_message()
+    setup.soar.create_findings_bulk.assert_called_once()
+
+
+def test_distinct_worker_temp_dirs_contend_on_same_ledger_lock(tmp_path, monkeypatch):
+    shared = tmp_path / "state"
+    workers = [new_app().actions_manager for _ in range(2)]
+    for manager in workers:
+        monkeypatch.setattr(manager, "get_state_dir", lambda: str(shared))
+    first, second = (_IntakeStateBackend(m, "938122") for m in workers)
+    monkeypatch.setattr("src.actions.gettempdir", lambda: str(tmp_path / "first"))
+    with first.poll_lock():
+        monkeypatch.setattr("src.actions.gettempdir", lambda: str(tmp_path / "second"))
+        with pytest.raises(BlockingIOError), second.poll_lock():
+            pytest.fail("Second worker should not acquire the same ledger lock")
+        with _IntakeStateBackend(workers[1], "938123").poll_lock():
+            pass
+    with second.poll_lock():
+        pass
+    assert not (tmp_path / "first").exists()
+    assert not (tmp_path / "second").exists()

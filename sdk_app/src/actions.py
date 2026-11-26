@@ -525,11 +525,14 @@ def _inspect(
 
 
 @contextmanager
-def _execution_lock(namespace: str, resource: str) -> Iterator[None]:
+def _execution_lock(
+    namespace: str, resource: str, *, parent: Path | None = None
+) -> Iterator[None]:
     """Use a private process-held lock on the shared local execution host."""
     uid = os.geteuid()
-    directory = Path(gettempdir()) / f"msq-soar-{namespace}-{uid}"
-    directory.mkdir(mode=0o700, exist_ok=True)
+    root = Path(gettempdir()) if parent is None else parent
+    directory = root / f"msq-soar-{namespace}-{uid}"
+    directory.mkdir(mode=0o700, exist_ok=True, parents=True)
     dir_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         info = os.fstat(dir_fd)
@@ -765,40 +768,58 @@ def register_actions(
         test_connectivity,
     )
 
-    # The SDK uses output_class to emit the schema when the handler omits a
-    # return annotation. Its result adapter accepts ActionResult, preserving
-    # structured data and summary on failures as well as successes.
-    @app.action(
-        description="Read-only inspection of the runbook, Exchange cmdlets and one exact quarantine identity; tenant RBAC diagnostics require opt-in",
-        verbose="Checks the exact quarantine identity without releasing or denying it. Set include_rbac=true to also inspect tenant role contracts and relevant role-group membership.",
-        action_type="investigate",
-        read_only=True,
-        output_class=InspectReleaseEnvironmentOutput,
-        summary_type=InspectSummary,
+    register_special(
+        app,
+        ActionMeta(
+            action="inspect release environment",
+            identifier="inspect_release_environment",
+            description="Read-only inspection of the runbook, Exchange cmdlets and one exact quarantine identity; tenant RBAC diagnostics require opt-in",
+            verbose="Checks the exact quarantine identity without releasing or denying it. Set include_rbac=true to also inspect tenant role contracts and relevant role-group membership.",
+            type="investigate",
+            read_only=True,
+            parameters=InspectReleaseEnvironmentParams,
+            output=InspectReleaseEnvironmentOutput,
+        ),
+        InspectSummary,
+        lambda params, _soar, asset: _inspect(params, asset, azure_factory),
     )
-    def inspect_release_environment(
-        params: InspectReleaseEnvironmentParams, asset: BaseAsset
-    ):
-        return _inspect(params, asset, azure_factory)
 
-    @app.action(
-        description="Release a quarantined message to all original recipients",
-        verbose="Submits at most one job for an exact quarantine identity. Success requires Exchange to confirm Released. A timeout does not cancel the job; inspect unknown or pending outcomes before attempting another disposition.",
-        action_type="correct",
-        read_only=False,
-        output_class=ReleaseQuarantineMessageOutput,
-        summary_type=DispositionSummary,
-    )
-    def release_quarantine_message(params: DispositionParams, asset: BaseAsset):
-        return _dispose(params, asset, "release", azure_factory)
+    def register_disposition(operation, name, description, output):
+        register_special(
+            app,
+            ActionMeta(
+                action=name,
+                identifier=name.replace(" ", "_"),
+                description=description,
+                verbose=f"Submits at most one job for an exact quarantine identity. Success requires Exchange to confirm {'Released' if operation == 'release' else 'Denied'}. A timeout does not cancel the job; inspect unknown or pending outcomes before attempting another disposition.",
+                type="correct",
+                read_only=False,
+                parameters=DispositionParams,
+                output=output,
+            ),
+            DispositionSummary,
+            lambda params, _soar, asset: _dispose(
+                params, asset, operation, azure_factory
+            ),
+            invalid_asset=lambda params: _disposition_failure(
+                params,
+                operation,
+                "",
+                "not_executed",
+                "invalid_asset_configuration",
+                "Invalid asset configuration. No job was submitted.",
+            ),
+        )
 
-    @app.action(
-        description="Deny a user's request to release a quarantined message",
-        verbose="Submits at most one job for an exact quarantine identity. Success requires Exchange to confirm Denied. A timeout does not cancel the job; inspect unknown or pending outcomes before attempting another disposition.",
-        action_type="correct",
-        read_only=False,
-        output_class=DenyQuarantineReleaseOutput,
-        summary_type=DispositionSummary,
+    register_disposition(
+        "release",
+        "release quarantine message",
+        "Release a quarantined message to all original recipients",
+        ReleaseQuarantineMessageOutput,
     )
-    def deny_quarantine_release(params: DispositionParams, asset: BaseAsset):
-        return _dispose(params, asset, "deny", azure_factory)
+    register_disposition(
+        "deny",
+        "deny quarantine release",
+        "Deny a user's request to release a quarantined message",
+        DenyQuarantineReleaseOutput,
+    )
