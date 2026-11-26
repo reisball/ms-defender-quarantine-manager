@@ -4,9 +4,9 @@ When a recipient requests release of a quarantined email, this app imports the m
 
 ## Configure the asset
 
-Use Splunk SOAR 8.7 or later with Python 3.13. Publish the matching [Azure Automation runbook](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#1-configure-azure-automation) before configuring the asset.
+Use Splunk SOAR 8.7 or later with Python 3.13. Publish the matching [Azure Automation runbook](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#5-publish-the-runbook-and-create-the-webhook) before configuring the asset.
 
-The Automation Account’s **managed identity** connects to Exchange Online and needs [quarantine permissions](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#2-grant-exchange-permissions). The separate **Entra app registration** configured below only [reads Azure job status and output](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#3-configure-azure-job-access). The webhook starts the runbook.
+The Automation Account’s **managed identity** connects to Exchange Online and needs [quarantine permissions](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#2-grant-exchange-permissions). The separate **Entra app registration** configured below only [reads Azure job status and output](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#3-reuse-or-create-an-azure-job-reader-role). The webhook starts the runbook.
 
 | Asset field | What to enter |
 |---|---|
@@ -18,7 +18,7 @@ The Automation Account’s **managed identity** connects to Exchange Online and 
 | `azure_client_id` | Application (client) ID of the Entra app registration. |
 | `azure_client_secret` | Client secret **value**, not its ID. |
 
-Leave **Exchange organization** blank to use the runbook’s `ExchangeOrganization` variable, or enter the Exchange tenant domain. The active-message limit controls how many unresolved messages the asset can track; it is not a per-poll limit. Artifact layout and mail-field options control how metadata appears in the SOAR event. Azure job interval and timeout control the wait for the runbook, not the import schedule. See [all optional settings and defaults](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#optional-asset-fields).
+Set the Exchange tenant domain in **Exchange organization** or in the Automation Account’s `ExchangeOrganization` variable; one is required. The active-message limit controls how many unresolved messages the asset can track; it is not a per-poll limit. Artifact layout and mail-field options control how metadata appears in the SOAR event. Azure job interval and timeout control the wait for the runbook, not the import schedule. See [all optional settings and defaults](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#optional-asset-fields).
 
 ## Verify the first import
 

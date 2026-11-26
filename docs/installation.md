@@ -7,38 +7,46 @@
 - Splunk SOAR 8.7.0 or later with Python 3.13 and native execution.
 - An Azure Automation Account with a PowerShell 7.4 runtime environment and the `ExchangeOnlineManagement` module installed in that environment.
 - The Automation Account’s **system-assigned managed identity** runs the quarantine commands in Exchange Online. See [Grant Exchange permissions](#2-grant-exchange-permissions).
-- A separate **Microsoft Entra app registration** lets SOAR read Azure Automation job status and output. See [Configure Azure job access](#3-configure-azure-job-access).
+- A separate **Microsoft Entra app registration** lets SOAR read Azure Automation job status and output. See [Register the Microsoft Entra app](#4-register-the-microsoft-entra-app).
 
 ## Install order
 
-Publish the runbook first, then install the SOAR app from the same release. See the [compatibility matrix](compatibility.md) before enabling intake.
+### 1. Configure Azure Automation
 
-## 1. Configure Azure Automation
+Create or select an Automation Account. Under **Identity → System assigned**, enable the managed identity if it is not already enabled. Azure creates the identity for this account; do not create it separately.
 
-1. Enable the Automation Account’s system-assigned managed identity.
-2. Import `ms-defender-quarantine-manager-runbook-<version>.ps1`, select the PowerShell 7.4 runtime with `ExchangeOnlineManagement`, and publish the runbook.
-3. Create a webhook for the runbook and save its HTTPS URL securely. Azure displays it only once.
-
-## 2. Grant Exchange permissions
+### 2. Grant Exchange permissions
 
 Grant the Automation Account’s managed identity the `Exchange.ManageAsApp` application role for app-only sign-in. Then add its Exchange service principal to a role group that allows it to list and export quarantined messages and to release messages or deny release requests. Sign-in permission alone does not grant quarantine access.
 
 See Microsoft’s [managed identity setup](https://learn.microsoft.com/en-us/powershell/exchange/connect-exo-powershell-managed-identity), [role group assignment](https://learn.microsoft.com/en-us/powershell/exchange/app-only-auth-powershell-v2#option-2-assign-custom-role-groups-to-the-application-using-service-principals), and [quarantine permissions](https://learn.microsoft.com/en-us/defender-office-365/scc-permissions).
 
-## 3. Configure Azure job access
+### 3. Reuse or create an Azure job-reader role
 
-Create a Microsoft Entra app registration with a client secret. Assign its service principal a [custom Azure RBAC role](https://learn.microsoft.com/en-us/azure/role-based-access-control/custom-roles) scoped to the **Automation Account**, with exactly these Actions and no DataActions:
+Reuse a role with exactly these Actions and no DataActions. If there is no matching role, [create a custom Azure RBAC role](https://learn.microsoft.com/en-us/azure/role-based-access-control/custom-roles):
 
 - `Microsoft.Automation/automationAccounts/jobs/read` — read job status.
 - `Microsoft.Automation/automationAccounts/jobs/output/read` — read job output.
 
-The webhook starts jobs. The app registration only reads them; it does not need Automation Job Operator. See [Security](security.md) for inherited access and shared-account risks.
+### 4. Register the Microsoft Entra app
 
-## 4. Install the app and create an asset
+Create an app registration and a client secret. Assign the job-reader role to the app’s service principal **at the Automation Account scope**. The app registration reads jobs; the webhook starts them. See [Security](security.md) for effective access and shared-account risks.
 
-Install `ms-defender-quarantine-manager-<version>.tgz` in SOAR and create a new asset. Fill in the fields below, then run **Test Connectivity**. It verifies Azure job access and reads messages with release requests; it does not release mail.
+### 5. Publish the runbook and create the webhook
 
-### Required asset fields
+Import and publish `ms-defender-quarantine-manager-runbook-<version>.ps1` using PowerShell 7.4 with `ExchangeOnlineManagement`. Create a webhook for the published runbook and save its full HTTPS URL securely. Azure displays it only once.
+
+Set the Exchange tenant domain either in the SOAR asset’s `exchange_organization` field or in the Automation Account’s `ExchangeOrganization` variable. If both are unset, the runbook cannot connect to Exchange.
+
+### 6. Install the app in Splunk SOAR
+
+Install `ms-defender-quarantine-manager-<version>.tgz` from the same release as the runbook. See the [version pairs](compatibility.md).
+
+### 7. Create and test the SOAR asset
+
+Fill in the fields below, then run **Test Connectivity**. It verifies Azure job access and reads messages with release requests; it does not release mail.
+
+#### Required asset fields
 
 | Field | What to enter |
 |---|---|
@@ -47,10 +55,10 @@ Install `ms-defender-quarantine-manager-<version>.tgz` in SOAR and create a new 
 | `azure_resource_group` | Name of the resource group containing the Automation Account. |
 | `azure_automation_account` | Name of the Automation Account. |
 | `azure_tenant_id` | Entra directory (tenant) ID as a UUID, not a domain name. |
-| `azure_client_id` | Application (client) ID of the Entra app registration from step 3. |
+| `azure_client_id` | Application (client) ID of the Entra app registration from step 4. |
 | `azure_client_secret` | Client secret **value**, not the secret ID. |
 
-### Optional asset fields
+#### Optional asset fields
 
 | Field | What it controls |
 |---|---|
@@ -62,7 +70,7 @@ Install `ms-defender-quarantine-manager-<version>.tgz` in SOAR and create a new 
 | `poll_timeout_seconds` | Maximum wait for an Azure job: 600–3600 seconds, default 600. |
 | `poll_interval_seconds` | Time between Azure job status checks: 1–60 seconds, default 5. This is separate from the SOAR import schedule. |
 
-## 5. Configure ingestion
+## Configure ingestion
 
 ### SOAR ingest
 
