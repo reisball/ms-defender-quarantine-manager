@@ -605,6 +605,62 @@ def test_poll_es_acknowledgement_survives_later_budget_error(setup, monkeypatch)
     setup.soar.create_findings_bulk.assert_called_once()
 
 
+@pytest.mark.parametrize("persisted", [False, True])
+def test_poll_es_counts_receipt_even_when_completion_save_raises(
+    setup, monkeypatch, persisted
+):
+    setup.soar.get.side_effect = lambda path: Mock(
+        **{
+            "json.return_value": {
+                "/rest/system_info": {"base_url": "https://soar.example.invalid"},
+                "/rest/asset/938122": {
+                    "configuration": {
+                        "ingest": {
+                            "container_label": "quarantine",
+                            "use_es_ingest": True,
+                            "es_security_domain": "threat",
+                        }
+                    },
+                },
+            }[path]
+        }
+    )
+    setup.soar.create_findings_bulk.return_value = {
+        "status": "success",
+        "created": 1,
+        "failed": 0,
+        "findings": ["f-1"],
+        "container_ids": [23],
+        "errors": [],
+    }
+
+    save = setup.state.put_all
+
+    def save_checkpoint(data):
+        records = data.get(INGEST_STATE_KEY, {}).get("records", {})
+        if any(row["status"] == "completed" for row in records.values()):
+            if persisted:
+                save(data)
+            raise AutomationError("Synthetic completion checkpoint error.")
+        save(data)
+
+    monkeypatch.setattr(setup.state, "put_all", save_checkpoint)
+    result = setup.run(es=True)
+
+    assert not result.get_status()
+    assert "Synthetic completion checkpoint error" in result.get_message()
+    assert result.get_summary()["errors"] == 1
+    assert result.get_summary()["messages_published"] == 1
+    assert result.get_summary()["failed_imports"] == int(not persisted)
+    assert "Acknowledged 1 linked ES finding(s)" in result.get_message()
+    (row,) = setup.state.data[INGEST_STATE_KEY]["records"].values()
+    assert row["status"] == ("completed" if persisted else "failed")
+    assert row["publication_started"] is True
+    if persisted:
+        assert row["finding_id"] == "f-1"
+    setup.soar.create_findings_bulk.assert_called_once()
+
+
 def test_distinct_worker_temp_dirs_contend_on_same_ledger_lock(tmp_path, monkeypatch):
     shared = tmp_path / "state"
     workers = [new_app().actions_manager for _ in range(2)]

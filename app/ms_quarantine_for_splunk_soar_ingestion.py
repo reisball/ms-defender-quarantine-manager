@@ -641,7 +641,7 @@ class NativeIngestionMixin:
             row["_es_payload"] = client.prepare_bulk_payload({"findings": [finding], "container_ids": [row["container_id"]]})
         return row
 
-    def _ingest_publish(self, key, row):
+    def _ingest_publish(self, key, row, *, on_es_receipt):
         # Persist intent before the first request that may start automation.
         # A lost receipt/state save cannot trigger automatic re-publication.
         payload = row.get("_es_payload")
@@ -677,6 +677,8 @@ class NativeIngestionMixin:
                 or not response["findings"][0]
             ):
                 raise AutomationError("Native ES did not confirm one linked finding.")
+            # The remote acknowledgement is independent of the local checkpoint.
+            on_es_receipt()
             return self._ingest_update(key, status="completed", finding_id=response["findings"][0], last_error="")
         email_artifact = row.get("email_artifact")
         if email_artifact:
@@ -747,6 +749,10 @@ class NativeIngestionMixin:
                     "candidate_window": POLL_CANDIDATE_WINDOW,
                     "results_may_be_truncated": len(messages) >= POLL_CANDIDATE_WINDOW,
                 }
+
+                def count_es_receipt():
+                    summary["messages_published"] += 1
+
                 if not intake_blocked and (bool(retry_ids) or active < self._on_poll_max_containers):
                     # Prefer already-counted explicit retries over new candidates.
                     messages.sort(key=lambda m: self._worker_identity_key(m["Identity"].strip().lower(), self.get_asset_id()) not in retry_ids)
@@ -770,9 +776,11 @@ class NativeIngestionMixin:
                         attempts += 1
                         try:
                             prepared = self._ingest_prepare(key, row)
-                            self._ingest_publish(key, prepared)
+                            self._ingest_publish(key, prepared, on_es_receipt=count_es_receipt)
                             created += 1
-                            summary.update(containers_created=created, messages_published=created)
+                            summary["containers_created"] = created
+                            if self._ingest_target != "es":
+                                summary["messages_published"] = created
                         except Exception as exc:
                             reason = self._ingest_error(exc)
                             current = self._ingest_records()[key]
