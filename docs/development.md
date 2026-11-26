@@ -119,7 +119,7 @@ python3 tools/render_readme.py --check
 
 Edit `tools/render_readme.py` or the manifest, never the generated `app/readme.html`. Never change the app UUID.
 
-Publish release notes in [GitHub Releases](https://github.com/reisball/ms-quarantine-for-splunk-soar/releases), not a changelog file. Write them from the merged pull requests since the previous release, with separate `App` and `Runbook` sections (`No changes` if unchanged), and check them against the release diff.
+Publish release notes in [GitHub Releases](https://github.com/reisball/ms-defender-quarantine-manager/releases), not a changelog file. Write them from the merged pull requests since the previous release, with separate `App` and `Runbook` sections (`No changes` if unchanged), and check them against the release diff.
 
 With every version change, update the [compatibility matrix](compatibility.md). Add only pairs backed by evidence, with source identity, validation scope and restrictions. Use **not verified** when evidence is missing and **incompatible** only for a documented mismatch. Keep the source-qualified baseline rows.
 
@@ -163,4 +163,4 @@ The 24 MiB EML cap is conservative because local tests cannot measure memory in 
 
 Verify all Azure job streams contain no readable EML, the aggregate Job Output API returns the full encrypted stream, and the installed SOAR package decrypts it on the supported interpreter. Use synthetic mail.
 
-For each run, record the app/runbook versions and commit, the PowerShell runtime and module versions, the job ID and timestamps, the size, chunk count and SHA-256, and peak memory if available. Never record webhook URLs, tokens or mail content. Keep 24 MiB only if the exact-boundary runs stay below the limit with a reserve. Otherwise, propose a lower cap or a Hybrid Runbook Worker approach. Attach sanitized evidence to [#18](https://github.com/reisball/ms-quarantine-for-splunk-soar/issues/18).
+For each run, record the app/runbook versions and commit, the PowerShell runtime and module versions, the job ID and timestamps, the size, chunk count and SHA-256, and peak memory if available. Never record webhook URLs, tokens or mail content. Keep 24 MiB only if the exact-boundary runs stay below the limit with a reserve. Otherwise, propose a lower cap or a Hybrid Runbook Worker approach. Attach sanitized evidence to [#18](https://github.com/reisball/ms-defender-quarantine-manager/issues/18).

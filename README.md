@@ -52,7 +52,7 @@ permissions and [Operation](docs/operations.md) for how outcomes are confirmed.
 | Identities, TLS and quarantined content | [Security](docs/security.md) |
 | Building, testing and releasing | [Development and release](docs/development.md) |
 
-The installed app also includes a quick start and troubleshooting guidance on its **Documentation** page ([HTML help](app/readme.html)). Release notes are published in [GitHub Releases](https://github.com/reisball/ms-quarantine-for-splunk-soar/releases).
+The installed app also includes a quick start and troubleshooting guidance on its **Documentation** page ([HTML help](app/readme.html)). Release notes are published in [GitHub Releases](https://github.com/reisball/ms-defender-quarantine-manager/releases).
 
 ## Support and contributing
 

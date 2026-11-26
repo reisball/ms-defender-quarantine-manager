@@ -81,7 +81,7 @@ imports. Restoring older state can roll back import records. Never clear app
 state to force a retry.</p>
 <p>Do not share webhook URLs, secrets or quarantined mail in support reports.
 Include app and runbook versions, the action error and any known Azure job ID.</p>
-<p><a href="https://github.com/reisball/ms-quarantine-for-splunk-soar#documentation">Full documentation</a>.</p>
+<p><a href="https://github.com/reisball/ms-defender-quarantine-manager#documentation">Full documentation</a>.</p>
 </body></html>
 """
 

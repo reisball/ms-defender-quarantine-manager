@@ -49,7 +49,7 @@ def test_shipped_help_matches_current_manifest_and_required_fields():
     assert "Quick start" in prose
     assert "Available actions" not in prose
     assert "azure_client_secret" not in prose
-    assert "https://github.com/reisball/ms-quarantine-for-splunk-soar#documentation" in parsed.links
+    assert "https://github.com/reisball/ms-defender-quarantine-manager#documentation" in parsed.links
     assert not parsed.forbidden
 
 
