@@ -4,7 +4,7 @@
 
 ## Requirements
 
-- Splunk SOAR 8.7.0 or later with Python 3.13 and native execution. Intake requires authenticated access to the local SOAR REST API. Automation Broker is not supported.
+- Splunk SOAR 8.7.0 or later with Python 3.13 and native execution.
 - An Azure Automation Account with a PowerShell 7.4 runtime environment and the `ExchangeOnlineManagement` module installed in that environment.
 - The Automation Account’s **system-assigned managed identity** runs the quarantine commands in Exchange Online. See [Grant Exchange permissions](#2-grant-exchange-permissions).
 - A separate **Microsoft Entra app registration** lets SOAR read Azure Automation job status and output. See [Configure Azure job access](#3-configure-azure-job-access).
