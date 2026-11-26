@@ -26,6 +26,7 @@ from .ms_quarantine_for_splunk_soar_utils import (
     DIAGNOSTIC_RBAC_PARTIAL_ERROR_CODE,
     AutomationError,
     JobFailedError,
+    JobSubmissionRejected,
     JobTimeoutError,
     MSQuarantineForSplunkSOARUtils,
     RunbookActionError,
@@ -548,6 +549,8 @@ def _run_disposition(
         job_id = azure.start_job(action, identity=identity)
         logger.progress(f"Waiting for Azure Automation action={action} result.")
         output = azure.wait_for_action_result(job_id, action=action, identity=identity)
+    except JobSubmissionRejected as exc:
+        return _disposition_failure(params, action, identity, "not_executed", "azure_submission_rejected", _map_error(azure, exc, action))
     except AutomationError as exc:
         # The transport has already validated error envelopes and their requested identity.
         raw_data = exc.result if isinstance(exc, RunbookActionError) else {}

@@ -65,11 +65,14 @@ See also: [App and runbook version pairs](compatibility.md).
 
 Fill in the fields below, then run **Test Connectivity**. It verifies Azure job access and reads messages with release requests; it does not release mail.
 
-#### Required asset fields
+#### Runbook start fields
+
+Select **Runbook start method**. For **Webhook** (the default), enter the **HTTPS Webhook URL (with token)**. For **Azure REST API**, enter the **Published runbook name (Azure REST API)** and leave the webhook URL blank.
+
+#### Required asset fields (both methods)
 
 | Field | What to enter |
 |---|---|
-| HTTPS Webhook URL (with token) | Full HTTPS webhook URL for the published runbook, including its token. HTTP and redirects are rejected. |
 | Subscription ID (Azure Automation Account) | Subscription ID of the Automation Account. |
 | Resource Group Name (Azure Automation Account) | Name of the resource group containing the Automation Account. |
 | Automation Account Name | Name of the Automation Account. |

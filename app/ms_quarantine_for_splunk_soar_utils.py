@@ -339,6 +339,10 @@ class WebhookError(AutomationError):
     pass
 
 
+class JobSubmissionRejected(AutomationError):
+    """Azure explicitly rejected authorization before starting a job."""
+
+
 class JobTimeoutError(AutomationError):
     """Raised when job polling exceeds the configured timeout."""
 
@@ -408,7 +412,7 @@ class MSQuarantineForSplunkSOARUtils:
     Handles all communication with Azure Automation on behalf of the connector.
 
     Flow for each action:
-        1. fire_webhook()   → returns job_id
+        1. start_job()      → returns job_id
         2. poll_job()       → waits until terminal state
         3. get_job_output() → returns parsed JSON result from Write-Output
     """
@@ -435,6 +439,13 @@ class MSQuarantineForSplunkSOARUtils:
         )
         self.selection_release_status = "Requested"
         self._webhook_url = validate_webhook_url(webhook_url) if runbook_name is None else None
+        if runbook_name is not None:
+            if not GUID_RE.fullmatch(subscription_id):
+                raise ValueError("Azure subscription ID must be a UUID for REST job start.")
+            if not re.fullmatch(r"[\w().-]{1,90}", resource_group) or resource_group.endswith("."):
+                raise ValueError("Azure resource group name is invalid for REST job start.")
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{4,48}[A-Za-z0-9]", automation_account):
+                raise ValueError("Azure Automation Account name is invalid for REST job start.")
         self._runbook_name = runbook_name
         self._tenant_id = tenant_id
         self._client_id = client_id
@@ -551,9 +562,13 @@ class MSQuarantineForSplunkSOARUtils:
                 },
                 timeout=timeout,
                 verify=True,
+                allow_redirects=False,
             )
         except requests.exceptions.RequestException as exc:
             raise TokenError(self._transport_error_message("Token request failed", exc)) from exc
+
+        if 300 <= response.status_code < 400:
+            raise TokenError(f"Azure AD token request returned HTTP {response.status_code}; redirects are not followed.")
 
         if not response.ok:
             try:
@@ -607,7 +622,7 @@ class MSQuarantineForSplunkSOARUtils:
         body = self._job_input(action, identity, page_size, include_rbac, output_public_key)
         headers = self._mgmt_headers()
         job_id = str(uuid4())
-        url = self._job_url(job_id).replace(f"api-version={MGMT_API_VERSION}", "api-version=2024-10-23")
+        url = self._job_url(job_id, api_version="2024-10-23")
         try:
             with self._session.put(
                 url,
@@ -615,13 +630,18 @@ class MSQuarantineForSplunkSOARUtils:
                 json={"properties": {"runbook": {"name": self._runbook_name}, "parameters": {"RequestJson": json.dumps(body)}}},
                 timeout=30,
                 allow_redirects=False,
+                stream=True,
             ) as response:
+                if response.status_code in (401, 403):
+                    raise JobSubmissionRejected(f"Azure refused REST job submission (HTTP {response.status_code}). Check the Entra app registration and its job-start permission.")
                 if response.status_code not in (200, 201, 202):
                     raise AutomationError(f"Azure REST job submission returned HTTP {response.status_code}. Check job history before retrying.")
         except requests.exceptions.RequestException:
             error = AutomationError("Azure REST job submission could not be confirmed. Check job history before retrying.")
             error.job_id = job_id
             raise error from None
+        except JobSubmissionRejected:
+            raise
         except AutomationError as error:
             error.job_id = job_id
             raise
@@ -706,25 +726,21 @@ class MSQuarantineForSplunkSOARUtils:
     # Job polling
     # -----------------------------------------------------------------------
 
-    def _job_url(self, job_id: str) -> str:
-        """Build the Management API URL for a specific job."""
-        path = JOB_API_PATH.format(
-            subscription_id=self._subscription_id,
-            resource_group=self._resource_group,
-            automation_account=self._automation_account,
-            job_id=job_id,
+    def _job_path(self, job_id: str, template: str) -> str:
+        return template.format(
+            subscription_id=quote(self._subscription_id, safe=""),
+            resource_group=quote(self._resource_group, safe=""),
+            automation_account=quote(self._automation_account, safe=""),
+            job_id=quote(job_id, safe=""),
         )
-        return f"{MGMT_BASE}{path}?api-version={MGMT_API_VERSION}"
+
+    def _job_url(self, job_id: str, *, api_version: str = MGMT_API_VERSION) -> str:
+        """Build the Management API URL for a specific job."""
+        return f"{MGMT_BASE}{self._job_path(job_id, JOB_API_PATH)}?api-version={api_version}"
 
     def _job_output_url(self, job_id: str) -> str:
         """Build the Management API URL for a job's output."""
-        path = JOB_OUTPUT_API_PATH.format(
-            subscription_id=self._subscription_id,
-            resource_group=self._resource_group,
-            automation_account=self._automation_account,
-            job_id=job_id,
-        )
-        return f"{MGMT_BASE}{path}?api-version={MGMT_API_VERSION}"
+        return f"{MGMT_BASE}{self._job_path(job_id, JOB_OUTPUT_API_PATH)}?api-version={MGMT_API_VERSION}"
 
     def _mgmt_headers(self, deadline=None) -> dict:
         """Return headers, including any token acquisition in the wait budget."""

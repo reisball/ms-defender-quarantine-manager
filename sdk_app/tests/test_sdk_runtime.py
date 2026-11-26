@@ -5,10 +5,11 @@ import json
 from contextlib import nullcontext
 from copy import deepcopy
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import httpx2
 import pytest
+import requests
 from soar_sdk.app import platform_encryption_backend
 from soar_sdk.asset_state import AssetState
 from soar_sdk.params import OnPollParams
@@ -771,3 +772,44 @@ def test_sdk_inspect_requires_observed_status(observed_status):
     handler = fixture_app.actions_manager.get_action("inspect_release_environment")
     fixture_app.actions_manager.add_result = Mock()
     assert bool(handler(handler.meta.parameters(identity=IDENTITY), asset=object())) == bool(observed_status)
+
+@pytest.mark.parametrize("scenario", ["confirmed", "rejected", "timeout"])
+def test_rest_asset_without_webhook_dispatches_and_preserves_job_evidence(monkeypatch, tmp_path, scenario):
+    fixture_app = new_app()
+    from src.actions import build_azure
+    from src.ms_quarantine_for_splunk_soar_utils import MSQuarantineForSplunkSOARUtils
+
+    config = {key: value for key, value in CONFIG.items() if key != "webhook_url"}
+    config.update(
+        runbook_start_method="rest", runbook_name="published",
+        azure_subscription_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        azure_tenant_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    )
+    http = MagicMock()
+    http.post.return_value.status_code = 200
+    http.post.return_value.json.return_value = {"access_token": "synthetic-token"}
+    http.put.return_value.__enter__.return_value.status_code = 403 if scenario == "rejected" else 201
+    if scenario == "timeout":
+        http.put.side_effect = requests.Timeout()
+    monkeypatch.setattr("src.ms_quarantine_for_splunk_soar_utils._AzureSession", lambda: http)
+    monkeypatch.setattr("src.actions.gettempdir", lambda: str(tmp_path))
+    poll = Mock(return_value={"status": "released", "observed_release_status": "released"})
+    monkeypatch.setattr(MSQuarantineForSplunkSOARUtils, "wait_for_action_result", poll)
+    register_actions(fixture_app, app_version="1.1.0", azure_factory=build_azure)
+    monkeypatch.setattr(fixture_app, "_raw_asset_config", config, raising=False)
+    manager = fixture_app.actions_manager
+    manager.action_identifier = "release_quarantine_message"
+    manager.handle_action({"identity": IDENTITY})
+    (result,) = manager.get_results()
+    http.put.assert_called_once()
+    uuid = http.put.call_args.args[0].split("/jobs/", 1)[1].split("?", 1)[0]
+    summary = result.get_summary()
+    if scenario == "confirmed":
+        assert result.get_status()
+        poll.assert_called_once_with(uuid, action="release", identity=IDENTITY)
+        assert summary["azure_job_id"] == uuid
+    else:
+        assert not result.get_status()
+        poll.assert_not_called()
+        assert summary["outcome"] == ("not_executed" if scenario == "rejected" else "unknown")
+        assert (summary.get("azure_job_id") or "") == ("" if scenario == "rejected" else uuid)
