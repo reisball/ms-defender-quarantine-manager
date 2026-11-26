@@ -87,7 +87,12 @@ def test_manifest_disposition_result_matches_generated_runbook(action, identifie
     declaration = next(a for a in MANIFEST["actions"] if a["identifier"] == identifier)
     paths = {d["data_path"]: d for d in declaration["output"]}
     assert len(paths) == len(declaration["output"])
-    assert not paths.keys() - observed.keys()
+    # SOAR adds these action-level counters; the connector only emits
+    # action_result.* paths. Verify their declarations separately from fixtures.
+    platform_counters = {"summary.total_objects", "summary.total_objects_successful"}
+    assert platform_counters <= paths.keys()
+    assert all(paths[path]["data_type"] == "numeric" for path in platform_counters)
+    assert not paths.keys() - platform_counters - observed.keys()
     assert paths["action_result.data.*.outcome"]["column_order"] == 1
     stable_example_fields = {"outcome", "status", "last_job_status", "observed_release_status", "runbook_version"}
     for path, entry in paths.items():

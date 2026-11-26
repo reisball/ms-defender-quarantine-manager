@@ -1,7 +1,7 @@
 # Copyright 2026 Kai Seidenschnur
 # Licensed under the Apache License, Version 2.0.
 #
-# MS Quarantine for Splunk SOAR – Splunk SOAR Connector (Azure Automation)
+# MS Defender Quarantine Manager - Splunk SOAR Connector (Azure Automation)
 # ================================================================
 #
 # Manages Microsoft Defender quarantined emails via Azure Automation.
@@ -13,45 +13,41 @@
 #   Vault API:
 #     https://docs.splunk.com/Documentation/SOAR/current/PlaybookAPI/VaultAPI
 
-import base64
-from contextlib import contextmanager, ExitStack
-from datetime import datetime, timezone
-from email import policy
-from email.parser import BytesParser
-from email.utils import getaddresses, parsedate_to_datetime
 import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import stat
 import tempfile
+from contextlib import ExitStack, contextmanager
+from datetime import datetime, timezone
+from email import policy
+from email.parser import BytesParser
+from email.utils import getaddresses, parsedate_to_datetime
+from pathlib import Path
 
 import phantom.app as phantom
-
 from phantom.action_result import ActionResult
 from phantom.base_connector import BaseConnector
-from ms_quarantine_for_splunk_soar_ingestion import NativeIngestionMixin
 
+from ms_quarantine_for_splunk_soar_ingestion import NativeIngestionMixin
 from ms_quarantine_for_splunk_soar_utils import (
-    MSQuarantineForSplunkSOARUtils,
-    AutomationError,
-    normalize_exchange_connection_settings,
-    validate_webhook_url,
-    TokenError,
-    WebhookError,
-    JobTimeoutError,
-    JobFailedError,
-    RunbookActionError,
-    OversizedExportError,
-    MAX_DECODED_EML_BYTES,
-    MAX_INLINE_DECODED_EML_BYTES,
     DIAGNOSTIC_RBAC_NOT_EVALUATED_ERROR_CODE,
     DIAGNOSTIC_RBAC_PARTIAL_ERROR_CODE,
-    redact_sensitive_text,
+    AutomationError,
+    JobFailedError,
+    JobTimeoutError,
+    MSQuarantineForSplunkSOARUtils,
+    RunbookActionError,
+    TokenError,
+    WebhookError,
+    normalize_exchange_connection_settings,
     parse_strict_integer,
+    redact_sensitive_text,
+    validate_webhook_url,
 )
+
 
 try:
     import phantom.rules as phrules
@@ -63,7 +59,7 @@ except ImportError:
 # Constants
 # ---------------------------------------------------------------------------
 
-EXPORT_VAULT  = "vault"
+EXPORT_VAULT = "vault"
 EXPORT_INLINE = "inline"
 VALID_EXPORT_MODES = {EXPORT_VAULT, EXPORT_INLINE}
 ARTIFACT_LAYOUT_COMBINED = "combined"
@@ -95,15 +91,14 @@ DEFAULT_ARTIFACT_FIELDS = (
 )
 ARTIFACT_FIELD_SET = set(ARTIFACT_FIELD_ORDER)
 DEFAULT_ARTIFACT_FIELD_SET = frozenset(DEFAULT_ARTIFACT_FIELDS)
-ARTIFACT_FIELD_CONFIG_KEYS = {
-    field: f"artifact_field_{field}"
-    for field in ARTIFACT_FIELD_ORDER
-}
-LEGACY_ARTIFACT_ACTION_KEYS = frozenset({
-    "create_email_artifacts",
-    "artifact_layout",
-    "artifact_fields",
-})
+ARTIFACT_FIELD_CONFIG_KEYS = {field: f"artifact_field_{field}" for field in ARTIFACT_FIELD_ORDER}
+LEGACY_ARTIFACT_ACTION_KEYS = frozenset(
+    {
+        "create_email_artifacts",
+        "artifact_layout",
+        "artifact_fields",
+    }
+)
 ARTIFACT_EMAIL_FIELDS = {
     "from",
     "to",
@@ -137,9 +132,9 @@ MAX_WORKER_TERMINAL_RETENTION_DAYS = 365
 # Quarantine message identity format: GUID\GUID (per Microsoft docs)
 # https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/get-quarantinemessage#-identity
 IDENTITY_REGEX = re.compile(
-    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
-    r'\\'
-    r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    r"\\"
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
 
 
@@ -153,10 +148,7 @@ def _parse_config_integer(value, field: str) -> int:
                 return int(value)
             except ValueError:
                 pass
-    raise ValueError(
-        f"{field} must be an integer; Boolean, fractional and non-finite "
-        "values are not supported."
-    )
+    raise ValueError(f"{field} must be an integer; Boolean, fractional and non-finite values are not supported.")
 
 
 def _parse_poll_integer(value) -> int:
@@ -200,18 +192,14 @@ def normalize_recipient_address(value) -> str:
     if isinstance(value, str):
         return value.strip()
     if not isinstance(value, (list, tuple)):
-        raise ValueError(
-            "RecipientAddress must be a string, an array of strings, or null."
-        )
+        raise ValueError("RecipientAddress must be a string, an array of strings, or null.")
 
     recipients = []
     for item in value:
         if item is None:
             continue
         if not isinstance(item, str):
-            raise ValueError(
-                "RecipientAddress array items must be strings or null."
-            )
+            raise ValueError("RecipientAddress array items must be strings or null.")
         item = item.strip()
         if item:
             recipients.append(item)
@@ -236,9 +224,7 @@ def parse_boolean_parameter(
             return True
         if normalised in {"false", "0", "no", "off", ""}:
             return False
-    raise ValueError(
-        f"{source} '{name}' must be a boolean (true or false)."
-    )
+    raise ValueError(f"{source} '{name}' must be a boolean (true or false).")
 
 
 def parse_artifact_fields(value) -> tuple:
@@ -246,39 +232,23 @@ def parse_artifact_fields(value) -> tuple:
     if value is None:
         requested = list(DEFAULT_ARTIFACT_FIELDS)
     elif not isinstance(value, str):
-        raise ValueError(
-            "Parameter 'artifact_fields' must be a comma-separated string."
-        )
+        raise ValueError("Parameter 'artifact_fields' must be a comma-separated string.")
     else:
-        tokens = [
-            item.strip().lower()
-            for item in value.split(",")
-            if item.strip()
-        ]
+        tokens = [item.strip().lower() for item in value.split(",") if item.strip()]
         if not tokens:
-            raise ValueError(
-                "Parameter 'artifact_fields' must select at least one field."
-            )
+            raise ValueError("Parameter 'artifact_fields' must select at least one field.")
         if "all" in tokens:
             if len(tokens) != 1:
-                raise ValueError(
-                    "Parameter 'artifact_fields' must use 'all' by itself."
-                )
+                raise ValueError("Parameter 'artifact_fields' must use 'all' by itself.")
             requested = list(ARTIFACT_FIELD_ORDER)
         else:
             unknown = sorted(set(tokens) - ARTIFACT_FIELD_SET)
             if unknown:
-                raise ValueError(
-                    "Unknown artifact field(s): "
-                    f"{', '.join(unknown)}. Allowed fields: "
-                    f"{', '.join(ARTIFACT_FIELD_ORDER)}, or all."
-                )
+                raise ValueError(f"Unknown artifact field(s): {', '.join(unknown)}. Allowed fields: {', '.join(ARTIFACT_FIELD_ORDER)}, or all.")
             requested = tokens
 
     selected = set(requested)
-    return tuple(
-        field for field in ARTIFACT_FIELD_ORDER if field in selected
-    )
+    return tuple(field for field in ARTIFACT_FIELD_ORDER if field in selected)
 
 
 def parse_artifact_asset_config(config: dict, *, allow_empty_fields=False) -> dict:
@@ -290,21 +260,13 @@ def parse_artifact_asset_config(config: dict, *, allow_empty_fields=False) -> di
     )
 
     layout_value = config.get("artifact_layout")
-    if layout_value is None or (
-        isinstance(layout_value, str) and not layout_value.strip()
-    ):
+    if layout_value is None or (isinstance(layout_value, str) and not layout_value.strip()):
         layout_value = ARTIFACT_LAYOUT_COMBINED
     if not isinstance(layout_value, str):
-        raise ValueError(
-            "Asset configuration field 'artifact_layout' must be "
-            "'combined' or 'separate'."
-        )
+        raise ValueError("Asset configuration field 'artifact_layout' must be 'combined' or 'separate'.")
     layout = layout_value.strip().lower()
     if layout not in VALID_ARTIFACT_LAYOUTS:
-        raise ValueError(
-            "Asset configuration field 'artifact_layout' must be "
-            "'combined' or 'separate'."
-        )
+        raise ValueError("Asset configuration field 'artifact_layout' must be 'combined' or 'separate'.")
 
     selected_fields = []
     for field in ARTIFACT_FIELD_ORDER:
@@ -322,8 +284,7 @@ def parse_artifact_asset_config(config: dict, *, allow_empty_fields=False) -> di
 
     if enabled and not selected_fields and not allow_empty_fields:
         raise ValueError(
-            "Email artifact creation is enabled, but no artifact field is "
-            "selected. Enable at least one 'artifact_field_*' checkbox."
+            "Email artifact creation is enabled, but no artifact field is selected. Enable at least one 'artifact_field_*' checkbox."
         )
 
     return {
@@ -336,6 +297,7 @@ def parse_artifact_asset_config(config: dict, *, allow_empty_fields=False) -> di
 # ---------------------------------------------------------------------------
 # Connector
 # ---------------------------------------------------------------------------
+
 
 class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
     """
@@ -350,13 +312,11 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
 
     def __init__(self):
         super().__init__()
-        self._utils                   = None
-        self._export_mode             = None
-        self._asset_artifact_options  = None
+        self._utils = None
+        self._export_mode = None
+        self._asset_artifact_options = None
         self._on_poll_max_containers = 10
-        self._worker_terminal_retention_days = (
-            DEFAULT_WORKER_TERMINAL_RETENTION_DAYS
-        )
+        self._worker_terminal_retention_days = DEFAULT_WORKER_TERMINAL_RETENTION_DAYS
 
     # -----------------------------------------------------------------------
     # Lifecycle
@@ -381,25 +341,19 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
         ]
         for field in required:
             if not config.get(field, "").strip():
-                return self.set_status(
-                    phantom.APP_ERROR,
-                    f"Asset configuration error: '{field}' is required but empty."
-                )
+                return self.set_status(phantom.APP_ERROR, f"Asset configuration error: '{field}' is required but empty.")
 
         # Hidden legacy controls retain valid saved values, but stale invalid
         # values must not block an asset whose UI can no longer repair them.
         legacy_mode = config.get("export_mode", EXPORT_VAULT)
-        legacy_mode = (
-            legacy_mode.strip().lower() if isinstance(legacy_mode, str) else ""
-        )
-        self._export_mode = (
-            legacy_mode if legacy_mode in VALID_EXPORT_MODES else EXPORT_VAULT
-        )
+        legacy_mode = legacy_mode.strip().lower() if isinstance(legacy_mode, str) else ""
+        self._export_mode = legacy_mode if legacy_mode in VALID_EXPORT_MODES else EXPORT_VAULT
         artifact_config = dict(config)
         try:
             parse_boolean_parameter(
                 artifact_config.get("create_email_artifacts", False),
-                "create_email_artifacts", source="Asset configuration field",
+                "create_email_artifacts",
+                source="Asset configuration field",
             )
         except ValueError:
             artifact_config["create_email_artifacts"] = False
@@ -408,7 +362,8 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             # The removed legacy enable switch must not prevent users from
             # deselecting all optional mail fields in the current import UI.
             self._asset_artifact_options = parse_artifact_asset_config(
-                artifact_config, allow_empty_fields=True,
+                artifact_config,
+                allow_empty_fields=True,
             )
         except ValueError as exc:
             return self.set_status(
@@ -418,20 +373,16 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
 
         try:
             poll_interval = _parse_config_integer(
-                config.get("poll_interval_seconds", 5), "poll_interval_seconds",
+                config.get("poll_interval_seconds", 5),
+                "poll_interval_seconds",
             )
             poll_timeout = _parse_config_integer(
-                config.get("poll_timeout_seconds", 600), "poll_timeout_seconds",
+                config.get("poll_timeout_seconds", 600),
+                "poll_timeout_seconds",
             )
             raw_on_poll_max = config.get("on_poll_max_containers")
-            on_poll_max_containers = (
-                10
-                if raw_on_poll_max in (None, "")
-                else _parse_poll_integer(raw_on_poll_max)
-            )
-            raw_worker_retention = config.get(
-                "worker_terminal_retention_days"
-            )
+            on_poll_max_containers = 10 if raw_on_poll_max in (None, "") else _parse_poll_integer(raw_on_poll_max)
+            raw_worker_retention = config.get("worker_terminal_retention_days")
             worker_terminal_retention_days = (
                 DEFAULT_WORKER_TERMINAL_RETENTION_DAYS
                 if raw_worker_retention in (None, "")
@@ -442,40 +393,26 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 phantom.APP_ERROR,
                 "poll_interval_seconds, poll_timeout_seconds, and "
                 "on_poll_max_containers, and "
-                f"worker_terminal_retention_days must be integers. {exc}"
+                f"worker_terminal_retention_days must be integers. {exc}",
             )
         if poll_interval < 1 or poll_interval > 60:
-            return self.set_status(
-                phantom.APP_ERROR,
-                "poll_interval_seconds must be between 1 and 60."
-            )
+            return self.set_status(phantom.APP_ERROR, "poll_interval_seconds must be between 1 and 60.")
         if poll_timeout < 600 or poll_timeout > 3600:
             return self.set_status(
                 phantom.APP_ERROR,
                 "poll_timeout_seconds must be between 600 and 3600. Values "
                 "below 600 seconds are unsafe for Azure Automation cold "
-                "starts and irreversible release/deny actions."
+                "starts and irreversible release/deny actions.",
             )
         if poll_timeout <= poll_interval:
+            return self.set_status(phantom.APP_ERROR, "poll_timeout_seconds must be greater than poll_interval_seconds.")
+        if on_poll_max_containers < 1 or on_poll_max_containers > ON_POLL_MAX_CONTAINERS:
             return self.set_status(
                 phantom.APP_ERROR,
-                "poll_timeout_seconds must be greater than poll_interval_seconds."
-            )
-        if (
-            on_poll_max_containers < 1
-            or on_poll_max_containers > ON_POLL_MAX_CONTAINERS
-        ):
-            return self.set_status(
-                phantom.APP_ERROR,
-                "on_poll_max_containers must be between 1 and "
-                f"{ON_POLL_MAX_CONTAINERS}.",
+                f"on_poll_max_containers must be between 1 and {ON_POLL_MAX_CONTAINERS}.",
             )
         self._on_poll_max_containers = on_poll_max_containers
-        if not (
-            MIN_WORKER_TERMINAL_RETENTION_DAYS
-            <= worker_terminal_retention_days
-            <= MAX_WORKER_TERMINAL_RETENTION_DAYS
-        ):
+        if not (MIN_WORKER_TERMINAL_RETENTION_DAYS <= worker_terminal_retention_days <= MAX_WORKER_TERMINAL_RETENTION_DAYS):
             return self.set_status(
                 phantom.APP_ERROR,
                 "worker_terminal_retention_days must be between 1 and 365.",
@@ -498,20 +435,20 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             return self.set_status(phantom.APP_ERROR, str(exc))
 
         self._utils = MSQuarantineForSplunkSOARUtils(
-            webhook_url        = webhook_url,
-            tenant_id          = config["azure_tenant_id"].strip(),
-            client_id          = config["azure_client_id"].strip(),
-            client_secret      = config["azure_client_secret"].strip(),
-            subscription_id    = config["azure_subscription_id"].strip(),
-            resource_group     = config["azure_resource_group"].strip(),
-            automation_account = config["azure_automation_account"].strip(),
-            poll_interval      = poll_interval,
-            poll_timeout       = poll_timeout,
+            webhook_url=webhook_url,
+            tenant_id=config["azure_tenant_id"].strip(),
+            client_id=config["azure_client_id"].strip(),
+            client_secret=config["azure_client_secret"].strip(),
+            subscription_id=config["azure_subscription_id"].strip(),
+            resource_group=config["azure_resource_group"].strip(),
+            automation_account=config["azure_automation_account"].strip(),
+            poll_interval=poll_interval,
+            poll_timeout=poll_timeout,
             # Public export is retired; native import always stores EML in
             # Vault, independently of hidden legacy asset values.
-            retain_chunked_base64 = False,
-            exchange_organization = exchange_settings.get("organization"),
-            progress_callback = self.save_progress,
+            retain_chunked_base64=False,
+            exchange_organization=exchange_settings.get("organization"),
+            progress_callback=self.save_progress,
         )
 
         return phantom.APP_SUCCESS
@@ -535,6 +472,8 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 data_bytes,
                 usedforsecurity=False,
             ).hexdigest(),
+            # Legacy SOAR artifact IOC, not an integrity or authentication check.
+            # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
             "sha1": hashlib.sha1(
                 data_bytes,
                 usedforsecurity=False,
@@ -551,10 +490,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             (False, error_message_str)  on failure
         """
         if phrules is None:
-            return False, (
-                "phantom.rules is not available. "
-                "Switch export_mode to 'inline' for testing outside SOAR."
-            )
+            return False, ("phantom.rules is not available. Switch export_mode to 'inline' for testing outside SOAR.")
 
         file_name = file_name or self._safe_filename(identity)
 
@@ -574,11 +510,11 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 fh.write(eml_bytes)
 
             success, message, vault_id = phrules.vault_add(
-                container     = self.get_container_id() if container_id is None else container_id,
-                file_location = tmp_path,
-                file_name     = file_name,
-                metadata      = {
-                    "source":   "MS Quarantine for Splunk SOAR",
+                container=self.get_container_id() if container_id is None else container_id,
+                file_location=tmp_path,
+                file_name=file_name,
+                metadata={
+                    "source": "MS Quarantine for Splunk SOAR",
                     "identity": identity,
                 },
             )
@@ -655,10 +591,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             seen.add(canonical)
             addresses.append(address)
             if len(addresses) >= MAX_ARTIFACT_ADDRESSES_PER_FIELD:
-                warnings.append(
-                    f"{field_name}: limited to "
-                    f"{MAX_ARTIFACT_ADDRESSES_PER_FIELD} addresses"
-                )
+                warnings.append(f"{field_name}: limited to {MAX_ARTIFACT_ADDRESSES_PER_FIELD} addresses")
                 break
         return addresses
 
@@ -690,9 +623,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             warnings.append(f"{field_name}: date could not be parsed")
             return value
         if parsed.tzinfo is None or parsed.utcoffset() is None:
-            warnings.append(
-                f"{field_name}: no timezone in header; ISO value omitted"
-            )
+            warnings.append(f"{field_name}: no timezone in header; ISO value omitted")
             return value
 
         value["iso"] = parsed.isoformat()
@@ -710,29 +641,14 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
 
         warnings = []
         if message.defects:
-            warnings.append(
-                "email parser reported defects: "
-                + ", ".join(
-                    type(defect).__name__ for defect in message.defects[:10]
-                )
-            )
+            warnings.append("email parser reported defects: " + ", ".join(type(defect).__name__ for defect in message.defects[:10]))
 
         values = {
-            "from": self._extract_header_addresses(
-                message, ("From",), warnings, "from"
-            ),
-            "to": self._extract_header_addresses(
-                message, ("To",), warnings, "to"
-            ),
-            "cc": self._extract_header_addresses(
-                message, ("Cc",), warnings, "cc"
-            ),
-            "reply_to": self._extract_header_addresses(
-                message, ("Reply-To",), warnings, "reply_to"
-            ),
-            "sender_address": self._extract_header_addresses(
-                message, ("Sender",), warnings, "sender_address"
-            ),
+            "from": self._extract_header_addresses(message, ("From",), warnings, "from"),
+            "to": self._extract_header_addresses(message, ("To",), warnings, "to"),
+            "cc": self._extract_header_addresses(message, ("Cc",), warnings, "cc"),
+            "reply_to": self._extract_header_addresses(message, ("Reply-To",), warnings, "reply_to"),
+            "sender_address": self._extract_header_addresses(message, ("Sender",), warnings, "sender_address"),
             "recipient_address": self._extract_header_addresses(
                 message,
                 (
@@ -771,11 +687,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
         received_headers = self._raw_header_values(message, "Received")
         if received_headers:
             topmost_received = received_headers[0]
-            received_date_raw = (
-                topmost_received.rsplit(";", 1)[1].strip()
-                if ";" in topmost_received
-                else topmost_received
-            )
+            received_date_raw = topmost_received.rsplit(";", 1)[1].strip() if ";" in topmost_received else topmost_received
             values["received_date"] = [
                 self._parse_artifact_date(
                     received_date_raw,
@@ -813,26 +725,15 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 ARTIFACT_LAYOUT_COMBINED,
             )
             if not isinstance(layout_value, str):
-                raise ValueError(
-                    "Parameter 'artifact_layout' must be 'combined' or "
-                    "'separate'."
-                )
+                raise ValueError("Parameter 'artifact_layout' must be 'combined' or 'separate'.")
             layout = layout_value.strip().lower()
             if layout not in VALID_ARTIFACT_LAYOUTS:
-                raise ValueError(
-                    "Parameter 'artifact_layout' must be 'combined' or "
-                    "'separate'."
-                )
+                raise ValueError("Parameter 'artifact_layout' must be 'combined' or 'separate'.")
 
             fields = parse_artifact_fields(param.get("artifact_fields"))
 
-        if phrules is None or not callable(
-            getattr(phrules, "add_artifact", None)
-        ):
-            raise ValueError(
-                "SOAR artifact API is unavailable; email artifacts cannot "
-                "be created in this runtime."
-            )
+        if phrules is None or not callable(getattr(phrules, "add_artifact", None)):
+            raise ValueError("SOAR artifact API is unavailable; email artifacts cannot be created in this runtime.")
         return {
             "enabled": True,
             "layout": layout,
@@ -889,9 +790,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
         values["vault_id"] = [vault_id] if vault_id else []
 
         selected_fields = options["fields"]
-        missing_fields = [
-            field for field in selected_fields if not values.get(field)
-        ]
+        missing_fields = [field for field in selected_fields if not values.get(field)]
         correlation = {
             "source": "MS Quarantine for Splunk SOAR",
             "quarantine_identity": identity,
@@ -918,14 +817,8 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                         )
                     )
                     continue
-                combined_value = (
-                    field_values[0]
-                    if len(field_values) == 1
-                    else list(field_values)
-                )
-                cef_data.update(
-                    self._artifact_cef_for_value(field, combined_value)
-                )
+                combined_value = field_values[0] if len(field_values) == 1 else list(field_values)
+                cef_data.update(self._artifact_cef_for_value(field, combined_value))
 
             # Native combined ingestion supplies its workflow fields last so
             # optional RFC headers cannot replace Microsoft quarantine values.
@@ -934,22 +827,24 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 subject = (values.get("subject") or [""])[0]
                 preview = self._bounded_artifact_text(subject, 120)
                 name = preview or "No subject"
-                specs.append({
-                    "name": name,
-                    "identifier": self._artifact_identifier(
-                        identity,
-                        options["layout"],
-                        ",".join(selected_fields),
-                        hashes["sha256"],
-                    ),
-                    "cef_data": cef_data,
-                    "raw_data": {
-                        **correlation,
-                        "artifact_layout": options["layout"],
-                        "selected_fields": list(selected_fields),
-                        "email_metadata": raw_selected,
-                    },
-                })
+                specs.append(
+                    {
+                        "name": name,
+                        "identifier": self._artifact_identifier(
+                            identity,
+                            options["layout"],
+                            ",".join(selected_fields),
+                            hashes["sha256"],
+                        ),
+                        "cef_data": cef_data,
+                        "raw_data": {
+                            **correlation,
+                            "artifact_layout": options["layout"],
+                            "selected_fields": list(selected_fields),
+                            "email_metadata": raw_selected,
+                        },
+                    }
+                )
         else:
             for field in selected_fields:
                 for index, value in enumerate(values.get(field) or []):
@@ -963,33 +858,31 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                         preview_source,
                         120,
                     )
-                    specs.append({
-                        "name": (
-                            f"Quarantined email {field}"
-                            + (f": {preview}" if preview else "")
-                        ),
-                        "identifier": self._artifact_identifier(
-                            identity,
-                            options["layout"],
-                            field,
-                            index,
-                            json.dumps(
-                                value,
-                                ensure_ascii=False,
-                                sort_keys=True,
+                    specs.append(
+                        {
+                            "name": (f"Quarantined email {field}" + (f": {preview}" if preview else "")),
+                            "identifier": self._artifact_identifier(
+                                identity,
+                                options["layout"],
+                                field,
+                                index,
+                                json.dumps(
+                                    value,
+                                    ensure_ascii=False,
+                                    sort_keys=True,
+                                ),
                             ),
-                        ),
-                        "cef_data": cef_data,
-                        "raw_data": {
-                            **correlation,
-                            "artifact_layout": options["layout"],
-                            "artifact_field": field,
-                            "artifact_value": raw_value,
-                        },
-                    })
+                            "cef_data": cef_data,
+                            "raw_data": {
+                                **correlation,
+                                "artifact_layout": options["layout"],
+                                "artifact_field": field,
+                                "artifact_value": raw_value,
+                            },
+                        }
+                    )
 
         return specs, missing_fields
-
 
     # -----------------------------------------------------------------------
     # Error mapping
@@ -997,11 +890,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
 
     def _map_error(self, exc: Exception, action_label: str) -> str:
         """Preserve the real cause and known job, using native action messages."""
-        safe_error = (
-            self._utils.redact_sensitive_text(exc)
-            if self._utils is not None
-            else redact_sensitive_text(str(exc))
-        )
+        safe_error = self._utils.redact_sensitive_text(exc) if self._utils is not None else redact_sensitive_text(str(exc))
         if isinstance(exc, RunbookActionError):
             message = self._runbook_error_message(exc)
         elif isinstance(exc, TokenError):
@@ -1010,10 +899,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 "Check azure_tenant_id, azure_client_id, azure_client_secret."
             )
         elif isinstance(exc, WebhookError):
-            message = (
-                f"Webhook failed for '{action_label}': {safe_error}. "
-                "Check webhook_url and Azure Automation; no second webhook was sent."
-            )
+            message = f"Webhook failed for '{action_label}': {safe_error}. Check webhook_url and Azure Automation; no second webhook was sent."
         elif isinstance(exc, JobTimeoutError):
             message = (
                 f"Action '{action_label}' timed out: {safe_error}. "
@@ -1049,7 +935,6 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
     def _utc_now() -> str:
         return datetime.now(timezone.utc).isoformat()
 
-
     @contextmanager
     def _operation_state_lock(self):
         """
@@ -1078,7 +963,6 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 pass
             raise
 
-
     # -----------------------------------------------------------------------
     # Intake identity helpers
     # -----------------------------------------------------------------------
@@ -1094,29 +978,21 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
         try:
             parsed = datetime.fromisoformat(text)
         except ValueError as exc:
-            raise AutomationError(
-                f"Worker ledger contains an invalid timestamp: '{value}'."
-            ) from exc
+            raise AutomationError(f"Worker ledger contains an invalid timestamp: '{value}'.") from exc
         if parsed.tzinfo is None or parsed.utcoffset() is None:
-            raise AutomationError(
-                "Worker ledger timestamps must include a UTC offset."
-            )
+            raise AutomationError("Worker ledger timestamps must include a UTC offset.")
         return parsed.astimezone(timezone.utc)
-
 
     @staticmethod
     def _worker_identity_key(identity: str, asset_id) -> str:
-        material = f"{asset_id}|{identity}".encode("utf-8")
+        material = f"{asset_id}|{identity}".encode()
         return "work-" + hashlib.sha256(material).hexdigest()[:40]
 
     @staticmethod
     def _worker_source_identifier(identity: str, asset_id) -> str:
-        digest = hashlib.sha256(
-            f"{asset_id}|{identity}".encode("utf-8")
-        ).hexdigest()
+        digest = hashlib.sha256(f"{asset_id}|{identity}".encode()).hexdigest()
         # Keep existing deduplication identifiers stable across product renames.
         return f"msqm-quarantine-asset-{asset_id}-{digest}"
-
 
     @staticmethod
     def _diagnostic_message(record: dict) -> str:
@@ -1143,11 +1019,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             ("prepost", record.get("observed_release_status_history", "")),
             ("attempts", record.get("verification_attempts", 0)),
         )
-        return "; ".join(
-            f"{name}={value}"
-            for name, value in fields
-            if value not in ("", None, 0)
-        )
+        return "; ".join(f"{name}={value}" for name, value in fields if value not in ("", None, 0))
 
     @staticmethod
     def _diagnostic_tri_state(value) -> str:
@@ -1160,88 +1032,63 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
     def _rbac_diagnostic_message(cls, record: dict) -> str:
         """Return a compact result of the read-only tenant RBAC checks."""
         missing_cmdlets = ",".join(record.get("missing_cmdlets", []) or [])
-        quarantine_role = cls._diagnostic_tri_state(
-            record.get("quarantine_role_present")
+        quarantine_role = cls._diagnostic_tri_state(record.get("quarantine_role_present"))
+        service_principal = cls._diagnostic_tri_state(record.get("service_principal_registered"))
+        assignment = cls._diagnostic_tri_state(record.get("role_assignment_matches_identity"))
+        role_group_inspected = int(record.get("quarantine_role_group_inspected_count", 0) or 0)
+        role_group_total = int(record.get("quarantine_role_group_total_count", 0) or 0)
+        role_group_truncated = bool(record.get("quarantine_role_group_inspection_truncated", False))
+        return "; ".join(
+            (
+                f"rbac={record.get('rbac_diagnostics_status', '')}",
+                f"rbac_reason={record.get('rbac_diagnostics_reason', '')}",
+                f"missing_cmdlets={missing_cmdlets or 'none'}",
+                f"quarantine_role={quarantine_role}",
+                f"service_principal_registered={service_principal}",
+                f"quarantine_membership={assignment}",
+                f"role_groups={role_group_inspected}/{role_group_total}",
+                f"role_groups_truncated={str(role_group_truncated).lower()}",
+                "query_errors=" + str(int(record.get("permission_query_error_count", 0) or 0)),
+                "query_errors_retained="
+                + str(
+                    int(
+                        record.get(
+                            "permission_query_error_retained_count",
+                            record.get("permission_query_error_count", 0),
+                        )
+                        or 0
+                    )
+                ),
+                "query_errors_dropped=" + str(int(record.get("permission_query_error_dropped_count", 0) or 0)),
+            )
         )
-        service_principal = cls._diagnostic_tri_state(
-            record.get("service_principal_registered")
-        )
-        assignment = cls._diagnostic_tri_state(
-            record.get("role_assignment_matches_identity")
-        )
-        role_group_inspected = int(
-            record.get("quarantine_role_group_inspected_count", 0) or 0
-        )
-        role_group_total = int(
-            record.get("quarantine_role_group_total_count", 0) or 0
-        )
-        role_group_truncated = bool(
-            record.get("quarantine_role_group_inspection_truncated", False)
-        )
-        return "; ".join((
-            f"rbac={record.get('rbac_diagnostics_status', '')}",
-            f"rbac_reason={record.get('rbac_diagnostics_reason', '')}",
-            f"missing_cmdlets={missing_cmdlets or 'none'}",
-            f"quarantine_role={quarantine_role}",
-            f"service_principal_registered={service_principal}",
-            f"quarantine_membership={assignment}",
-            f"role_groups={role_group_inspected}/{role_group_total}",
-            f"role_groups_truncated={str(role_group_truncated).lower()}",
-            "query_errors=" + str(int(
-                record.get("permission_query_error_count", 0) or 0
-            )),
-            "query_errors_retained=" + str(int(
-                record.get(
-                    "permission_query_error_retained_count",
-                    record.get("permission_query_error_count", 0),
-                ) or 0
-            )),
-            "query_errors_dropped=" + str(int(
-                record.get("permission_query_error_dropped_count", 0) or 0
-            )),
-        ))
 
     @classmethod
     def _rbac_summary(cls, record: dict) -> dict:
         """Return truthful summary values; omit unknown legacy booleans."""
         summary = {
-            "rbac_diagnostics_status": record.get(
-                "rbac_diagnostics_status", ""
-            ),
-            "rbac_diagnostics_reason": record.get(
-                "rbac_diagnostics_reason", ""
-            ),
-            "missing_cmdlet_count": int(
-                record.get("missing_cmdlet_count", 0) or 0
-            ),
+            "rbac_diagnostics_status": record.get("rbac_diagnostics_status", ""),
+            "rbac_diagnostics_reason": record.get("rbac_diagnostics_reason", ""),
+            "missing_cmdlet_count": int(record.get("missing_cmdlet_count", 0) or 0),
             "missing_cmdlets": list(record.get("missing_cmdlets", []) or []),
-            "quarantine_role_group_total_count": int(
-                record.get("quarantine_role_group_total_count", 0) or 0
-            ),
-            "quarantine_role_group_inspected_count": int(
-                record.get("quarantine_role_group_inspected_count", 0) or 0
-            ),
+            "quarantine_role_group_total_count": int(record.get("quarantine_role_group_total_count", 0) or 0),
+            "quarantine_role_group_inspected_count": int(record.get("quarantine_role_group_inspected_count", 0) or 0),
             "quarantine_role_group_inspection_truncated": bool(
                 record.get(
                     "quarantine_role_group_inspection_truncated",
                     False,
                 )
             ),
-            "permission_query_error_count": int(
-                record.get("permission_query_error_count", 0) or 0
-            ),
+            "permission_query_error_count": int(record.get("permission_query_error_count", 0) or 0),
             "permission_query_error_retained_count": int(
                 record.get(
                     "permission_query_error_retained_count",
                     record.get("permission_query_error_count", 0),
-                ) or 0
+                )
+                or 0
             ),
-            "permission_query_error_dropped_count": int(
-                record.get("permission_query_error_dropped_count", 0) or 0
-            ),
-            "permission_query_errors_truncated": bool(
-                record.get("permission_query_errors_truncated", False)
-            ),
+            "permission_query_error_dropped_count": int(record.get("permission_query_error_dropped_count", 0) or 0),
+            "permission_query_errors_truncated": bool(record.get("permission_query_errors_truncated", False)),
         }
         for field in (
             "quarantine_role_present",
@@ -1253,7 +1100,6 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             if isinstance(value, bool):
                 summary[field] = value
         return summary
-
 
     # -----------------------------------------------------------------------
     # Action: test connectivity
@@ -1275,31 +1121,23 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
         try:
             self._utils.get_mgmt_token()
         except TokenError as exc:
-            return action_result.set_status(
-                phantom.APP_ERROR,
-                self._map_error(exc, "test connectivity")
-            )
+            return action_result.set_status(phantom.APP_ERROR, self._map_error(exc, "test connectivity"))
         self.save_progress("Token acquired.")
 
         self.save_progress("Step 2/3: Starting protected list and waiting for completion...")
         try:
+
             def validate_list(output):
                 self.save_progress("Step 3/3: Validating the list result...")
                 self._normalise_list_result(output)
 
             result = self._utils.run_action("list", validate_result=validate_list)
-        except (WebhookError, TokenError, JobTimeoutError,
-                JobFailedError, AutomationError) as exc:
-            return action_result.set_status(
-                phantom.APP_ERROR, self._map_error(exc, "test connectivity")
-            )
+        except (WebhookError, TokenError, JobTimeoutError, JobFailedError, AutomationError) as exc:
+            return action_result.set_status(phantom.APP_ERROR, self._map_error(exc, "test connectivity"))
 
         metadata, warning = self._runbook_version_evidence(result)
         action_result.update_summary(metadata)
-        message = (
-            "Connectivity test passed. Webhook, Azure AD token, job polling, "
-            "and Exchange Online connection all working."
-        )
+        message = "Connectivity test passed. Webhook, Azure AD token, job polling, and Exchange Online connection all working."
         if warning:
             message += " Warning: " + warning
         return action_result.set_status(phantom.APP_SUCCESS, message)
@@ -1344,46 +1182,30 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
     def _normalise_list_result(self, result: dict) -> list:
         """Validate the runbook list contract for actions and ingestion."""
         if not isinstance(result, dict):
-            raise AutomationError(
-                "Runbook protocol error: list output must be an object."
-            )
+            raise AutomationError("Runbook protocol error: list output must be an object.")
         messages_value = result.get("messages")
         legacy_single_message = isinstance(messages_value, dict)
         if messages_value is None:
             messages = []
         elif legacy_single_message:
-            self.save_progress(
-                "Runbook returned one list result as an object; normalising "
-                "it to a one-element list. Upgrade the runbook."
-            )
+            self.save_progress("Runbook returned one list result as an object; normalising it to a one-element list. Upgrade the runbook.")
             messages = [messages_value]
         elif isinstance(messages_value, list):
             messages = messages_value
         else:
-            raise AutomationError(
-                "Runbook protocol error: 'messages' must be an array, "
-                "an object for one legacy result, or null."
-            )
+            raise AutomationError("Runbook protocol error: 'messages' must be an array, an object for one legacy result, or null.")
 
         if any(not isinstance(message, dict) for message in messages):
-            raise AutomationError(
-                "Runbook protocol error: every 'messages' item must be an "
-                "object."
-            )
+            raise AutomationError("Runbook protocol error: every 'messages' item must be an object.")
 
         reported_count = result.get("count")
         if reported_count is not None:
             try:
                 parsed_count = parse_strict_integer(reported_count)
             except (TypeError, ValueError) as exc:
-                raise AutomationError(
-                    "Runbook protocol error: 'count' must be an integer."
-                ) from exc
+                raise AutomationError("Runbook protocol error: 'count' must be an integer.") from exc
             if not legacy_single_message and parsed_count != len(messages):
-                raise AutomationError(
-                    "Runbook protocol error: 'count' does not match the "
-                    "'messages' array length."
-                )
+                raise AutomationError("Runbook protocol error: 'count' does not match the 'messages' array length.")
 
         normalised_messages = []
         try:
@@ -1391,29 +1213,23 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 identity = message.get("Identity")
                 format_error = validate_identity_format(identity)
                 if format_error:
-                    raise AutomationError(
-                        "Runbook protocol error: list Identity is invalid. "
-                        f"{format_error}"
-                    )
-                normalised_messages.append({
-                    "Identity": identity,
-                    "SenderAddress": message.get("SenderAddress", ""),
-                    "RecipientAddress": normalize_recipient_address(
-                        message.get("RecipientAddress")
-                    ),
-                    "Subject": message.get("Subject", ""),
-                    "Type": message.get("Type", ""),
-                    "ReceivedTime": message.get("ReceivedTime", ""),
-                    "Expires": message.get("Expires", ""),
-                    "PolicyName": message.get("PolicyName", ""),
-                    "ReleaseStatus": message.get("ReleaseStatus", ""),
-                })
+                    raise AutomationError(f"Runbook protocol error: list Identity is invalid. {format_error}")
+                normalised_messages.append(
+                    {
+                        "Identity": identity,
+                        "SenderAddress": message.get("SenderAddress", ""),
+                        "RecipientAddress": normalize_recipient_address(message.get("RecipientAddress")),
+                        "Subject": message.get("Subject", ""),
+                        "Type": message.get("Type", ""),
+                        "ReceivedTime": message.get("ReceivedTime", ""),
+                        "Expires": message.get("Expires", ""),
+                        "PolicyName": message.get("PolicyName", ""),
+                        "ReleaseStatus": message.get("ReleaseStatus", ""),
+                    }
+                )
         except ValueError as exc:
-            raise AutomationError(
-                f"Runbook protocol error: {exc}"
-            ) from exc
+            raise AutomationError(f"Runbook protocol error: {exc}") from exc
         return normalised_messages
-
 
     # -----------------------------------------------------------------------
     # Action: on poll
@@ -1430,9 +1246,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
         try:
             requested = _parse_poll_integer(raw_value)
         except (TypeError, ValueError) as exc:
-            raise AutomationError(
-                "container_count must be an integer."
-            ) from exc
+            raise AutomationError("container_count must be an integer.") from exc
         if requested <= 0:
             return self._on_poll_max_containers
         return min(requested, ON_POLL_MAX_CONTAINERS)
@@ -1460,21 +1274,11 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             "sender_address": sender,
             "recipient_address": recipient,
             "subject": subject,
-            "quarantine_type": self._bounded_artifact_text(
-                message.get("Type", "")
-            ),
-            "received_time": self._bounded_artifact_text(
-                message.get("ReceivedTime", "")
-            ),
-            "expires": self._bounded_artifact_text(
-                message.get("Expires", "")
-            ),
-            "policy_name": self._bounded_artifact_text(
-                message.get("PolicyName", "")
-            ),
-            "release_status": self._bounded_artifact_text(
-                message.get("ReleaseStatus", "")
-            ),
+            "quarantine_type": self._bounded_artifact_text(message.get("Type", "")),
+            "received_time": self._bounded_artifact_text(message.get("ReceivedTime", "")),
+            "expires": self._bounded_artifact_text(message.get("Expires", "")),
+            "policy_name": self._bounded_artifact_text(message.get("PolicyName", "")),
+            "release_status": self._bounded_artifact_text(message.get("ReleaseStatus", "")),
         }
         cef = {
             "quarantineIdentity": identity,
@@ -1491,11 +1295,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
         name = subject or "[No subject]"
         return {
             "name": name,
-            "description": (
-                f"{self._utils.selection_release_status} quarantine message "
-                "ingested by "
-                "MS Quarantine for Splunk SOAR."
-            ),
+            "description": (f"{self._utils.selection_release_status} quarantine message ingested by MS Defender Quarantine Manager."),
             "source_data_identifier": source_id,
             "severity": "medium",
             "data": {
@@ -1503,15 +1303,17 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 "work_item_id": work_item_id,
                 "quarantine_identity": identity,
             },
-            "artifacts": [{
-                "name": "Quarantine release request",
-                "label": "email",
-                "type": "email",
-                "severity": "medium",
-                "source_data_identifier": source_id + "-message",
-                "cef": cef,
-                "data": raw_data,
-            }],
+            "artifacts": [
+                {
+                    "name": "Quarantine release request",
+                    "label": "email",
+                    "type": "email",
+                    "severity": "medium",
+                    "source_data_identifier": source_id + "-message",
+                    "cef": cef,
+                    "data": raw_data,
+                }
+            ],
         }
 
     def _handle_on_es_poll(self, param):
@@ -1520,11 +1322,9 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
     def _handle_on_poll(self, param):
         return self._run_native_poll(param)
 
-
     # -----------------------------------------------------------------------
     # Action: get quarantine message
     # -----------------------------------------------------------------------
-
 
     # -----------------------------------------------------------------------
     # Action: inspect release environment
@@ -1551,10 +1351,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
         except ValueError as exc:
             return action_result.set_status(phantom.APP_ERROR, str(exc))
 
-        self.save_progress(
-            "Firing read-only webhook: action=diagnose, "
-            f"identity={identity}, include_rbac={include_rbac}"
-        )
+        self.save_progress(f"Firing read-only webhook: action=diagnose, identity={identity}, include_rbac={include_rbac}")
         try:
             result = self._utils.run_action(
                 "diagnose",
@@ -1574,12 +1371,8 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                     self._map_error(exc, "inspect release environment"),
                 )
             details = dict(exc.result.get("details", {}))
-            details["error_code"] = str(
-                exc.result.get("error_code", "")
-            )
-            details["runbook_version"] = str(
-                exc.result.get("runbook_version", "")
-            )
+            details["error_code"] = str(exc.result.get("error_code", ""))
+            details["runbook_version"] = str(exc.result.get("runbook_version", ""))
             action_result.add_data(details)
             summary = {
                 "status": details.get("status", "inspection_failed"),
@@ -1591,9 +1384,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                     "",
                 ),
             }
-            summary["cmdlet_proxy_diagnostics_status"] = details.get(
-                "cmdlet_proxy_diagnostics_status", "not_available"
-            )
+            summary["cmdlet_proxy_diagnostics_status"] = details.get("cmdlet_proxy_diagnostics_status", "not_available")
             summary.update(self._rbac_summary(details))
             action_result.update_summary(summary)
             return action_result.set_status(
@@ -1623,9 +1414,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 "",
             ),
         }
-        summary["cmdlet_proxy_diagnostics_status"] = result.get(
-            "cmdlet_proxy_diagnostics_status", "not_available"
-        )
+        summary["cmdlet_proxy_diagnostics_status"] = result.get("cmdlet_proxy_diagnostics_status", "not_available")
         summary.update(self._rbac_summary(result))
         action_result.update_summary(summary)
         return action_result.set_status(
@@ -1648,7 +1437,10 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 raise PermissionError("Disposition lock directory is not private.")
             key = hashlib.sha256(f"{tenant}|{identity.lower()}".encode("ascii")).hexdigest()
             fd = os.open(
-                key, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd,
+                key,
+                os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=dir_fd,
             )
             try:
                 info = os.fstat(fd)
@@ -1665,20 +1457,37 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
 
     @staticmethod
     def _disposition_error_result(
-        action_result, action, identity, outcome, code, message, *, data=None,
-        job_id="", last_status="",
+        action_result,
+        action,
+        identity,
+        outcome,
+        code,
+        message,
+        *,
+        data=None,
+        job_id="",
+        last_status="",
     ):
         result = dict(data or {})
-        result.update({
-            "action": action, "identity": identity, "azure_job_id": job_id,
-            "error": True, "error_code": code, "outcome": outcome, "message": message,
-        })
+        result.update(
+            {
+                "action": action,
+                "identity": identity,
+                "azure_job_id": job_id,
+                "error": True,
+                "error_code": code,
+                "outcome": outcome,
+                "message": message,
+            }
+        )
         if last_status:
             result["last_job_status"] = last_status
         action_result.add_data(result)
         summary = {
-            "status": "error", "outcome": outcome,
-            "azure_job_id": job_id, "last_job_status": last_status,
+            "status": "error",
+            "outcome": outcome,
+            "azure_job_id": job_id,
+            "last_job_status": last_status,
         }
         for key in ("runbook_version", "observed_release_status"):
             if result.get(key):
@@ -1693,7 +1502,11 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
         # Use the tenant UUID, not the asset ID, app registration or domain alias.
         if not re.fullmatch(r"[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}", tenant):
             return self._disposition_error_result(
-                action_result, action, identity, "not_executed", "invalid_tenant_id",
+                action_result,
+                action,
+                identity,
+                "not_executed",
+                "invalid_tenant_id",
                 "Configure azure_tenant_id as the Microsoft Entra tenant UUID.",
             )
         with ExitStack() as stack:
@@ -1701,12 +1514,20 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
                 stack.enter_context(self._disposition_lock(tenant, identity))
             except BlockingIOError:
                 return self._disposition_error_result(
-                    action_result, action, identity, "not_executed", "operation_in_progress",
+                    action_result,
+                    action,
+                    identity,
+                    "not_executed",
+                    "operation_in_progress",
                     "A Release or Deny operation is already in progress for this quarantine identity. No job was submitted.",
                 )
             except OSError:
                 return self._disposition_error_result(
-                    action_result, action, identity, "not_executed", "disposition_lock_unavailable",
+                    action_result,
+                    action,
+                    identity,
+                    "not_executed",
+                    "disposition_lock_unavailable",
                     "Could not acquire a private disposition lock. No job was submitted.",
                 )
             return self._run_disposition_job(action_result, action, identity)
@@ -1718,7 +1539,9 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             job_id = self._utils.fire_webhook(action, identity=identity)
             self.save_progress(f"Azure job {job_id}: waiting for {action} result.")
             result = self._utils.wait_for_action_result(
-                job_id, action=action, identity=identity,
+                job_id,
+                action=action,
+                identity=identity,
             )
         except AutomationError as exc:
             data = dict(exc.result) if isinstance(exc, RunbookActionError) else {}
@@ -1734,11 +1557,15 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             }.get(code, "unknown")
             message = self._map_error(exc, action)
             if outcome == "unknown":
-                message += (
-                    " Do not retry before checking Azure job history and the current Exchange status."
-                )
+                message += " Do not retry before checking Azure job history and the current Exchange status."
             return self._disposition_error_result(
-                action_result, action, identity, outcome, code, message, data=data,
+                action_result,
+                action,
+                identity,
+                outcome,
+                code,
+                message,
+                data=data,
                 job_id=job_id or getattr(exc, "job_id", "") or "",
                 last_status=getattr(exc, "last_status", ""),
             )
@@ -1763,14 +1590,15 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
             message = r"The 'identity' parameter must be a string in GUID1\GUID2 format."
         else:
             value = value.strip()
-            message = (
-                validate_identity_format(value[:128])
-                if value else "The 'identity' parameter is required."
-            )
+            message = validate_identity_format(value[:128]) if value else "The 'identity' parameter is required."
         if message:
             return self._disposition_error_result(
-                action_result, action, "",
-                "not_executed", "invalid_identity", message,
+                action_result,
+                action,
+                "",
+                "not_executed",
+                "invalid_identity",
+                message,
             )
         return self._execute_disposition(action_result, action, value)
 
@@ -1787,14 +1615,12 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
     def handle_action(self, param):
         action = self.get_action_identifier()
         handlers = {
-            "test_connectivity":          self._handle_test_connectivity,
-            "on_poll":                    self._handle_on_poll,
-            "on_es_poll":                 self._handle_on_es_poll,
-            "inspect_release_environment": (
-                self._handle_inspect_release_environment
-            ),
+            "test_connectivity": self._handle_test_connectivity,
+            "on_poll": self._handle_on_poll,
+            "on_es_poll": self._handle_on_es_poll,
+            "inspect_release_environment": (self._handle_inspect_release_environment),
             "release_quarantine_message": self._handle_release_quarantine_message,
-            "deny_quarantine_release":    self._handle_deny_quarantine_release,
+            "deny_quarantine_release": self._handle_deny_quarantine_release,
         }
         handler = handlers.get(action)
         if handler:
@@ -1806,6 +1632,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
 # ---------------------------------------------------------------------------
 # CLI entrypoint
 # ---------------------------------------------------------------------------
+
 
 def _run_cli(argv=None):
     """Run the App-Wizard debug entrypoint with deterministic exit codes."""
@@ -1826,10 +1653,12 @@ def _run_cli(argv=None):
             raise ValueError("top-level input must be a JSON object")
     except (OSError, UnicodeError, ValueError) as exc:
         print(
-            json.dumps({
-                "error": "Invalid CLI input",
-                "exception_type": type(exc).__name__,
-            }),
+            json.dumps(
+                {
+                    "error": "Invalid CLI input",
+                    "exception_type": type(exc).__name__,
+                }
+            ),
             file=sys.stderr,
         )
         return 2
@@ -1841,10 +1670,12 @@ def _run_cli(argv=None):
         action_results = json.loads(connector.get_action_results())
     except Exception as exc:
         print(
-            json.dumps({
-                "error": "Connector CLI execution failed",
-                "exception_type": type(exc).__name__,
-            }),
+            json.dumps(
+                {
+                    "error": "Connector CLI execution failed",
+                    "exception_type": type(exc).__name__,
+                }
+            ),
             file=sys.stderr,
         )
         return 1

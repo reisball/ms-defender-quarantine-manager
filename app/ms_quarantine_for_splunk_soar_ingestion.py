@@ -6,21 +6,24 @@ Each identity has a small result record, not a resumable workflow. Scheduled
 polls never replay failed/unknown attempts. Native Poll Now starts a fresh
 attempt for failed Requested candidates; ES lost responses remain ambiguous.
 """
+
 import base64
-from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
-from email import policy
-from email.feedparser import BytesFeedParser
 import fcntl
 import hashlib
 import json
 import os
 import re
 import time
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from email import policy
+from email.feedparser import BytesFeedParser
 
 import phantom.app as phantom
 from phantom.action_result import ActionResult
-from ms_quarantine_for_splunk_soar_utils import AutomationError, MAX_DECODED_EML_BYTES
+
+from ms_quarantine_for_splunk_soar_utils import MAX_DECODED_EML_BYTES, AutomationError
+
 
 INGEST_STATE_KEY = "quarantine_native_ingest_v1"
 MAX_INGEST_RECORDS = 1000
@@ -56,7 +59,7 @@ class _BoundedMimeParser(BytesFeedParser):
 def _parse_mime_mail(eml):
     parser = _BoundedMimeParser()
     for offset in range(0, len(eml), 8192):
-        parser.feed(eml[offset:offset + 8192])
+        parser.feed(eml[offset : offset + 8192])
     return parser.close()
 
 
@@ -121,9 +124,7 @@ def _mail_files_from_parsed(mail):
             stack.extend((child, depth + 1, extract) for child in reversed(children))
             if extract and (
                 part.get_content_type() == "message/global"
-                or (part.get_content_maintype() == "multipart" and (
-                    part.get_filename() or part.get_content_disposition() == "attachment"
-                ))
+                or (part.get_content_maintype() == "multipart" and (part.get_filename() or part.get_content_disposition() == "attachment"))
             ):
                 extra_containers.append(part)
             continue
@@ -135,9 +136,12 @@ def _mail_files_from_parsed(mail):
             if not extract:
                 continue
             name = part.get_filename()
-            is_file = (name or part.get_content_disposition() == "attachment"
-                       or part.get_content_maintype() not in {"text", "multipart"}
-                       or part.get("Content-ID"))
+            is_file = (
+                name
+                or part.get_content_disposition() == "attachment"
+                or part.get_content_maintype() not in {"text", "multipart"}
+                or part.get("Content-ID")
+            )
             if not is_file:
                 continue
             if data is None:
@@ -172,6 +176,7 @@ class NativeIngestionMixin:
 
     def _ingest_es_client(self):
         from ms_quarantine_for_splunk_soar_es_ingestion import NativeESClient
+
         client = getattr(self, "_ingest_es_client_instance", None)
         if client is None:
             base_url = self.get_config().get("es_soar_base_url") or self._get_phantom_base_url()
@@ -247,17 +252,19 @@ class NativeIngestionMixin:
                     raise AutomationError("Legacy intake identity is missing.")
                 key = self._worker_identity_key(identity, self.get_asset_id())
                 row = {
-                    "key": key, "identity": identity,
+                    "key": key,
+                    "identity": identity,
                     "status": "completed" if old.get("state") == "completed" else "failed",
                     "terminal": old.get("state") in {"completed", "failed", "oversized"},
                     "container_id": old.get("container_id"),
-                    "created_at": old.get("created_at"), "updated_at": old.get("updated_at"),
-                    "last_error": "" if old.get("state") == "completed" else
-                        "Previous-version attempt was not confirmed; scheduled replay disabled.",
+                    "created_at": old.get("created_at"),
+                    "updated_at": old.get("updated_at"),
+                    "last_error": ""
+                    if old.get("state") == "completed"
+                    else "Previous-version attempt was not confirmed; scheduled replay disabled.",
                 }
                 stamp = self._parse_state_timestamp(old.get("updated_at"))
-                rank = (stamp is not None, stamp or datetime.min.replace(tzinfo=timezone.utc),
-                        json.dumps(row, sort_keys=True))
+                rank = (stamp is not None, stamp or datetime.min.replace(tzinfo=timezone.utc), json.dumps(row, sort_keys=True))
                 if key not in records or rank > ranks[key]:
                     records[key], ranks[key] = row, rank
             data = {"scope": self._ingest_scope(), "records": records, "version": 2}
@@ -269,16 +276,18 @@ class NativeIngestionMixin:
             raise AutomationError("Native intake state/scope mismatch. Restore the original asset pairing.")
         records = {}
         for key, old in data["records"].items():
-            if (not isinstance(old, dict) or not isinstance(old.get("identity"), str)
-                    or not old["identity"].strip() or old.get("key") != key):
+            if not isinstance(old, dict) or not isinstance(old.get("identity"), str) or not old["identity"].strip() or old.get("key") != key:
                 raise AutomationError("Native intake record is malformed.")
             row = dict(old)
             if data.get("version") != 2:
                 phase = row.get("phase")
                 if phase not in {"reserved", "preparing", "ready", "publishing", "published", "terminal", "blocked"}:
                     raise AutomationError("Native intake record is malformed.")
-                row["status"] = "completed" if (phase == "published" or
-                    phase == "terminal" and row.get("delivery_phase_at_terminal", "published") == "published") else "failed"
+                row["status"] = (
+                    "completed"
+                    if (phase == "published" or (phase == "terminal" and row.get("delivery_phase_at_terminal", "published") == "published"))
+                    else "failed"
+                )
                 row["terminal"] = phase == "terminal"
                 if row.get("migration_origin") in {"legacy_failed", "legacy_oversized"}:
                     # Preserve the previous migrator's retired slot without
@@ -290,10 +299,24 @@ class NativeIngestionMixin:
             if row.get("status") not in {"running", "failed", "completed"} or type(row.get("terminal")) is not bool:
                 raise AutomationError("Native intake record is malformed.")
             # Never persist prepared payloads, file checkpoints, leases or history.
-            fields = {"key", "identity", "status", "terminal", "container_id", "created_at", "updated_at",
-                      "last_error", "publication_started", "observed_release_status", "finding_id",
-                      "email_artifact_id", "ready_artifact_id", "missing_artifact_fields",
-                      "expires_at", "last_status_error"}
+            fields = {
+                "key",
+                "identity",
+                "status",
+                "terminal",
+                "container_id",
+                "created_at",
+                "updated_at",
+                "last_error",
+                "publication_started",
+                "observed_release_status",
+                "finding_id",
+                "email_artifact_id",
+                "ready_artifact_id",
+                "missing_artifact_fields",
+                "expires_at",
+                "last_status_error",
+            }
             records[key] = {name: value for name, value in row.items() if name in fields}
         return {"scope": scope, "records": records, "version": 2}
 
@@ -330,8 +353,11 @@ class NativeIngestionMixin:
                 if row["terminal"] and stamp is not None and stamp < cutoff:
                     del data["records"][key]
                 elif row["status"] == "running":
-                    row.update(status="failed", updated_at=self._utc_now(),
-                               last_error="Interrupted attempt; publication may have succeeded. Inspect native evidence before Poll Now.")
+                    row.update(
+                        status="failed",
+                        updated_at=self._utc_now(),
+                        last_error="Interrupted attempt; publication may have succeeded. Inspect native evidence before Poll Now.",
+                    )
             self._ingest_save(state, data)
             return data["records"]
 
@@ -372,10 +398,17 @@ class NativeIngestionMixin:
                     return None
                 if len(records) >= MAX_INGEST_RECORDS:
                     raise AutomationError("Native intake ledger capacity reached. Reduce terminal retention.")
-            row = {"key": key, "identity": identity, "status": "running", "terminal": False,
-                   "container_id": old.get("container_id") if old else None,
-                   "created_at": old.get("created_at") if old else self._utc_now(),
-                   "updated_at": self._utc_now(), "last_error": "", "publication_started": False}
+            row = {
+                "key": key,
+                "identity": identity,
+                "status": "running",
+                "terminal": False,
+                "container_id": old.get("container_id") if old else None,
+                "created_at": old.get("created_at") if old else self._utc_now(),
+                "updated_at": self._utc_now(),
+                "last_error": "",
+                "publication_started": False,
+            }
             expires = self._ingest_expiry(message.get("Expires"))
             if expires is not None:
                 row["expires_at"] = expires.isoformat()
@@ -394,9 +427,7 @@ class NativeIngestionMixin:
                 # Vault/ES errors have no Azure job and must not inherit one.
                 return self._map_error(exc, "import")
             return self._utils.redact_sensitive_text(str(exc), max_chars=2048)
-        return self._utils.redact_sensitive_text(
-            type(exc).__name__ + ": " + str(exc), max_chars=2048
-        )
+        return self._utils.redact_sensitive_text(type(exc).__name__ + ": " + str(exc), max_chars=2048)
 
     def _ingest_budget_check(self):
         if time.monotonic() >= getattr(self, "_ingest_deadline", float("inf")):
@@ -436,8 +467,7 @@ class NativeIngestionMixin:
                 intake_blocked = True
                 break  # Unclassified, service and transport failures fail closed.
             expiry = self._ingest_expiry(row.get("expires_at"))
-            expired_and_missing = (observed == "notfound" and expiry is not None
-                                   and expiry <= datetime.now(timezone.utc))
+            expired_and_missing = observed == "notfound" and expiry is not None and expiry <= datetime.now(timezone.utc)
             is_terminal = observed in {"released", "denied"} or expired_and_missing
             reason = ""
             if observed == "notfound" and not is_terminal:
@@ -446,19 +476,19 @@ class NativeIngestionMixin:
             elif observed == "error":
                 reason = "Exchange reports ReleaseStatus=Error; no terminal disposition confirmed."
                 errors.append(row["identity"] + ": " + reason)
-            self._ingest_update(key, terminal=is_terminal, observed_release_status=observed,
-                                last_status_error=reason)
+            self._ingest_update(key, terminal=is_terminal, observed_release_status=observed, last_status_error=reason)
             terminal += int(is_terminal)
         return terminal, errors, intake_blocked
 
     def _ingest_save_artifact(self, row, suffix, cef, name, *, publish=False):
         artifact = {
             "container_id": row["container_id"],
-            "source_data_identifier": self._worker_source_identifier(
-                row["identity"], self.get_asset_id()
-            ) + "-" + suffix,
-            "name": name, "label": "email", "type": "email",
-            "severity": "medium", "cef": cef,
+            "source_data_identifier": self._worker_source_identifier(row["identity"], self.get_asset_id()) + "-" + suffix,
+            "name": name,
+            "label": "email",
+            "type": "email",
+            "severity": "medium",
+            "cef": cef,
             "run_automation": publish,
         }
         status, _message, artifact_id = self.save_artifact(artifact)
@@ -469,8 +499,7 @@ class NativeIngestionMixin:
         return artifact_id
 
     def _ingest_single_email_artifact(self):
-        return (getattr(self, "_ingest_target", "soar") == "soar"
-                and self._asset_artifact_options["layout"] == "combined")
+        return getattr(self, "_ingest_target", "soar") == "soar" and self._asset_artifact_options["layout"] == "combined"
 
     def _ingest_prepare(self, key, row):
         """Prepare this attempt in memory; every file precedes automation."""
@@ -489,15 +518,16 @@ class NativeIngestionMixin:
         mail, attachments = parse_mail_files(eml)
         # Microsoft context, not RFC headers, is required by downstream automation.
         for field in ("SenderAddress", "RecipientAddress"):
-            if (not isinstance(row["message"].get(field), str)
-                    or not self._bounded_artifact_text(row["message"][field])):
+            if not isinstance(row["message"].get(field), str) or not self._bounded_artifact_text(row["message"][field]):
                 raise AutomationError("Missing Microsoft " + field + "; import not published.")
         row["eml_sha256"] = hashlib.sha256(eml).hexdigest()
         if row["container_id"] is None:
-            claim = {"message": row["message"], "identity": row["identity"],
-                     "work_item_id": key,
-                     "source_data_identifier": self._worker_source_identifier(
-                         row["identity"], self.get_asset_id())}
+            claim = {
+                "message": row["message"],
+                "identity": row["identity"],
+                "work_item_id": key,
+                "source_data_identifier": self._worker_source_identifier(row["identity"], self.get_asset_id()),
+            }
             container = self._build_poll_container(claim)
             if single_artifact:
                 container["artifacts"] = []
@@ -506,22 +536,23 @@ class NativeIngestionMixin:
                 artifact["run_automation"] = False
             self._ingest_budget_check()
             status, _message, container_id = self.save_container(container)
-            if (phantom.is_fail(status) or type(container_id) is not int
-                    or container_id <= 0):
+            if phantom.is_fail(status) or type(container_id) is not int or container_id <= 0:
                 raise AutomationError("SOAR did not confirm the ingestion container: " + str(_message))
             self._ingest_update(key, container_id=container_id)
             row["container_id"] = container_id
         original = self._safe_filename(row["identity"])
-        files = [(original, eml)] + attachments
+        files = [(original, eml), *attachments]
         vaults = {}
         for index, (name, content) in enumerate(files):
             self._ingest_budget_check()
             file_key = str(index)
             ok, stored = self._store_in_vault(
-                content, row["identity"], container_id=row["container_id"], file_name=name,
+                content,
+                row["identity"],
+                container_id=row["container_id"],
+                file_name=name,
             )
-            if (not ok or not isinstance(stored, dict)
-                    or not isinstance(stored.get("vault_id"), str) or not stored["vault_id"]):
+            if not ok or not isinstance(stored, dict) or not isinstance(stored.get("vault_id"), str) or not stored["vault_id"]:
                 detail = str(stored) if not ok else "No Vault ID returned."
                 raise AutomationError("SOAR Vault upload was not confirmed: " + detail)
             entry = {"vault_id": stored["vault_id"], "sha256": hashlib.sha256(content).hexdigest()}
@@ -530,12 +561,19 @@ class NativeIngestionMixin:
                 hashes = self._calculate_hashes(content)
                 self._ingest_budget_check()
                 self._ingest_save_artifact(
-                    row, "file-" + file_key,
-                    {"quarantineIdentity": row["identity"], "workItemId": key,
-                     "vaultId": entry["vault_id"], "fileName": name,
-                     "fileHash": hashes["sha256"], "fileHashMd5": hashes["md5"],
-                     "fileHashSha1": hashes["sha1"], "fileHashSha256": hashes["sha256"],
-                     "isOriginalEmail": index == 0},
+                    row,
+                    "file-" + file_key,
+                    {
+                        "quarantineIdentity": row["identity"],
+                        "workItemId": key,
+                        "vaultId": entry["vault_id"],
+                        "fileName": name,
+                        "fileHash": hashes["sha256"],
+                        "fileHashMd5": hashes["md5"],
+                        "fileHashSha1": hashes["sha1"],
+                        "fileHashSha256": hashes["sha256"],
+                        "isOriginalEmail": index == 0,
+                    },
                     "Original quarantined email" if index == 0 else "Email attachment",
                 )
         metadata = self._extract_email_artifact_metadata(eml)
@@ -543,25 +581,24 @@ class NativeIngestionMixin:
         options["enabled"] = True
         required_cef = None
         if single_artifact:
-            options["fields"] = tuple(
-                field for field in options["fields"]
-                if field not in {"vault_id", "sender_address", "recipient_address"}
-            )
+            options["fields"] = tuple(field for field in options["fields"] if field not in {"vault_id", "sender_address", "recipient_address"})
             required_cef = {
                 "vaultId": vaults["0"]["vault_id"],
                 "senderAddress": self._bounded_artifact_text(row["message"].get("SenderAddress", "")),
                 "recipientAddress": self._bounded_artifact_text(row["message"].get("RecipientAddress", "")),
             }
         specs, missing = self._build_email_artifact_specs(
-            row["identity"], self._calculate_hashes(eml), metadata, options,
-            vault_id=vaults["0"]["vault_id"], required_cef=required_cef,
+            row["identity"],
+            self._calculate_hashes(eml),
+            metadata,
+            options,
+            vault_id=vaults["0"]["vault_id"],
+            required_cef=required_cef,
         )
         if not single_artifact:
             for index, spec in enumerate(specs):
                 self._ingest_budget_check()
-                self._ingest_save_artifact(
-                    row, "metadata-" + str(index), spec["cef_data"], spec["name"]
-                )
+                self._ingest_save_artifact(row, "metadata-" + str(index), spec["cef_data"], spec["name"])
         # The complete artifact/finding exists only during this attempt.
         if single_artifact:
             row["email_artifact"] = {"name": specs[0]["name"], "cef": specs[0]["cef_data"]}
@@ -569,22 +606,30 @@ class NativeIngestionMixin:
         self._ingest_update(key, missing_artifact_fields=missing)
         if getattr(self, "_ingest_target", "soar") == "es":
             from ms_quarantine_for_splunk_soar_es_ingestion import _build_finding_from_parsed
+
             client = self._ingest_es_client()
             file_index = iter(range(len(files)))
+
             def uploaded(name, content):
                 entry = vaults[str(next(file_index))]
                 if entry["sha256"] != hashlib.sha256(content).hexdigest():
                     raise AutomationError("ES attachment does not match prepared Vault content.")
                 return entry["vault_id"]
+
             finding = _build_finding_from_parsed(
-                row["message"], eml, row["identity"], key,
+                row["message"],
+                eml,
+                row["identity"],
+                key,
                 self._worker_source_identifier(row["identity"], self.get_asset_id()),
-                self._ingest_es_settings, uploaded, client.base_url, mail, attachments,
+                self._ingest_es_settings,
+                uploaded,
+                client.base_url,
+                mail,
+                attachments,
             )
             self._ingest_budget_check()
-            row["_es_payload"] = client.prepare_bulk_payload(
-                {"findings": [finding], "container_ids": [row["container_id"]]}
-            )
+            row["_es_payload"] = client.prepare_bulk_payload({"findings": [finding], "container_ids": [row["container_id"]]})
         return row
 
     def _ingest_publish(self, key, row):
@@ -597,47 +642,59 @@ class NativeIngestionMixin:
         self._ingest_budget_check()
         self._ingest_update(key, publication_started=True)
         if is_es:
-            response = self._ingest_es_client().request(
-                "POST", "/rest/enterprise_security/findings/bulk_create", json=payload
-            )
-            if (response.get("status") in {"success", "error", "failed", "partial_success"}
-                    and isinstance(response.get("errors"), list)
-                    and type(response.get("created")) is int and response["created"] == 0
-                    and type(response.get("failed")) is int and response["failed"] == 1
-                    and response.get("findings") == []
-                    and response.get("container_ids") in ([], [row["container_id"]])):
+            response = self._ingest_es_client().request("POST", "/rest/enterprise_security/findings/bulk_create", json=payload)
+            if (
+                response.get("status") in {"success", "error", "failed", "partial_success"}
+                and isinstance(response.get("errors"), list)
+                and type(response.get("created")) is int
+                and response["created"] == 0
+                and type(response.get("failed")) is int
+                and response["failed"] == 1
+                and response.get("findings") == []
+                and response.get("container_ids") in ([], [row["container_id"]])
+            ):
                 raise AutomationError("Native ES rejected the finding: " + json.dumps(response["errors"]))
-            if (response.get("status") != "success" or type(response.get("created")) is not int
-                    or response["created"] != 1 or type(response.get("failed")) is not int
-                    or response["failed"] != 0 or response.get("errors")
-                    or response.get("container_ids") != [row["container_id"]]
-                    or not isinstance(response.get("findings"), list)
-                    or len(response["findings"]) != 1
-                    or not isinstance(response["findings"][0], str)
-                    or not response["findings"][0]):
+            if (
+                response.get("status") != "success"
+                or type(response.get("created")) is not int
+                or response["created"] != 1
+                or type(response.get("failed")) is not int
+                or response["failed"] != 0
+                or response.get("errors")
+                or response.get("container_ids") != [row["container_id"]]
+                or not isinstance(response.get("findings"), list)
+                or len(response["findings"]) != 1
+                or not isinstance(response["findings"][0], str)
+                or not response["findings"][0]
+            ):
                 raise AutomationError("Native ES did not confirm one linked finding.")
-            return self._ingest_update(
-                key, status="completed", finding_id=response["findings"][0], last_error=""
-            )
+            return self._ingest_update(key, status="completed", finding_id=response["findings"][0], last_error="")
         email_artifact = row.get("email_artifact")
         if email_artifact:
             artifact_id = self._ingest_save_artifact(
-                row, "email", email_artifact["cef"], email_artifact["name"], publish=True,
+                row,
+                "email",
+                email_artifact["cef"],
+                email_artifact["name"],
+                publish=True,
             )
-            return self._ingest_update(
-                key, status="completed", email_artifact_id=artifact_id, last_error=""
-            )
+            return self._ingest_update(key, status="completed", email_artifact_id=artifact_id, last_error="")
         artifact_id = self._ingest_save_artifact(
-            row, "ready",
-            {"quarantineIdentity": row["identity"], "workItemId": key,
-             "vaultId": row["vault_id"], "fileName": self._safe_filename(row["identity"]),
-             "fileHashSha256": row["eml_sha256"], "ingestionReady": True,
-             "attachmentCount": row["attachment_count"]},
-            "Quarantine email ready for analysis", publish=True,
+            row,
+            "ready",
+            {
+                "quarantineIdentity": row["identity"],
+                "workItemId": key,
+                "vaultId": row["vault_id"],
+                "fileName": self._safe_filename(row["identity"]),
+                "fileHashSha256": row["eml_sha256"],
+                "ingestionReady": True,
+                "attachmentCount": row["attachment_count"],
+            },
+            "Quarantine email ready for analysis",
+            publish=True,
         )
-        return self._ingest_update(
-            key, status="completed", ready_artifact_id=artifact_id, last_error=""
-        )
+        return self._ingest_update(key, status="completed", ready_artifact_id=artifact_id, last_error="")
 
     def _run_native_poll(self, param, *, require_es=False):
         ar = self.add_action_result(ActionResult(dict(param)))
@@ -649,15 +706,13 @@ class NativeIngestionMixin:
                 records = self._ingest_begin_poll()
                 # Snapshot once: a failure during this poll is never retried in it.
                 manual_poll = self.is_poll_now()
-                retry_ids = {key for key, row in records.items()
-                             if manual_poll and row["status"] == "failed" and not row["terminal"]}
+                retry_ids = {key for key, row in records.items() if manual_poll and row["status"] == "failed" and not row["terminal"]}
                 limit = self._on_poll_container_limit(param)
                 self.save_progress("Listing first 50 Requested quarantine candidates.")
                 result = self._utils.run_action("list", page_size=POLL_CANDIDATE_WINDOW)
                 messages = self._normalise_list_result(result)[:POLL_CANDIDATE_WINDOW]
                 listed_requested = {
-                    message["Identity"].strip().lower() for message in messages
-                    if str(message.get("ReleaseStatus", "")).lower() == "requested"
+                    message["Identity"].strip().lower() for message in messages if str(message.get("ReleaseStatus", "")).lower() == "requested"
                 }
                 # The list is read-only. Do not publish if a subsequent exact
                 # lookup detects a shared failure. List absence alone proves nothing.
@@ -669,8 +724,7 @@ class NativeIngestionMixin:
                 created = attempts = 0
                 if not intake_blocked and (bool(retry_ids) or active < self._on_poll_max_containers):
                     # Prefer already-counted explicit retries over new candidates.
-                    messages.sort(key=lambda m: self._worker_identity_key(
-                        m["Identity"].strip().lower(), self.get_asset_id()) not in retry_ids)
+                    messages.sort(key=lambda m: self._worker_identity_key(m["Identity"].strip().lower(), self.get_asset_id()) not in retry_ids)
                     for message in messages:
                         if attempts >= limit:
                             break
@@ -700,14 +754,23 @@ class NativeIngestionMixin:
                             errors.append(row["identity"] + ": import/publication failed (" + reason + ")")
                 records = self._ingest_records()
                 failed = sum(r["status"] == "failed" and not r["terminal"] for r in records.values())
-                ar.update_summary({
-                    "candidates": len(messages), "containers_created": created, "messages_published": created,
-                    "ingestion_enabled": True, "active_messages": sum(not r["terminal"] for r in records.values()),
-                    "active_limit": self._on_poll_max_containers, "ingest_target": self._ingest_target,
-                    "requested_containers": limit, "terminal_observed": terminal,
-                    "failed_imports": failed, "errors": len(errors), "candidate_window": POLL_CANDIDATE_WINDOW,
-                    "results_may_be_truncated": len(messages) >= POLL_CANDIDATE_WINDOW,
-                })
+                ar.update_summary(
+                    {
+                        "candidates": len(messages),
+                        "containers_created": created,
+                        "messages_published": created,
+                        "ingestion_enabled": True,
+                        "active_messages": sum(not r["terminal"] for r in records.values()),
+                        "active_limit": self._on_poll_max_containers,
+                        "ingest_target": self._ingest_target,
+                        "requested_containers": limit,
+                        "terminal_observed": terminal,
+                        "failed_imports": failed,
+                        "errors": len(errors),
+                        "candidate_window": POLL_CANDIDATE_WINDOW,
+                        "results_may_be_truncated": len(messages) >= POLL_CANDIDATE_WINDOW,
+                    }
+                )
                 if errors:
                     return ar.set_status(phantom.APP_ERROR, "; ".join(errors[:10]))
                 message = f"Imported {created} mail(s); resolved {terminal} tracked status(es)."

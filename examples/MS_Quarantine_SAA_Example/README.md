@@ -2,7 +2,7 @@
 
 [Back to README](../../README.md)
 
-An inactive SOAR playbook template that analyzes each imported email with Splunk Attack Analyzer (SAA) and then releases or denies it using the MS Quarantine actions. It consists of 13 native Visual Playbook Editor (VPE) blocks, with no custom code and no notification integration.
+An inactive SOAR playbook template that analyzes each imported email with Splunk Attack Analyzer (SAA) and then releases or denies it using the MS Defender Quarantine Manager actions. It consists of 13 native Visual Playbook Editor (VPE) blocks, with no custom code and no notification integration.
 
 ## Flow
 
@@ -52,7 +52,7 @@ tar -czf MS_Quarantine_SAA_Example.tgz MS_Quarantine_SAA_Example.json MS_Quarant
 Import it through **Playbooks → Import Playbook** into a writable repository. It arrives **inactive and in draft mode**. Keep it inactive while you configure it:
 
 1. In `submit_email` and `get_summary`, replace `configure_saa_asset` with your **Splunk Attack Analyzer Connector for Splunk SOAR** asset.
-2. In `release_email` and `deny_email`, replace `configure_quarantine_asset` with your **MS Quarantine for Splunk SOAR** asset (app UUID `2e21b2c5-a6a6-4fb4-8df7-9dd1135ab08e`). Assets of the older MS Quarantine Manager app do not work.
+2. In `release_email` and `deny_email`, replace `configure_quarantine_asset` with your **MS Defender Quarantine Manager** asset (app UUID `2e21b2c5-a6a6-4fb4-8df7-9dd1135ab08e`). Assets of the older MS Quarantine Manager app do not work.
 3. In `review_email`, replace the user `configure_approver` with a local user or a role. No email address or notification connector is needed.
 4. Set the playbook label to the ingesting asset's container label. The template uses `events` and the trigger `artifact_created`.
 5. To change the threshold, edit **both** comparisons in `score_policy` (`< 30` and `>= 30`) and keep the success and valid-score checks.

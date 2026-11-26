@@ -12,10 +12,13 @@ from urllib.parse import quote, urljoin, urlsplit
 
 import requests
 
-from ms_quarantine_for_splunk_soar_utils import MAX_DECODED_EML_BYTES, AutomationError
 from ms_quarantine_for_splunk_soar_ingestion import (
-    _parse_mime_mail, _mail_files_from_parsed, _MimeStructureLimit,
+    _mail_files_from_parsed,
+    _MimeStructureLimit,
+    _parse_mime_mail,
 )
+from ms_quarantine_for_splunk_soar_utils import MAX_DECODED_EML_BYTES, AutomationError
+
 
 ES_MAX_JSON_BYTES = 2 * 1024 * 1024
 
@@ -29,7 +32,8 @@ def _platform_transport_policy():
     """
     try:
         from phantom_common.install_info import (
-            get_verify_ssl_setting, is_onprem_broker_install,
+            get_verify_ssl_setting,
+            is_onprem_broker_install,
         )
     except ImportError:
         return True, False
@@ -53,10 +57,7 @@ class NativeESClient:
     def __init__(self, runtime, base_url):
         verify, broker = _platform_transport_policy()
         if broker or runtime.get("broker_ph_auth_token"):
-            raise AutomationError(
-                "ES adapter requires native SOAR execution; Automation Broker "
-                "api_proxy authentication is unsupported."
-            )
+            raise AutomationError("ES adapter requires native SOAR execution; Automation Broker api_proxy authentication is unsupported.")
         token = runtime.get("user_session_token")
         basic = runtime.get("soar_auth") or {}
         if not token and basic.get("phantom_url"):
@@ -72,9 +73,7 @@ class NativeESClient:
         ):
             raise AutomationError("ES adapter requires a trusted HTTPS SOAR base URL.")
         if not token and not (basic.get("username") and basic.get("password")):
-            raise AutomationError(
-                "ES adapter requires the native action-run user session."
-            )
+            raise AutomationError("ES adapter requires the native action-run user session.")
         # SDK AppClient._create_client grants its exception only to the
         # native IPv4 loopback host and configured port. Requests below never
         # follow redirects automatically and cannot leave this fixed origin.
@@ -92,14 +91,10 @@ class NativeESClient:
         for _ in range(3):
             if not response.is_redirect:
                 break
-            location = urljoin(
-                self.base_url + "/login", response.headers.get("Location", "")
-            )
+            location = urljoin(self.base_url + "/login", response.headers.get("Location", ""))
             target = urlsplit(location)
             if (target.scheme, target.netloc) != (parsed.scheme, parsed.netloc):
-                raise AutomationError(
-                    "SOAR login redirected outside its trusted origin."
-                )
+                raise AutomationError("SOAR login redirected outside its trusted origin.")
             path = target.path or "/"
             if target.query:
                 path += "?" + target.query
@@ -107,14 +102,10 @@ class NativeESClient:
             self.session.cookies.update(response.cookies)
         if response.is_redirect:
             raise AutomationError("SOAR login exceeded its redirect limit.")
-        csrf = self.session.cookies.get("csrftoken") or response.cookies.get(
-            "csrftoken"
-        )
+        csrf = self.session.cookies.get("csrftoken") or response.cookies.get("csrftoken")
         if not csrf:
             raise AutomationError("SOAR session did not supply a CSRF token.")
-        self.session.headers.update(
-            {"X-CSRFToken": csrf, "Referer": self.base_url + "/"}
-        )
+        self.session.headers.update({"X-CSRFToken": csrf, "Referer": self.base_url + "/"})
         if not token:
             login_response = self._request(
                 "POST",
@@ -127,18 +118,20 @@ class NativeESClient:
             )
             self.session.cookies.update(login_response.cookies)
             if not self.session.cookies.get("sessionid"):
-                raise AutomationError(
-                    "Native SOAR runtime login did not establish a session."
-                )
+                raise AutomationError("Native SOAR runtime login did not establish a session.")
             csrf = self.session.cookies.get("csrftoken") or csrf
             self.session.headers["X-CSRFToken"] = csrf
 
     def _request(self, method, path, allow_login_redirect=False, **kwargs):
         # Prevent callers from widening the loopback TLS exception or changing
         # transport policy; all API paths must remain relative to this origin.
-        if (not isinstance(path, str) or not path.startswith("/")
-                or path.startswith("//") or urlsplit(path).netloc
-                or any(key in kwargs for key in ("verify", "allow_redirects", "timeout"))):
+        if (
+            not isinstance(path, str)
+            or not path.startswith("/")
+            or path.startswith("//")
+            or urlsplit(path).netloc
+            or any(key in kwargs for key in ("verify", "allow_redirects", "timeout"))
+        ):
             raise AutomationError("SOAR ES request must use a fixed-origin API path.")
         try:
             response = self.session.request(
@@ -151,17 +144,11 @@ class NativeESClient:
             )
         except requests.RequestException as exc:
             # Exception text can contain cookies/URLs; never surface it.
-            raise AutomationError(
-                "SOAR ES transport failed: " + type(exc).__name__
-            ) from None
+            raise AutomationError("SOAR ES transport failed: " + type(exc).__name__) from None
         if 400 <= response.status_code < 500 and response.status_code not in {408, 425, 429, 499}:
             raise AutomationError(f"SOAR ES transport rejected request: HTTP {response.status_code}.")
-        if response.status_code >= 400 or (
-            response.is_redirect and path != "/login" and not allow_login_redirect
-        ):
-            raise AutomationError(
-                f"SOAR ES transport returned HTTP {response.status_code}."
-            )
+        if response.status_code >= 400 or (response.is_redirect and path != "/login" and not allow_login_redirect):
+            raise AutomationError(f"SOAR ES transport returned HTTP {response.status_code}.")
         return response
 
     def _public_download_origin(self):
@@ -170,19 +157,25 @@ class NativeESClient:
             return self._download_origin
         origin = self.request("GET", "/rest/system_info").get("base_url")
         error = "SOAR system_info did not supply a valid external HTTPS download origin."
-        if (not isinstance(origin, str) or not origin
-                or any(char.isspace() or ord(char) < 32 for char in origin)
-                or "\\" in origin):
+        if not isinstance(origin, str) or not origin or any(char.isspace() or ord(char) < 32 for char in origin) or "\\" in origin:
             raise AutomationError(error)
         try:
             parsed = urlsplit(origin)
             port = parsed.port
             host = parsed.hostname
-            if (parsed.scheme != "https" or not host
-                    or parsed.username is not None or parsed.password is not None
-                    or parsed.path not in ("", "/") or parsed.query or parsed.fragment
-                    or "?" in origin or "#" in origin or "%" in host
-                    or port == 0):
+            if (
+                parsed.scheme != "https"
+                or not host
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.path not in ("", "/")
+                or parsed.query
+                or parsed.fragment
+                or "?" in origin
+                or "#" in origin
+                or "%" in host
+                or port == 0
+            ):
                 raise ValueError
             host = host.rstrip(".").lower()
             if host == "localhost" or host.endswith(".localhost"):
@@ -191,16 +184,16 @@ class NativeESClient:
                 address = ipaddress.ip_address(host)
             except ValueError:
                 # Private service DNS is valid; resolution is not needed here.
-                if (not host or host.split(".")[-1].isdigit()
-                        or host.lower().startswith("0x") or any(
-                    not (char.isascii() and (char.isalnum() or char in ".-"))
-                    for char in host
-                )):
+                if (
+                    not host
+                    or host.split(".")[-1].isdigit()
+                    or host.lower().startswith("0x")
+                    or any(not (char.isascii() and (char.isalnum() or char in ".-")) for char in host)
+                ):
                     raise ValueError
             else:
                 address = getattr(address, "ipv4_mapped", None) or address
-                if (address.is_loopback or address.is_unspecified
-                        or address.is_link_local or address.is_multicast):
+                if address.is_loopback or address.is_unspecified or address.is_link_local or address.is_multicast:
                     raise ValueError
         except ValueError:
             raise AutomationError(error) from None
@@ -210,10 +203,9 @@ class NativeESClient:
     def _prepare_download_links(self, prepared):
         """Rebase only generated Vault URLs; never send session auth there."""
         email_records = [
-            finding["email"] for finding in prepared.get("findings", [])
-            if isinstance(finding.get("email"), dict)
-            and (finding["email"].get("attachments")
-                 or finding["email"].get("raw_email_link"))
+            finding["email"]
+            for finding in prepared.get("findings", [])
+            if isinstance(finding.get("email"), dict) and (finding["email"].get("attachments") or finding["email"].get("raw_email_link"))
         ]
         if not email_records:
             return
@@ -223,7 +215,7 @@ class NativeESClient:
         def external_link(link):
             if not isinstance(link, str) or not link.startswith(prefix):
                 raise AutomationError("ES mail download link is not a generated Vault URL.")
-            return origin + link[len(self.base_url):]
+            return origin + link[len(self.base_url) :]
 
         for email in email_records:
             for attachment in email.get("attachments", []):
@@ -248,8 +240,7 @@ class NativeESClient:
                     fields = finding.get("additional_fields")
                     if isinstance(fields, dict):
                         finding["additional_fields"] = [
-                            {"name": name, "value": value if isinstance(value, str)
-                             else json.dumps(value, sort_keys=True)}
+                            {"name": name, "value": value if isinstance(value, str) else json.dumps(value, sort_keys=True)}
                             for name, value in fields.items()
                         ]
         return prepared
@@ -278,10 +269,7 @@ def _validated_drilldowns(ingest):
         if not isinstance(value, list):
             raise AutomationError("Invalid ES drilldown list: " + setting)
         for entry in value:
-            if not isinstance(entry, dict) or any(
-                not isinstance(entry.get(key), str) or not entry[key].strip()
-                for key in required
-            ):
+            if not isinstance(entry, dict) or any(not isinstance(entry.get(key), str) or not entry[key].strip() for key in required):
                 raise AutomationError("Invalid ES drilldown fields: " + setting)
             if setting == "es_drilldown_dashboards" and entry.get("tokens") is not None:
                 tokens = entry["tokens"]
@@ -323,19 +311,15 @@ def _outer_body_part(mail):
     return best
 
 
-def build_finding(
-    message, eml_bytes, identity, work_item_id, source_id, ingest, upload, base_url
-):
+def build_finding(message, eml_bytes, identity, work_item_id, source_id, ingest, upload, base_url):
     """Build the SDK Finding wire shape. Upload must confirm *every* file."""
     if not eml_bytes or len(eml_bytes) > MAX_DECODED_EML_BYTES:
-        raise AutomationError(
-            "ES ingestion requires a complete EML within the 24 MiB export limit."
-        )
+        raise AutomationError("ES ingestion requires a complete EML within the 24 MiB export limit.")
     try:
         mail = _parse_mime_mail(eml_bytes)
     except _MimeStructureLimit:
         raise
-    except Exception:  # noqa: BLE001 -- parser failures must not submit incomplete mail
+    except Exception:
         raise AutomationError("Could not parse the exported EML.") from None
     if not mail.keys():
         raise AutomationError("Exported EML has no mail headers.")
@@ -343,19 +327,33 @@ def build_finding(
         raise AutomationError("Missing or oversized EML; import not published.")
     attachments = _mail_files_from_parsed(mail)
     return _build_finding_from_parsed(
-        message, eml_bytes, identity, work_item_id, source_id, ingest,
-        upload, base_url, mail, attachments,
+        message,
+        eml_bytes,
+        identity,
+        work_item_id,
+        source_id,
+        ingest,
+        upload,
+        base_url,
+        mail,
+        attachments,
     )
 
 
 def _build_finding_from_parsed(
-    message, eml_bytes, identity, work_item_id, source_id, ingest, upload,
-    base_url, mail, attachments,
+    message,
+    eml_bytes,
+    identity,
+    work_item_id,
+    source_id,
+    ingest,
+    upload,
+    base_url,
+    mail,
+    attachments,
 ):
     """Project a tree already validated by the shared intake parser."""
-    files = [("original.eml", eml_bytes, True)] + [
-        (name, content, False) for name, content in attachments
-    ]
+    files = [("original.eml", eml_bytes, True)] + [(name, content, False) for name, content in attachments]
     body = ""
     part = _outer_body_part(mail)
     if part is not None:
@@ -399,10 +397,7 @@ def _build_finding_from_parsed(
     if received:
         headers["received"] = received if isinstance(received, list) else [received]
     finding = {
-        "rule_title": (
-            "Quarantine release request: "
-            + str(message.get("Subject") or mail.get("Subject") or identity)
-        )[:240],
+        "rule_title": ("Quarantine release request: " + str(message.get("Subject") or mail.get("Subject") or identity))[:240],
         "rule_description": "Microsoft Defender quarantine message; original EML attached.",
         "security_domain": ingest["es_security_domain"],
         "urgency": ingest.get("es_urgency"),
@@ -420,18 +415,9 @@ def _build_finding_from_parsed(
     for name, content, raw in files:
         vault_id = upload(name, content)
         if not isinstance(vault_id, str) or not vault_id:
-            raise AutomationError(
-                "ES mail attachment was not confirmed in the SOAR Vault."
-            )
-        link = (
-            base_url.rstrip("/")
-            + "/rest/download_attachment?vault_id="
-            + quote(vault_id, safe="")
-        )
-        finding["email"]["attachments"].append(
-            {"filename": name, "filesize": len(content), "url": link}
-        )
+            raise AutomationError("ES mail attachment was not confirmed in the SOAR Vault.")
+        link = base_url.rstrip("/") + "/rest/download_attachment?vault_id=" + quote(vault_id, safe="")
+        finding["email"]["attachments"].append({"filename": name, "filesize": len(content), "url": link})
         if raw:
             finding["email"]["raw_email_link"] = link
     return finding
-

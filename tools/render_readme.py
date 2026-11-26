@@ -14,6 +14,10 @@ ROOT = Path(__file__).resolve().parent.parent
 def render(manifest):
     title = escape(manifest["name"]) + " " + escape(manifest["app_version"])
     return """<!doctype html>
+<!--
+Copyright 2026 Kai Seidenschnur
+Licensed under the Apache License, Version 2.0.
+-->
 <html lang="en"><head><meta charset="utf-8"><title>""" + title + """</title></head>
 <body>
 <h1>""" + title + """</h1>
@@ -77,7 +81,7 @@ imports. Restoring older state can roll back import records. Never clear app
 state to force a retry.</p>
 <p>Do not share webhook URLs, secrets or quarantined mail in support reports.
 Include app and runbook versions, the action error and any known Azure job ID.</p>
-<p><a href="https://github.com/reisball/ms-quarantine-for-splunk-soar#documentation">Full documentation</a>.</p>
+<p><a href="https://github.com/reisball/ms-defender-quarantine-manager#documentation">Full documentation</a>.</p>
 </body></html>
 """
 

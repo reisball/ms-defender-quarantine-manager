@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    MS Quarantine for Splunk SOAR – Azure Automation Runbook
+    MS Defender Quarantine Manager – Azure Automation Runbook
 
 .DESCRIPTION
     Manages Exchange Online quarantined emails on behalf of Splunk SOAR.
@@ -332,8 +332,8 @@ $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "1.0.0"
-$RunbookSourceRevision    = "sha256:8ee502e412e9752726817a9e2255f4895d78dd85600de2840b9ca5b45179bcac"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.8ee502e412e9752726817a9e2255f4895d78dd85600de2840b9ca5b45179bcac"
+$RunbookSourceRevision    = "sha256:bc6c9824f90c9e4f6e31e58c5e23a4d98edbfdae3a9f2e974828d2d121eb1791"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.0.0+sha256.bc6c9824f90c9e4f6e31e58c5e23a4d98edbfdae3a9f2e974828d2d121eb1791"
 $ReleaseContractId        = "identity_releasetoall"
 $DenyContractId           = "identity_releasetoall_actiontype_deny"
 $PostconditionMaxAttempts = 7

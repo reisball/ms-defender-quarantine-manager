@@ -4,6 +4,7 @@ set -euo pipefail
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 output_dir=${1:-"${repo_dir}/dist"}
 app_dir_name="ms-quarantine-for-splunk-soar"
+release_name="ms-defender-quarantine-manager"
 python3 "${repo_dir}/tools/render_readme.py" --check
 cd "${repo_dir}"
 
@@ -22,6 +23,7 @@ mkdir -p "${build_tmp}/${app_dir_name}" "${build_tmp}/release"
 for source_file in \
     __init__.py \
     LICENSE \
+    NOTICE \
     readme.html \
     ms_quarantine_for_splunk_soar.json \
     ms_quarantine_for_splunk_soar_connector.py \
@@ -113,7 +115,7 @@ runbook_version=$(python3 tools/stamp_runbook.py --check --manifest "${manifest}
 find "${build_tmp}/${app_dir_name}" -type d -exec chmod 0755 {} +
 find "${build_tmp}/${app_dir_name}" -type f -exec chmod 0644 {} +
 
-app_artifact="${build_tmp}/release/${app_dir_name}-${app_version}.tgz"
+app_artifact="${build_tmp}/release/${release_name}-${app_version}.tgz"
 tar --sort=name \
     --owner=0 --group=0 --numeric-owner \
     --mtime="@${source_epoch}" \
@@ -124,6 +126,7 @@ mv "${app_artifact}.tmp" "${app_artifact}"
 expected_members=$(printf '%s\n' \
     "${app_dir_name}/" \
     "${app_dir_name}/LICENSE" \
+    "${app_dir_name}/NOTICE" \
     "${app_dir_name}/__init__.py" \
     "${app_dir_name}/ms_quarantine_for_splunk_soar.json" \
     "${app_dir_name}/ms_quarantine_for_splunk_soar.svg" \
@@ -141,7 +144,7 @@ if [[ "${actual_members}" != "${expected_members}" ]]; then
     exit 1
 fi
 
-runbook_artifact="${build_tmp}/release/ms-quarantine-for-splunk-soar-runbook-${runbook_version}.ps1"
+runbook_artifact="${build_tmp}/release/${release_name}-runbook-${runbook_version}.ps1"
 mv "${build_tmp}/runbook.ps1" "${runbook_artifact}"
 
 jq -n \

@@ -559,7 +559,7 @@
               ],
               "customName": "release_email"
             },
-            "connector": "MS Quarantine for Splunk SOAR",
+            "connector": "MS Defender Quarantine Manager",
             "actionType": "correct",
             "functionId": 8,
             "parameters": {
@@ -621,7 +621,7 @@
               "customNameId": 0,
               "customName": "deny_email"
             },
-            "connector": "MS Quarantine for Splunk SOAR",
+            "connector": "MS Defender Quarantine Manager",
             "actionType": "correct",
             "functionId": 9,
             "parameters": {

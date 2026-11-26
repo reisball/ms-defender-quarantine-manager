@@ -1,7 +1,7 @@
 # Copyright 2026 Kai Seidenschnur
 # Licensed under the Apache License, Version 2.0.
 #
-# Tests – MS Quarantine for Splunk SOAR (Azure Automation)
+# Tests – MS Defender Quarantine Manager (Azure Automation)
 # =================================================
 # All HTTP calls mocked via requests-mock.
 # No Azure, no SOAR runtime, no Exchange Online needed.

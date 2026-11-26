@@ -1,0 +1,5 @@
+# Python 3.13 build requirements of the pinned Git tooling.
+packaging==26.4
+setuptools==84.2.1
+setuptools-scm==10.3.4
+vcs-versioning==2.6.0

@@ -14,7 +14,7 @@
 
 ## Checks
 
-Run from the repository root with Python 3.9 and 3.13. `requirements-dev.txt` holds development-only version ranges, not a lockfile; at runtime the app uses platform-provided dependencies.
+Run from the repository root with Python 3.9 and 3.13. `requirements-dev.txt` holds development-only version ranges, not a lockfile; the release builder verifies the runtime wheels against the manifest and wheel lock.
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
@@ -30,6 +30,82 @@ The [GitHub workflow](../.github/workflows/ci.yml) runs this on both Python vers
 
 The MIME parser overrides CPython's private `BytesFeedParser._new_message` hook and reads `_msgstack` to enforce the node and depth limits before allocation. Re-run `tools/check_mime_parser_compat.py` and the MIME tests when adding a Python runtime.
 
+## Splunk SOAR community submission
+
+Keep the repository layout above. The upstream legacy connector tooling expects
+the app manifest and source at the checkout root. The submission checker builds
+the pinned release package and projects its contents into a disposable app
+root; it does not move files in this repository or put the Azure runbook into
+the SOAR package.
+
+Run the checks from a committed checkout. Both tooling environments use
+Python 3.13, separately from the app runtime and from each other: the app linter
+requires Pydantic 1; the static/doc hooks use a SOAR SDK requiring Pydantic 2.
+
+```bash
+(
+    set -e
+    # Use uv 0.13.10 and pre-commit 4.5.1, as in CI.
+    tooling=$(mktemp -d /tmp/msqsoar-tools.XXXXXX)
+    for tool in hooks lint; do
+        uv venv --python 3.13 "$tooling/$tool"
+        uv pip sync --python "$tooling/$tool/bin/python" \
+            --build-constraints tools/soar-tooling/build-constraints.txt \
+            "tools/soar-tooling/$tool.txt"
+    done
+    python tools/soar_checks.py quality
+    (
+        export PATH="$tooling/hooks/bin:$PATH"
+        python tools/soar_checks.py copyright
+        SOAR_CHECK_REPORT="$tooling/static.json" python tools/soar_checks.py static
+        python tools/soar_checks.py docs
+        python tools/soar_checks.py notes
+    )
+    (PATH="$tooling/lint/bin:$PATH" python tools/soar_checks.py lint)
+    python3 tools/render_notice.py --check
+)
+```
+
+The lock inputs pin upstream Git commits, and the corresponding `.txt` files
+pin the resolved Python 3.13 dependencies. The build constraints also pin
+the isolated build dependencies of the Git-based tools. When updating tools, regenerate with
+`uv pip compile --python-version 3.13 --build-constraints tools/soar-tooling/build-constraints.txt tools/soar-tooling/<tool>.in -o tools/soar-tooling/<tool>.txt`,
+then test both environments independently.
+
+The pinned quality hooks run on the packaged app and its submission Markdown,
+not against the release builder or the separate Azure runbook. They check Ruff
+lint/formatting, JSON/YAML, HTML lint, the manual Markdown fragment, Semgrep's
+live Python registry rules, merge markers and secrets. The hook revisions and
+quality settings are taken from the selected source commit; Semgrep's remote
+`p/python` rule content can change independently of its executable. The
+template's Conventional Commits hook is a commit-message hook, not a gate on
+GitHub's generated merge commit. The maintained README keeps its GitHub tables;
+the upstream Markdown formatter without GFM would turn them into prose.
+The docs hook generates an upstream README in scratch space, not over this
+repository's maintained README. HTML is linted but not reformatted by the hook:
+`tools/render_readme.py` owns its exact bytes. The copyright audit runs on a
+copy with the actual owner as an explicit argument; it is a manual
+submission check because the upstream updater uses the calendar year.
+Do not run the unmodified legacy template's dependency/NOTICE generation on
+this layout: it assumes a root `requirements.txt` and would replace the NOTICE
+for the bundled wheels. The linter checks errors and uses a disposable
+app copy seeded with the pinned tooling and the exact bundled Python 3.13
+wheels; upstream dependency checks stay enabled. The static report retains raw
+results; upstream reads the live registries when available and can fall back
+to bundled snapshots. `static-strict` additionally fails if registration is
+pending. A non-strict pass is not upstream acceptance or native SOAR validation.
+
+NOTICE is generated from license text in the exact hash-locked runtime wheels
+for both app interpreters, plus pinned notices for the bundled OpenSSL, libffi and Rust components.
+The Rust notice records source checksums and distinguishes the all-target
+cryptography lockfile from the Linux standard-library dependency set. NOTICE
+excludes SOAR tooling and platform-provided dependencies.
+When wheels change, review their bundled license files and native components,
+update the wheel lock, and run `python3 tools/render_notice.py`.
+
+See the [SOAR contribution guide](https://github.com/splunk-soar-connectors/.github/blob/main/.github/CONTRIBUTING.md)
+for the repository request, required hooks and upstream pull request process.
+
 ## Versions and release notes
 
 App and runbook share one version, even when only one changes. `app_version` in `app/ms_quarantine_for_splunk_soar.json` is authoritative. After changing it:
@@ -43,7 +119,7 @@ python3 tools/render_readme.py --check
 
 Edit `tools/render_readme.py` or the manifest, never the generated `app/readme.html`. Never change the app UUID.
 
-Publish release notes in [GitHub Releases](https://github.com/reisball/ms-quarantine-for-splunk-soar/releases), not a changelog file. Write them from the merged pull requests since the previous release, with separate `App` and `Runbook` sections (`No changes` if unchanged), and check them against the release diff.
+Publish release notes in [GitHub Releases](https://github.com/reisball/ms-defender-quarantine-manager/releases), not a changelog file. Write them from the merged pull requests since the previous release, with separate `App` and `Runbook` sections (`No changes` if unchanged), and check them against the release diff.
 
 With every version change, update the [compatibility matrix](compatibility.md). Add only pairs backed by evidence, with source identity, validation scope and restrictions. Use **not verified** when evidence is missing and **incompatible** only for a documented mismatch. Keep the source-qualified baseline rows.
 
@@ -59,8 +135,8 @@ The builder checks generated help and verifies that every staged runtime byte co
 
 | Artifact | Contents |
 |---|---|
-| `ms-quarantine-for-splunk-soar-<version>.tgz` | One `ms-quarantine-for-splunk-soar/` directory with ten files: manifest, connector, utils, SOAR ingestion, ES ingestion, `__init__.py`, two logos, `readme.html`, `LICENSE` |
-| `ms-quarantine-for-splunk-soar-runbook-<version>.ps1` | Stamped `runbook/runbook.ps1` |
+| `ms-defender-quarantine-manager-<version>.tgz` | One `ms-quarantine-for-splunk-soar/` directory with runtime modules, the manifest, icons, `readme.html`, `LICENSE`, `NOTICE` and the six pinned runtime wheels |
+| `ms-defender-quarantine-manager-runbook-<version>.ps1` | Stamped `runbook/runbook.ps1` |
 
 Tests, Markdown, the runbook and example playbooks are not in the app archive. The SAA example is packaged separately as described in [its README](../examples/MS_Quarantine_SAA_Example/README.md#import-and-configure).
 
@@ -87,4 +163,4 @@ The 24 MiB EML cap is conservative because local tests cannot measure memory in 
 
 Verify all Azure job streams contain no readable EML, the aggregate Job Output API returns the full encrypted stream, and the installed SOAR package decrypts it on the supported interpreter. Use synthetic mail.
 
-For each run, record the app/runbook versions and commit, the PowerShell runtime and module versions, the job ID and timestamps, the size, chunk count and SHA-256, and peak memory if available. Never record webhook URLs, tokens or mail content. Keep 24 MiB only if the exact-boundary runs stay below the limit with a reserve. Otherwise, propose a lower cap or a Hybrid Runbook Worker approach. Attach sanitized evidence to [#18](https://github.com/reisball/ms-quarantine-for-splunk-soar/issues/18).
+For each run, record the app/runbook versions and commit, the PowerShell runtime and module versions, the job ID and timestamps, the size, chunk count and SHA-256, and peak memory if available. Never record webhook URLs, tokens or mail content. Keep 24 MiB only if the exact-boundary runs stay below the limit with a reserve. Otherwise, propose a lower cap or a Hybrid Runbook Worker approach. Attach sanitized evidence to [#18](https://github.com/reisball/ms-defender-quarantine-manager/issues/18).

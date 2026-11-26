@@ -25,5 +25,29 @@
             "sha256": "61d028e90346df14fedc3d1e5441df818d095f3b87d286825dfcbd6459b7ef63",
             "url": "https://files.pythonhosted.org/packages/1f/74/cc4096ce66f5939042ae094e2e96f53426a979864aa1f96a621ad128be27/cffi-2.0.0-cp39-cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"
         }
-    }
+    },
+    "native_notices": [
+        {
+            "file": "openssl-4.0.1.txt",
+            "component": "OpenSSL 4.0.1 (statically linked in cryptography 50.0.0)",
+            "url": "https://raw.githubusercontent.com/openssl/openssl/1e963a8680ec78ad2072792c7a1a71f3c530bd2e/LICENSE.txt",
+            "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+        },
+        {
+            "file": "libffi-3.4.6.txt",
+            "component": "libffi 3.4.6 (statically linked in both cffi wheels)",
+            "url": "https://raw.githubusercontent.com/libffi/libffi/3d0ce1e6fcf19f853894862abcbac0ae78a7be60/LICENSE",
+            "sha256": "67894089811f93fca47a76f85e017da6f8582d4ba0905963c6e0f1ad6df7a195",
+            "build_sources": [
+                "https://github.com/python-cffi/cffi/blob/6366c01d84e9a78e7e85f12ebe9760ba5d19b6d3/.github/workflows/ci.yaml#L160-L181",
+                "https://github.com/python-cffi/cffi/blob/fd33e7700f0ebafe6f30bd5053f13327221b77a2/.github/workflows/ci.yaml#L164-L186"
+            ]
+        },
+        {
+            "file": "cryptography-rust.txt",
+            "component": "Rust standard library and Cargo crate notices for cryptography 50.0.0",
+            "url": "https://pypi.org/project/cryptography/50.0.0/#files",
+            "sha256": "fbaeedc01e929ee3fb897316b27f6ccc63dc003809d6575ccb102419e1e04c55"
+        }
+    ]
 }

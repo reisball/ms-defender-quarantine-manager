@@ -49,7 +49,7 @@ def test_shipped_help_matches_current_manifest_and_required_fields():
     assert "Quick start" in prose
     assert "Available actions" not in prose
     assert "azure_client_secret" not in prose
-    assert "https://github.com/reisball/ms-quarantine-for-splunk-soar#documentation" in parsed.links
+    assert "https://github.com/reisball/ms-defender-quarantine-manager#documentation" in parsed.links
     assert not parsed.forbidden
 
 
@@ -132,7 +132,7 @@ def test_help_explains_automatic_files_and_no_legacy_ui_controls():
 def test_new_product_identity_and_packaged_entrypoints():
     from uuid import UUID
     manifest = json.loads((APP_DIR / "ms_quarantine_for_splunk_soar.json").read_text())
-    assert manifest["name"] == "MS Quarantine for Splunk SOAR"
+    assert manifest["name"] == "MS Defender Quarantine Manager"
     assert manifest["package_name"] == "phantom_ms_quarantine_for_splunk_soar"
     assert UUID(manifest["appid"]).version == 4
     assert len(manifest["app_version"].split(".")) == 3
