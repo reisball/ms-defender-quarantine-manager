@@ -3814,7 +3814,6 @@ class TestRunbookExportContract:
         for helper in (
             "function ConvertTo-SecretRedactedText",
             "function Get-OriginalErrorMessage",
-            "function Join-OriginalRecordText",
             "function Write-ErrorEnvelope",
         ):
             assert helper in runbook

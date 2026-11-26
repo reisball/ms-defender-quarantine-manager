@@ -145,11 +145,6 @@ foreach ($nonSecretText in @(
     }
 }
 
-$joined = Join-OriginalRecordText -Records @($nativeRecord, $detailsRecord)
-if ($joined -cne ($nativeMessage + "`n" + $detailsMessage)) {
-    throw "Multiple native error records were not joined without rewriting."
-}
-
 $largeMessage = (
     "Microsoft large diagnostic begin`n" +
     ("äΩ-error-detail;" * 70000) +
@@ -175,4 +170,149 @@ $safeEnvelope = Write-ErrorEnvelope $secretEnvelope
 if ($safeEnvelope.Contains("hidden-value") -or -not $safeEnvelope.Contains("[redacted]")) {
     throw "Error was not redacted before truncation."
 }
-Write-Output "Runbook bounded error contract passed."
+# Offline integration: no provider call can fall through to live Exchange.
+$global:DefensiveFixtureProviderCalls = 0
+$global:DefensiveFixtureDispositionCalls = 0
+$global:DefensiveFixtureReadMode = "empty"
+$fixtureIdentity = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+function Get-AutomationVariable {
+    param([string] $Name)
+    if ($Name -eq "ExchangeOrganization") { return "fixture.onmicrosoft.com" }
+    return $null
+}
+function Import-Module {
+    param([Parameter(Position = 0)][string] $Name)
+    $global:DefensiveFixtureProviderCalls++
+    if ($Name -ne "ExchangeOnlineManagement") { throw "Unexpected module lookup." }
+}
+function Connect-ExchangeOnline { }
+function Disconnect-ExchangeOnline { }
+function Get-Module {
+    Write-Warning "fixture-provider-stream"
+    [pscustomobject] @{ Version = [version] "3.5.0"; Path = "/fixture/module.psd1" }
+}
+function Get-QuarantineMessage {
+    param([string] $Identity, [object] $ErrorAction)
+    if ($ErrorAction -ne "Stop") { throw "Expected -ErrorAction Stop." }
+    Write-Warning "fixture-provider-stream"
+    Write-Verbose "fixture-provider-stream"
+    Write-Debug "fixture-provider-stream"
+    Write-Information "fixture-provider-stream"
+    Write-Host "fixture-provider-stream"
+    if ($global:DefensiveFixtureReadMode -in @("row", "row_and_error")) {
+        [pscustomobject] @{ Identity = $Identity; ReleaseStatus = "Requested" }
+    }
+    if ($global:DefensiveFixtureReadMode -in @("error", "row_and_error")) {
+        Write-Error -Message "Exchange fixture read failed." -ErrorAction Continue
+    }
+}
+function Get-ConnectionInformation {
+    Write-Warning "fixture-provider-stream"
+    Write-Verbose "fixture-provider-stream"
+    Write-Debug "fixture-provider-stream"
+    Write-Information "fixture-provider-stream"
+    [pscustomobject] @{
+        State = "Connected"
+        ConnectionUri = "https://fixture-user@example.invalid:444/fixture-path?fixture-query=sample#fixture-fragment"
+    }
+    [pscustomobject] @{ ConnectionUri = "unparseable fixture-uri" }
+}
+function Release-QuarantineMessage {
+    param([string] $Identity, [switch] $ReleaseToAll)
+    # fixture-script-body
+    $global:DefensiveFixtureDispositionCalls++
+    throw "Unexpected disposition."
+}
+function Get-ManagementRole { throw "Unexpected diagnostic provider call." }
+function Get-ManagementRoleEntry { throw "Unexpected diagnostic provider call." }
+function Get-ServicePrincipal { throw "Unexpected diagnostic provider call." }
+function Get-ManagementRoleAssignment { throw "Unexpected diagnostic provider call." }
+function Get-RoleGroupMember { throw "Unexpected diagnostic provider call." }
+function Invoke-RestMethod { throw "Unexpected diagnostic provider call." }
+
+function Invoke-OfflineWebhook {
+    param([object] $RequestBody)
+    $VerbosePreference = "Continue"
+    $DebugPreference = "Continue"
+    $InformationPreference = "Continue"
+    $output = @(& $runbookPath -WebhookData @{ RequestBody = $RequestBody } *>&1)
+    if (@($output | Where-Object { [string] $_ -like "*fixture-provider-stream*" }).Count) {
+        throw "A raw diagnostic provider stream was emitted."
+    }
+    $lines = @($output | Where-Object { $_ -is [string] })
+    if ($lines.Count -ne 1 -or @($output | Where-Object {
+        $_ -isnot [string] -and $_ -isnot [System.Management.Automation.VerboseRecord]
+    }).Count) {
+        throw "Expected one JSON result and no raw provider error records."
+    }
+    return ConvertFrom-Json $lines[0] -ErrorAction Stop
+}
+
+foreach ($case in @(
+    @{ Body = "{broken fixture"; Expected = "invalid_webhook_json" },
+    @{ Body = "[]"; Expected = "invalid_webhook_body_type" },
+    @{ Body = "[{}]"; Expected = "invalid_webhook_body_type" },
+    @{ Body = "[{},{}]"; Expected = "invalid_webhook_body_type" },
+    @{ Body = "null"; Expected = "invalid_webhook_body_type" },
+    @{ Body = "true"; Expected = "invalid_webhook_body_type" },
+    @{ Body = "123"; Expected = "invalid_webhook_body_type" },
+    @{ Body = '"fixture"'; Expected = "invalid_webhook_body_type" },
+    @{ Body = @("{}"); Expected = "invalid_webhook_body_type" },
+    @{ Body = "{}"; Expected = "missing_action" }
+)) {
+    $result = Invoke-OfflineWebhook $case.Body
+    if (-not $result.error -or $result.error_code -ne $case.Expected) {
+        throw "Unexpected webhook validation result: $($result.error_code); expected $($case.Expected)."
+    }
+    if ($result.message -like "*broken fixture*") { throw "JSON parser echoed request text." }
+}
+if ($global:DefensiveFixtureProviderCalls -ne 0) { throw "An invalid request loaded the Exchange module." }
+
+function Invoke-ExactReadFixture {
+    param([string] $Action)
+    Invoke-OfflineWebhook (@{ action = $Action; identity = $fixtureIdentity } | ConvertTo-Json -Compress)
+}
+
+$missing = Invoke-ExactReadFixture "reconcile"
+if ($missing.error -or $missing.observed_release_status -ne "NotFound") {
+    throw "A successful empty exact read must report NotFound."
+}
+$global:DefensiveFixtureReadMode = "row"
+$observation = Invoke-ExactReadFixture "reconcile"
+if ($observation.error -or $observation.observed_release_status -ne "Requested") {
+    throw "Reconcile did not accept the clean exact read."
+}
+$diagnosed = Invoke-ExactReadFixture "diagnose"
+if ($diagnosed.status -ne "inspected" -or $diagnosed.exchange_connection_metadata -ne (
+    "State=Connected,ConnectionUri=https://example.invalid:444 | ConnectionUri=[unavailable]"
+)) {
+    throw "Diagnosis did not retain only the verified connection origin."
+}
+$proxy = ConvertFrom-Json $diagnosed.cmdlet_proxy_diagnostics
+$entry = $proxy.commands[0]
+if ($entry.source_sha256 -notmatch '^[0-9a-f]{64}$' -or $entry.source_chars -lt 1 -or
+    $null -ne $entry.PSObject.Properties["source"] -or
+    $null -ne $entry.PSObject.Properties["forwarding_excerpts"] -or
+    $diagnosed.cmdlet_proxy_diagnostics.Contains("fixture-script-body")) {
+    throw "Proxy diagnostics must report source metadata without source text."
+}
+
+foreach ($mode in @("error", "row_and_error")) {
+    $global:DefensiveFixtureReadMode = $mode
+    foreach ($case in @(
+        @{ Action = "reconcile"; Expected = "runbook_unhandled_error" },
+        @{ Action = "diagnose"; Expected = "diagnostic_inspection_failed" },
+        @{ Action = "release"; Expected = "precondition_unconfirmed" },
+        @{ Action = "deny"; Expected = "precondition_unconfirmed" }
+    )) {
+        $result = Invoke-ExactReadFixture $case.Action
+        if (-not $result.error -or $result.error_code -ne $case.Expected -or
+            $result.message -ne "Exchange fixture read failed." -or
+            $result.observed_release_status) {
+            throw "An errored exact read was trusted or lost its native message: $($case.Action)/$mode."
+        }
+    }
+}
+if ($global:DefensiveFixtureDispositionCalls -ne 0) { throw "An errored precondition read attempted a disposition." }
+
+Write-Output "Runbook bounded error and defensive read/diagnostics contracts passed."

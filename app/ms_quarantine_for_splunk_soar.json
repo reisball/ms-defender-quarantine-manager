@@ -6,7 +6,7 @@
     "package_name": "phantom_ms_quarantine_for_splunk_soar",
     "type": "generic",
     "license": "Apache-2.0",
-    "app_version": "1.0.0",
+    "app_version": "1.1.0",
     "product_vendor": "Microsoft",
     "product_name": "Exchange Online Quarantine",
     "product_version_regex": ".*",
@@ -884,7 +884,7 @@
                     "data_path": "action_result.data.*.runbook_version",
                     "data_type": "string",
                     "example_values": [
-                        "1.0.0"
+                        "1.1.0"
                     ],
                     "description": "Release version reported by the runbook, when available; not a build fingerprint."
                 },
@@ -977,7 +977,7 @@
                     "data_path": "action_result.summary.runbook_version",
                     "data_type": "string",
                     "example_values": [
-                        "1.0.0"
+                        "1.1.0"
                     ],
                     "description": "Release version reported by the runbook, when available; not a build fingerprint."
                 },
@@ -1092,7 +1092,7 @@
                     "data_path": "action_result.data.*.runbook_version",
                     "data_type": "string",
                     "example_values": [
-                        "1.0.0"
+                        "1.1.0"
                     ],
                     "description": "Release version reported by the runbook, when available; not a build fingerprint."
                 },
@@ -1185,7 +1185,7 @@
                     "data_path": "action_result.summary.runbook_version",
                     "data_type": "string",
                     "example_values": [
-                        "1.0.0"
+                        "1.1.0"
                     ],
                     "description": "Release version reported by the runbook, when available; not a build fingerprint."
                 },

@@ -6,7 +6,7 @@ Start with the SOAR action result: its status, the Azure/Exchange error text and
 
 | Symptom | Next step |
 |---|---|
-| Azure authorization or job-read failure | Check the App Registration credentials, the Automation Account fields and the two [job-reader permissions](installation.md#3-configure-azure-job-access) and their effective assignment at the account |
+| Azure authorization or job-read failure | Check the App Registration credentials, the Automation Account fields and the two [job-reader permissions](installation.md#3-create-an-azure-job-reader-role) and their effective assignment at the account |
 | Exchange connection or permission error | Check the Managed Identity, the organization and the permission named in the error ([installation](installation.md#2-grant-exchange-permissions)) |
 | Missing organization | Set `exchange_organization` in the asset or the `ExchangeOrganization` Automation Variable |
 | Cmdlet failure | Read the returned error and job output |
@@ -15,7 +15,7 @@ Start with the SOAR action result: its status, the Azure/Exchange error text and
 | Webhook response lost, no job ID | Check Azure job history; a job may still have started |
 | Import or publication failed | Inspect the container, artifacts or ES finding, fix the cause, then use [Poll Now](ingestion.md#failed-imports-and-poll-now) |
 | EML, MIME or size failure | The message exceeds a [limit](ingestion.md#limits) or is malformed; it is not published |
-| Active-message limit is full | Check the Microsoft status of tracked messages; only `Released`/`Denied` frees a slot |
+| Active-message limit is full | Check the Microsoft status of tracked messages; confirmed `Released` or `Denied`, or a confirmed missing message whose last known expiry has passed, frees a slot |
 | ES mail or file links fail | Check that the external SOAR URL is HTTPS and reachable, and that analysts have access |
 
 The asset's client secret is used only for Azure job reads. Exchange always uses the Automation Account's Managed Identity.
@@ -25,7 +25,7 @@ The asset's client secret is used only for Azure job reads. Exchange always uses
 **inspect release environment** reads one quarantine identity's current Microsoft status and the loaded Exchange module details. It never releases or denies.
 
 - Leave `include_rbac` false unless you need to diagnose tenant permissions.
-- The result can include `cmdlet_proxy_diagnostics`: static, redacted excerpts of the loaded `Release-QuarantineMessage` definition (max 32,768 characters per command; excerpts max 16,384 characters and 512 lines). This is not a capture of the HTTP request.
+- The result can include `cmdlet_proxy_diagnostics`: the SHA-256 fingerprint and character count of the loaded cmdlet definition, when available. It includes neither source excerpts nor HTTP request data.
 
 Do not add this action as a required playbook step.
 

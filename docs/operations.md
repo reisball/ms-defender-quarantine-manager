@@ -41,7 +41,7 @@ A confirmed `Released` or `Denied` status also frees the message's slot in the [
 
 ## Timeouts and uncertain outcomes
 
-The app waits up to `poll_timeout_seconds` (default 600) for the Azure job and checks its status every `poll_interval_seconds` (default 5). Transient read errors are retried within that deadline, honouring Retry-After. The webhook that starts the job is **never** retried automatically.
+The app waits up to `poll_timeout_seconds` (default 600) for the Azure job and checks its status every `poll_interval_seconds` (default 5). Transient read errors are retried within that deadline, honouring Retry-After. The webhook that starts the job is **never** retried automatically. If the output body is still downloading when the deadline expires, SOAR stops waiting; an in-flight network read may finish in the background and Azure keeps running.
 
 Use `action_result.summary.outcome` in playbooks. All outcomes except
 `confirmed` return a SOAR action error and include `action_result.data.*.error_code`.

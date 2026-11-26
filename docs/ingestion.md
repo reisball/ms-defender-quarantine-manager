@@ -4,7 +4,7 @@
 
 ## How import works
 
-The app imports only messages with Microsoft status `Requested`, meaning a recipient has requested release. There is no source-mode setting; obsolete settings from older versions are ignored. `NotReleased` mail is not imported.
+The app imports only messages with Microsoft status `Requested`, meaning a recipient has requested release. `NotReleased` mail is not imported.
 
 Both targets export and validate the original EML. A MIME or size problem stops publication rather than importing incomplete mail.
 
@@ -23,7 +23,7 @@ Use **one ingesting asset per tenant**. Each asset has its own state, so two ass
 
 Schedule and container label are set in the asset's **Ingest Settings**. Disabling the schedule pauses automatic imports.
 
-On upgrade, existing state is kept. Earlier `needs_review` scopes become Requested-only, published messages are not republished, and unfinished attempts are marked failed rather than replayed.
+The SDK app starts with a fresh per-asset ledger. On the same asset, an interrupted import is marked failed rather than replayed by a scheduled poll.
 
 ## Active-message limit
 
@@ -50,7 +50,7 @@ With `artifact_layout` = `combined`, each message produces **one event and one e
 
 The Vault holds the original EML and all attachments, including inline parts and attached messages. Duplicate filenames get stable prefixes, and path components and control characters are removed. The original EML is always the authoritative copy.
 
-The SOAR `separate` layout still uses Request, file, field and final Ready artifacts. The SOAR artifact layout does not apply to ES findings. Historical artifacts are not rewritten.
+The SOAR `separate` layout creates and confirms the Request artifact before uploading mail or publishing the final Ready artifact. A manual retry that reuses the event must confirm the Request artifact again. The SOAR artifact layout does not apply to ES findings. Historical artifacts are not rewritten.
 
 ### Updating an existing playbook
 
@@ -69,9 +69,9 @@ Use this section only when the asset targets **ES findings**. This path uploads 
 
 No custom ES field registration is needed. For Release/Deny, use `container:data.quarantine_identity` from the linked SOAR container.
 
-- Configure the ES target and security domain. Urgency and investigation type are optional.
+- Configure the ES target, security domain and SOAR container label. Urgency and investigation type are optional.
 - **on es poll** requires an ES target. **on poll** uses the asset's target selection.
-- Original-mail and attachment links use the external SOAR URL (`es_soar_base_url` or the platform URL). It must be HTTPS and reachable by analysts; check downloads from the analyst interface.
+- Original-mail and attachment links use the external SOAR URL published by the platform. It must be HTTPS and reachable by analysts; check downloads from the analyst interface.
 - ES receives headers (max 8,192 characters per original header value), body text (max 256,000 characters, plain text preferred over HTML), and attachment links. Attachment content is not sent.
 - Drilldowns are optional. Searches need `name`, `search`, `earliest` and `latest`. Dashboard drilldowns need `app`, `dashboard_id` and `name`. Tokens need a name and a string value.
 
@@ -82,7 +82,8 @@ Native ES threat-analysis and automation settings control what happens next. ES 
 | Field | Meaning |
 |---|---|
 | `candidates`, `candidate_window`, `results_may_be_truncated` | Messages found, window size, and whether the window was full |
-| `containers_created`, `messages_published` | Successful publications in this poll (same value) |
+| `containers_created` | Imports whose completion checkpoint was saved without reporting an error in this poll |
+| `messages_published` | For ES, linked findings confirmed by ES in this poll, even if saving the completion checkpoint fails. For SOAR, completed publications (same as `containers_created`). |
 | `active_messages`, `active_limit` | Unresolved messages and the configured limit |
 | `requested_containers`, `terminal_observed` | Attempt limit for this poll and confirmed `Released`/`Denied` observations |
 | `errors` | Error count for this poll |

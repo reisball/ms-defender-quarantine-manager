@@ -8,6 +8,11 @@ param(
         "unmatched_group_error",
         "many_role_groups_late_match",
         "many_role_groups_no_match",
+        "mixed_role_error",
+        "alternate_principal_error_only",
+        "alternate_principal_mixed",
+        "alternate_principal_error_only_terminating",
+        "alternate_principal_mixed_terminating",
         "empty_contracts"
     )]
     [string] $AssignmentMode = "role_group",
@@ -164,6 +169,14 @@ function Get-ManagementRole {
     if ($global:DiagnosticTestAssignmentMode -eq "empty_contracts") {
         return @()
     }
+    if (
+        $Cmdlet -eq "Get-QuarantineMessage" -and
+        $global:DiagnosticTestAssignmentMode -eq "mixed_role_error"
+    ) {
+        [pscustomobject]@{ Name = "RejectThisUnconfirmedRole" }
+        Write-Error "Authorization: Bearer SyntheticRbacCredentialMarker" -ErrorAction Continue
+        return
+    }
     if ($Identity -eq "Quarantine") {
         return [pscustomobject]@{ Name = "Quarantine" }
     }
@@ -186,6 +199,9 @@ function Get-ManagementRoleEntry {
     if ($global:DiagnosticTestAssignmentMode -eq "empty_contracts") {
         return @()
     }
+    if ($global:DiagnosticTestAssignmentMode -eq "mixed_role_error") {
+        return [pscustomobject]@{ Role = "Quarantine" }
+    }
     throw "Management-role entry fallback should not be required."
 }
 
@@ -202,6 +218,20 @@ function Get-ServicePrincipal {
         $global:DiagnosticTestObjectId
     )) {
         throw "Unexpected service-principal identity."
+    }
+    if ($Identity -eq $global:DiagnosticTestAppId -and
+        $global:DiagnosticTestAssignmentMode -like "alternate_principal_*") {
+        if ($global:DiagnosticTestAssignmentMode -like "alternate_principal_mixed*") {
+            [pscustomobject]@{
+                AppId = $global:DiagnosticTestAppId
+                Identity = "RejectThisUnconfirmedPrincipal"
+            }
+        }
+        if ($global:DiagnosticTestAssignmentMode -like "*_terminating") {
+            Write-Error "Authorization: Bearer SyntheticRbacCredentialMarker" -ErrorAction $ErrorAction
+        }
+        Write-Error "Authorization: Bearer SyntheticRbacCredentialMarker" -ErrorAction Continue
+        return
     }
     $objectId = $global:DiagnosticTestObjectId
     $externalDirectoryObjectId = $null

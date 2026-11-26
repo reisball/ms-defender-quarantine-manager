@@ -17,10 +17,10 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def source_snapshot(destination, *, extras=()):
-    """Project the verified release TGZ into the root layout upstream expects."""
+    """Project the verified legacy reference TGZ into the root layout upstream expects."""
     with tempfile.TemporaryDirectory(prefix="msqsoar-package-") as temporary:
         out = Path(temporary)
-        subprocess.run(["bash", str(ROOT / "tools/build_release.sh"), str(out)], cwd=ROOT, check=True)
+        subprocess.run(["bash", str(ROOT / "tools/build_legacy_reference.sh"), str(out)], cwd=ROOT, check=True)
         commit = json.loads((out / "BUILD_METADATA.json").read_bytes())["source_commit"]
         package, = out.glob("*.tgz")
         with tarfile.open(package) as archive:
@@ -37,7 +37,7 @@ def source_snapshot(destination, *, extras=()):
                 with archive.extractfile(member) as source:
                     with target.open("xb") as output:
                         output.write(source.read())
-        docs = ("README.md", "manual_readme_content.md", "release_notes/unreleased.md")
+        docs = ("README.md", "release_notes/unreleased.md")
         for relative, projected in (tuple((path, path) for path in docs) + extras):
             target = destination / projected
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -57,6 +57,37 @@ def quality():
         subprocess.run(["git", "init", "-q"], cwd=snapshot, check=True)
         subprocess.run(["git", "add", "--all"], cwd=snapshot, check=True)
         return subprocess.call(["pre-commit", "run", "--all-files", "--show-diff-on-failure"], cwd=snapshot)
+
+
+def sdk_quality(package):
+    """Run the pinned quality hooks on the shipped SDK source and metadata."""
+    with tempfile.TemporaryDirectory(prefix="msdq-sdk-quality-") as temporary:
+        snapshot = Path(temporary)
+        with tarfile.open(package) as archive:
+            for member in archive.getmembers():
+                parts = Path(member.name).parts
+                if not parts or parts[0] != "MS Defender Quarantine Manager" or ".." in parts:
+                    raise ValueError(f"Unexpected SDK archive path: {member.name}")
+                relative = parts[1:]
+                if not relative or relative[0] == "wheels" or member.isdir():
+                    continue
+                if not member.isfile():
+                    raise ValueError(f"Unexpected SDK archive member: {member.name}")
+                target = snapshot.joinpath(*relative)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with archive.extractfile(member) as source, target.open("xb") as output:
+                    output.write(source.read())
+        (snapshot / "pyproject.toml").write_bytes(
+            (ROOT / "tools/soar-tooling/sdk-quality.toml").read_bytes()
+        )
+        (snapshot / ".pre-commit-config.yaml").write_bytes(
+            (ROOT / "tools/soar-tooling/quality-pre-commit.yaml").read_bytes()
+        )
+        subprocess.run(["git", "init", "-q"], cwd=snapshot, check=True)
+        subprocess.run(["git", "add", "--all"], cwd=snapshot, check=True)
+        return subprocess.call(
+            ["pre-commit", "run", "--all-files", "--show-diff-on-failure"], cwd=snapshot
+        )
 
 
 def copyright_audit():
@@ -158,7 +189,7 @@ def classify_static_results(results, registration_messages):
     return pending, failures
 
 
-def static(strict=False):
+def static(strict=False, *, sdk=False):
     # These imports belong to the pinned dev-cicd-tools hook environment, not
     # the app runtime or the separate SOAR linter environment.
     from local_hooks.app_tests.json_tests import (  # pylint: disable=import-error
@@ -175,12 +206,15 @@ def static(strict=False):
     # directory. A clean /tmp snapshot also isolates its possible auto-fixes.
     with tempfile.TemporaryDirectory(prefix="msqsoar-static-", dir="/tmp") as temporary:
         snapshot = Path(temporary) / "ms_quarantine_for_splunk_soar"
-        snapshot.mkdir()
-        source_snapshot(snapshot)
+        if sdk:
+            subprocess.run([sys.executable, str(ROOT / "tools/stage_sdk.py"), str(snapshot)], check=True)
+        else:
+            snapshot.mkdir()
+            source_snapshot(snapshot)
         before = {p.relative_to(snapshot): p.read_bytes() for p in snapshot.rglob("*") if p.is_file()}
         exit_code, results = TestRunner(app_directory=snapshot).run()
         pending, failures = classify_static_results(results, messages)
-        after = {p.relative_to(snapshot): p.read_bytes() for p in snapshot.rglob("*") if p.is_file()}
+        after = {p.relative_to(snapshot): p.read_bytes() for p in snapshot.rglob("*") if p.is_file() and not {".venv", "__pycache__"}.intersection(p.relative_to(snapshot).parts)}
         changed = sorted(str(p) for p in before.keys() | after.keys() if before.get(p) != after.get(p))
         if changed:
             failures["source_mutation"] = {"message": "Upstream checks modified source; apply and recheck explicitly", "files": changed}
@@ -202,9 +236,16 @@ def static(strict=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("check", choices=["quality", "copyright", "lint", "docs", "notes", "static", "static-strict"])
+    parser.add_argument("check", choices=["sdk-quality", "sdk-static", "quality", "copyright", "lint", "docs", "notes", "static", "static-strict"])
+    parser.add_argument("package", type=Path, nargs="?")
     args = parser.parse_args()
-    return {"quality": quality, "copyright": copyright_audit, "lint": lint, "docs": docs, "notes": release_notes, "static": static, "static-strict": lambda: static(strict=True)}[args.check]()
+    if args.check == "sdk-quality":
+        if args.package is None:
+            parser.error("sdk-quality requires an SDK package")
+        return sdk_quality(args.package)
+    if args.package is not None:
+        parser.error("package is only supported for sdk-quality")
+    return {"sdk-static": lambda: static(sdk=True), "quality": quality, "copyright": copyright_audit, "lint": lint, "docs": docs, "notes": release_notes, "static": static, "static-strict": lambda: static(strict=True)}[args.check]()
 
 
 if __name__ == "__main__":

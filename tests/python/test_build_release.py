@@ -1,4 +1,4 @@
-"""Release-builder regressions using local disposable Git repositories only."""
+"""Historical legacy reference builder regressions using local disposable Git repositories only."""
 import hashlib
 import json
 import os
@@ -21,6 +21,7 @@ APP_INPUTS = (
     "__init__.py", "LICENSE", "NOTICE", "readme.html", "ms_quarantine_for_splunk_soar.json",
     "ms_quarantine_for_splunk_soar_connector.py", "ms_quarantine_for_splunk_soar_utils.py",
     "ms_quarantine_for_splunk_soar_ingestion.py", "ms_quarantine_for_splunk_soar_es_ingestion.py",
+    "ms_quarantine_for_splunk_soar_mail.py",
     "ms_quarantine_for_splunk_soar.svg", "ms_quarantine_for_splunk_soar_dark.svg",
     *WHEEL_INPUTS,
 )
@@ -59,7 +60,7 @@ def git_bytes(repo, *args):
 def source(tmp_path):
     repo = tmp_path / "source"
     repo.mkdir()
-    for name in (*APP_SOURCES.values(), RUNBOOK_SOURCE, "tools/build_release.sh",
+    for name in (*APP_SOURCES.values(), RUNBOOK_SOURCE, "tools/build_legacy_reference.sh",
                  "tools/render_readme.py", "tools/stamp_runbook.py", WHEEL_LOCK):
         dest = repo / name
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -84,7 +85,7 @@ def build(repo, output, *, commit=None, epoch=EPOCH, mask="022", locale="C", ext
         env["SOURCE_DATE_EPOCH"] = epoch
     env["LC_ALL"] = locale
     env.update(extra_env or {})
-    return run(repo, "bash", "-c", 'umask "$1"; bash tools/build_release.sh "$2"',
+    return run(repo, "bash", "-c", 'umask "$1"; bash tools/build_legacy_reference.sh "$2"',
                "build-test", mask, str(output), env=env)
 
 

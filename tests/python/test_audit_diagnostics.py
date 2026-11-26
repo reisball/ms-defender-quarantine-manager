@@ -86,6 +86,49 @@ def test_unresolved_rbac_identity_remains_unknown(mode):
         assert data[field] is None
 
 
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="PowerShell is not installed")
+def test_mixed_rbac_role_error_is_partial_without_leaking_credentials():
+    script = Path(__file__).resolve().parents[1] / "powershell" / "test_runbook_diagnostics.ps1"
+    result = subprocess.run(
+        ["pwsh", "-NoLogo", "-NoProfile", "-File", str(script), "-AssignmentMode", "mixed_role_error"],
+        check=True, text=True, capture_output=True, timeout=30,
+    )
+    assert not result.stderr
+    assert "SyntheticRbacCredentialMarker" not in result.stdout
+    assert "RejectThisUnconfirmedRole" not in result.stdout
+    envelope = json.loads(result.stdout)
+    assert envelope["error_code"] == "diagnostic_rbac_partial"
+    details = envelope["details"]
+    assert details["rbac_diagnostics_status"] == "partial"
+    assert details["permission_query_error_count"] == 1
+    assert details["permission_query_errors"][0]["query"] == "read.management_roles"
+
+
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="PowerShell is not installed")
+@pytest.mark.parametrize("error_only", [True, False])
+@pytest.mark.parametrize("terminating", [True, False])
+def test_alternate_principal_requires_clean_guid_match(error_only, terminating):
+    script = Path(__file__).resolve().parents[1] / "powershell" / "test_runbook_diagnostics.ps1"
+    mode = "alternate_principal_error_only" if error_only else "alternate_principal_mixed"
+    if terminating:
+        mode += "_terminating"
+    result = subprocess.run(
+        ["pwsh", "-NoLogo", "-NoProfile", "-File", str(script), "-AssignmentMode", mode],
+        check=True, text=True, capture_output=True, timeout=30,
+    )
+    assert not result.stderr
+    assert "SyntheticRbacCredentialMarker" not in result.stdout
+    assert "RejectThisUnconfirmedPrincipal" not in result.stdout
+    envelope = json.loads(result.stdout)
+    data = envelope if error_only else envelope["details"]
+    assert data["service_principal_registered"] is True
+    assert data["rbac_diagnostics_status"] == ("complete" if error_only else "partial")
+    assert data["permission_query_error_count"] == (0 if error_only else 1)
+    if not error_only:
+        assert envelope["error_code"] == "diagnostic_rbac_partial"
+        assert data["permission_query_errors"][0]["query"] == "exchange_service_principal"
+
+
 # Each tuple specifies the complete preserved text around the redacted value.
 # Unterminated quotes stop at the physical line boundary, never the next line.
 MALFORMED_HEADERS = [

@@ -65,11 +65,11 @@ def test_partial_failure_keeps_real_counts(tmp_path, identifier, target):
     c = native.setup(tmp_path, target, limit=2)
     original = c._ingest_publish
     calls = []
-    def publish(key, row):
+    def publish(key, row, *, on_es_receipt):
         calls.append(key)
         if len(calls) == 1:
             raise TimeoutError("synthetic publication interruption")
-        return original(key, row)
+        return original(key, row, on_es_receipt=on_es_receipt)
     c._ingest_publish = publish
     status, ar = invoke(c, identifier)
     assert status == t.APP_ERROR

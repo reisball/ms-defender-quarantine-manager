@@ -13,6 +13,7 @@ repos:
     rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b # pragma: allowlist secret — public Git commit for v5.0.0
     hooks:
       - id: check-merge-conflict
+        exclude: ^NOTICE$
         args: [--assume-in-merge]
       - id: end-of-file-fixer
         exclude: ^NOTICE$
@@ -32,12 +33,6 @@ repos:
     rev: 9112cb64851c95a7802358af285d21ad8b7f6437 # pragma: allowlist secret — public Git commit for v1.36.4
     hooks:
       - id: djlint-django
-  - repo: https://github.com/hukkin/mdformat
-    rev: 83dc2ce5ca115d3390b9b5561d2898366faf0742 # pragma: allowlist secret — public Git commit for 0.7.22
-    hooks:
-      - id: mdformat
-        files: ^manual_readme_content[.]md$
-        args: [--check, --number]
   - repo: https://github.com/returntocorp/semgrep
     rev: 7d52dc9cbf57598680b1607138e9c6bd66659687 # pragma: allowlist secret — public Git commit for v1.136.0
     hooks:

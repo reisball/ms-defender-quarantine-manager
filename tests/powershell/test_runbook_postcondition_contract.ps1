@@ -54,6 +54,11 @@ function Get-QuarantineMessage {
     if ($value -eq "__ERROR__") {
         throw "Transient Exchange read error."
     }
+    if ($value -eq "__RELEASED_WITH_ERROR__") {
+        [pscustomobject] @{ Identity = $Identity; ReleaseStatus = "Released" }
+        Write-Error -Message "Exchange fixture read failed." -ErrorAction Continue
+        return
+    }
     if ($value -eq "__EMPTY__") {
         return
     }
@@ -216,6 +221,22 @@ Assert-Result `
     -ObservedStatus ""
 if ($permanentReadError.LastError -ne "Transient Exchange read error.") {
     throw "Permanent read error was not preserved."
+}
+
+Set-PostconditionScenario -Statuses @("__RELEASED_WITH_ERROR__")
+$mixedRead = Wait-QuarantinePostcondition `
+    -Identity $global:PostconditionTestIdentity `
+    -ExpectedStatus "Released" `
+    -MaxAttempts 1 `
+    -PollIntervalSeconds 0
+Assert-Result `
+    -Name "expected status with a provider error" `
+    -Result $mixedRead `
+    -Confirmed $false `
+    -Attempts 1 `
+    -ObservedStatus ""
+if ($mixedRead.LastError -ne "Exchange fixture read failed.") {
+    throw "The provider error did not survive the mixed read."
 }
 
 Set-PostconditionScenario -Statuses @("__FOREIGN_RELEASED__")
