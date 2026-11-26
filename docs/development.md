@@ -6,7 +6,8 @@
 
 | Path | Purpose |
 |---|---|
-| `app/` | SOAR runtime modules, manifest, logos and generated `readme.html` |
+| `sdk_app/` | SDK app project, lockfile, runtime source and SDK tests |
+| `app/` | Shared transport, MIME and ingestion modules; legacy connector retained as a regression fixture |
 | `runbook/runbook.ps1` | Azure Automation runbook, released as a separate artifact |
 | `examples/` | Example playbooks, not part of the app package |
 | `tests/python/`, `tests/powershell/` | Python tests and PowerShell runbook contract tests |
@@ -14,29 +15,36 @@
 
 ## Checks
 
-Run from the repository root with Python 3.9 and 3.13. `requirements-dev.txt` holds development-only version ranges, not a lockfile; the release builder verifies the runtime wheels against the manifest and wheel lock.
+Run from the repository root with Python 3.13 and uv 0.13.10, as in CI.
+`requirements-dev.txt` is for the shared and legacy regression tests only.
+The SDK project uses the locked SDK 8.0.2 environment in `sdk_app/uv.lock`.
 
 ```bash
-python3 -m venv .venv && . .venv/bin/activate
-python -m pip install -r requirements-dev.txt
-python -m json.tool app/ms_quarantine_for_splunk_soar.json >/dev/null
+python3.13 -m venv .venv && . .venv/bin/activate
+python -m pip install -r requirements-dev.txt uv==0.13.10
 python -m pytest -q tests/python/
-python tools/render_readme.py --check
-python tools/stamp_runbook.py --check
 python tools/check_mime_parser_compat.py
+scratch=$(mktemp -d)
+python tools/stage_sdk.py "$scratch/project"
+(cd "$scratch/project" && uv run --locked --python 3.13 python -m pytest -q tests)
 ```
 
-The [GitHub workflow](../.github/workflows/ci.yml) runs this on both Python versions and, on 3.13, the full PowerShell contract sequence in `tests/powershell/`. Running a single PowerShell script does not replace the sequence.
+The [GitHub workflow](../.github/workflows/ci.yml) runs both suites plus the full
+PowerShell contract sequence in `tests/powershell/`. Running a single PowerShell
+script does not replace the sequence.
 
 The MIME parser overrides CPython's private `BytesFeedParser._new_message` hook and reads `_msgstack` to enforce the node and depth limits before allocation. Re-run `tools/check_mime_parser_compat.py` and the MIME tests when adding a Python runtime.
 
-## Splunk SOAR community submission
+## Legacy reference checks and SDK submission
 
-Keep the repository layout above. The upstream legacy connector tooling expects
-the app manifest and source at the checkout root. The submission checker builds
-the pinned release package and projects its contents into a disposable app
-root; it does not move files in this repository or put the Azure runbook into
-the SOAR package.
+The retained legacy-only upstream hooks expect a flat classic connector at
+the checkout root. CI still runs them against a separately built historical
+reference projection via `tools/build_legacy_reference.sh`. They are not the
+release pipeline, do not validate the SDK package for upstream submission,
+and do not imply support for a classic installation or upgrade. SDK release
+checks instead exercise the locked SDK tests and validate its generated
+manifest and wheel archive. Upstream SDK submission and SOAR installation
+remain separate validation steps.
 
 Run the checks from a committed checkout. Both tooling environments use
 Python 3.13, separately from the app runtime and from each other: the app linter
@@ -72,7 +80,7 @@ the isolated build dependencies of the Git-based tools. When updating tools, reg
 `uv pip compile --python-version 3.13 --build-constraints tools/soar-tooling/build-constraints.txt tools/soar-tooling/<tool>.in -o tools/soar-tooling/<tool>.txt`,
 then test both environments independently.
 
-The pinned quality hooks run on the packaged app and its submission Markdown,
+The pinned legacy quality hooks run on the historical reference and its submission Markdown,
 not against the release builder or the separate Azure runbook. They check Ruff
 lint/formatting, JSON/YAML, HTML lint, the manual Markdown fragment, Semgrep's
 live Python registry rules, merge markers and secrets. The hook revisions and
@@ -95,8 +103,8 @@ results; upstream reads the live registries when available and can fall back
 to bundled snapshots. `static-strict` additionally fails if registration is
 pending. A non-strict pass is not upstream acceptance or native SOAR validation.
 
-NOTICE is generated from license text in the exact hash-locked runtime wheels
-for both app interpreters, plus pinned notices for the bundled OpenSSL, libffi and Rust components.
+The historical reference NOTICE is generated from its own hash-locked wheels
+plus pinned notices for OpenSSL, libffi and Rust components.
 The Rust notice records source checksums and distinguishes the all-target
 cryptography lockfile from the Linux standard-library dependency set. NOTICE
 excludes SOAR tooling and platform-provided dependencies.
@@ -108,16 +116,22 @@ for the repository request, required hooks and upstream pull request process.
 
 ## Versions and release notes
 
-App and runbook share one version, even when only one changes. `app_version` in `app/ms_quarantine_for_splunk_soar.json` is authoritative. After changing it:
+App and runbook share one version, even when only one changes. The version in
+`sdk_app/pyproject.toml` is authoritative for the SDK artifact. Update it and
+refresh `sdk_app/uv.lock`, then generate the new SDK manifest and use it to
+stamp and check the runbook:
 
 ```bash
-python3 tools/stamp_runbook.py --write
-python3 tools/render_readme.py
-python3 tools/stamp_runbook.py --check
-python3 tools/render_readme.py --check
+scratch=$(mktemp -d)
+tools/build_sdk.sh "$scratch/app.tgz"
+tar -xOzf "$scratch/app.tgz" 'MS Defender Quarantine Manager/manifest.json' > "$scratch/manifest.json"
+python tools/stamp_runbook.py --manifest "$scratch/manifest.json" --write --check
 ```
 
-Edit `tools/render_readme.py` or the manifest, never the generated `app/readme.html`. Never change the app UUID.
+The legacy fixture has a separate manifest and generated help. If the shared
+runbook version changes while those historical gates remain active, align the
+fixture version as well and run `python tools/render_readme.py`. Do not change
+the app UUID.
 
 Publish release notes in [GitHub Releases](https://github.com/reisball/ms-defender-quarantine-manager/releases), not a changelog file. Write them from the merged pull requests since the previous release, with separate `App` and `Runbook` sections (`No changes` if unchanged), and check them against the release diff.
 
@@ -125,20 +139,41 @@ With every version change, update the [compatibility matrix](compatibility.md). 
 
 ## Building the release kit
 
-Requires Git, Bash, Python, GNU tar/gzip, jq and sha256sum.
+Requires Git, Bash, Python 3.13, uv 0.13.10, GNU tar, jq and sha256sum.
+The SDK packager needs access to the locked upstream wheel and sdist URLs.
 
 ```bash
 tools/build_release.sh
 ```
 
-The builder checks generated help and verifies that every staged runtime byte comes from a committed source revision, so commit first and do not disable this check. Output goes to `dist/`. When packaging changes, build twice from the same commit and compare checksums.
+The release builder checks SDK runtime inputs and the companion runbook against
+the selected committed revision (HEAD by default), verifies the generated SDK
+manifest and exact wheel set, and verifies the runbook fingerprint before
+moving any artifacts into `dist/`.
+
+The SDK's wall-clock manifest timestamp, tar metadata, and gzip timestamp
+are normalized to `SOURCE_DATE_EPOCH` (HEAD's commit time by default). The locked
+`red-black-tree-mod` sdist currently builds a pure-Python wheel whose ZIP entry
+timestamps differ between builds; only that wheel's ZIP metadata is
+normalized. Its contents (including RECORD) are unchanged, and every
+downloaded wheel keeps its original lock-verified bytes. Compare all outputs
+from two isolated builds with the same source, tools and epoch; byte identity
+across arbitrary Python, zlib or SDK toolchains is not asserted.
+
+NOTICE inventories the final wheel hashes, includes the wheel license files,
+and lists native components declared in the shipped SBOMs. It includes the
+libffi license for the statically linked CFFI Linux wheels, and the OpenSSL
+4.0.3 license for the version reported by both cryptography wheels. The latter
+is copied from the [upstream OpenSSL release commit](https://github.com/openssl/openssl/blob/af1775b60dfa141a4ad762585052cabeb9f37e9e/LICENSE.txt)
+(SHA-256 `7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a`).
+A dependency update that changes these assumptions needs notice review.
 
 | Artifact | Contents |
 |---|---|
-| `ms-defender-quarantine-manager-<version>.tgz` | One `ms-quarantine-for-splunk-soar/` directory with runtime modules, the manifest, icons, `readme.html`, `LICENSE`, `NOTICE` and the six pinned runtime wheels |
+| `ms-defender-quarantine-manager-<version>.tgz` | One `MS Defender Quarantine Manager/` directory with SDK runtime modules, generated `manifest.json`, template, icons, in-app documentation, `LICENSE`, `NOTICE`, and locked SDK dependency wheels |
 | `ms-defender-quarantine-manager-runbook-<version>.ps1` | Stamped `runbook/runbook.ps1` |
 
-Tests, Markdown, the runbook and example playbooks are not in the app archive. The SAA example is packaged separately as described in [its README](../examples/MS_Quarantine_SAA_Example/README.md#import-and-configure).
+Tests, repository-only documentation, the runbook and example playbooks are not in the app archive. The SAA example is packaged separately as described in [its README](../examples/MS_Quarantine_SAA_Example/README.md#import-and-configure).
 
 ## Before publishing a release
 
@@ -165,25 +200,14 @@ Verify all Azure job streams contain no readable EML, the aggregate Job Output A
 
 For each run, record the app/runbook versions and commit, the PowerShell runtime and module versions, the job ID and timestamps, the size, chunk count and SHA-256, and peak memory if available. Never record webhook URLs, tokens or mail content. Keep 24 MiB only if the exact-boundary runs stay below the limit with a reserve. Otherwise, propose a lower cap or a Hybrid Runbook Worker approach. Attach sanitized evidence to [#18](https://github.com/reisball/ms-defender-quarantine-manager/issues/18).
 
-## SDK candidate (#42)
-
-Build and test the Python 3.13 SDK project from a clean staging directory:
-
-```sh
-scratch=$(mktemp -d)
-python3 tools/stage_sdk.py "$scratch/project"
-(cd "$scratch/project" && uv run --locked --python 3.13 python -m pytest -q tests)
-bash tools/build_sdk.sh "$scratch/ms-defender-quarantine-manager-1.0.0-sdk.tgz"
-```
-
-The SDK project pins `splunk-soar-sdk` 8.0.2 and shares the transport, bounded
-MIME parsing, and intake logic with the regression suite. The SDK build does
-not modify the separately deployed Azure runbook. The SDK packager selects
-runtime wheels; the build generates NOTICE from those exact wheels and checks
-that the final archive bundles the same wheel inventory. These commands do not
-perform a SOAR installation, contact Azure, or publish a release.
+## SDK runtime boundary
 
 SOAR intake and SOAR-proxied ES findings use acknowledged SDK client calls
 instead of decorator buffering because automation must follow the final Vault
-upload and a stored publication checkpoint. The progress log reports the
-counts; the SDK poll wrappers supply their own final action status message.
+upload and a stored publication checkpoint. The actions use the SDK dispatcher
+with structured summaries rather than the fixed-result poll and connectivity
+decorators. Intake requires a native authenticated SOAR session. It keeps an
+encrypted per-asset ledger in the SDK state directory, separate from deferred
+action state, and verifies each checkpoint from disk before publication.
+The local fixture tests exercise restart and missing-write behavior; storage
+and Vault behavior on an installed SOAR instance still need native validation.

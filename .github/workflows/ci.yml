@@ -9,15 +9,10 @@ permissions:
 
 jobs:
   test:
-    name: Python ${{ matrix.python-version }}
-    # Python 3.9 has no setup-python build for newer ubuntu-latest images.
-    runs-on: ${{ matrix.python-version == '3.9' && 'ubuntu-22.04' || 'ubuntu-latest' }}
+    name: SOAR SDK / Python 3.13
+    runs-on: ubuntu-24.04
     env:
       PYTHONPATH: app:tests/python
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.9", "3.13"]
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -25,30 +20,37 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.13'
 
       - name: Install test dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt uv==0.13.10
 
-      - name: Validate manifest and source
+      - name: Validate shared code and legacy test fixture
         run: |
           python -m json.tool app/ms_quarantine_for_splunk_soar.json > /dev/null
           python tools/render_readme.py --check
           python -m compileall -q app/ms_quarantine_for_splunk_soar_connector.py app/ms_quarantine_for_splunk_soar_utils.py app/ms_quarantine_for_splunk_soar_ingestion.py app/ms_quarantine_for_splunk_soar_es_ingestion.py
 
       - name: Verify PowerShell on the GitHub-hosted runner
-        if: matrix.python-version == '3.13'
         shell: bash
         run: pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion'
 
-      - name: Run connector tests
+      - name: Run shared transport and legacy regression tests
         run: python -m pytest -q
+
+      - name: Run staged SDK tests on Python 3.13
+        run: |
+          set -euo pipefail
+          scratch=$(mktemp -d)
+          trap 'rm -rf -- "$scratch"' EXIT
+          python tools/stage_sdk.py "$scratch/project"
+          cd "$scratch/project"
+          uv run --locked --python "$(command -v python)" python -m pytest -q tests
 
       - name: Run Requested-only quarantine contracts
         run: python -m pytest -q tests/python/test_quarantine_modes.py
 
       - name: Run PowerShell export transport boundaries
-        if: matrix.python-version == '3.13'
         shell: bash
         run: |
           set -euo pipefail
@@ -97,7 +99,6 @@ jobs:
             -ExpectedDecodedSize 196606 > /dev/null
 
       - name: Run PowerShell list output contract
-        if: matrix.python-version == '3.13'
         shell: bash
         run: |
           set -euo pipefail
@@ -118,27 +119,22 @@ jobs:
           done
 
       - name: Run PowerShell base64 validation contract
-        if: matrix.python-version == '3.13'
         shell: bash
         run: pwsh -NoLogo -NoProfile -File ./tests/powershell/test_runbook_base64_contract.ps1
 
       - name: Run exact Runbook error contract
-        if: matrix.python-version == '3.13'
         shell: bash
         run: pwsh -NoLogo -NoProfile -File ./tests/powershell/test_runbook_error_contract.ps1
 
       - name: Run PowerShell Exchange connection contract
-        if: matrix.python-version == '3.13'
         shell: bash
         run: python tests/powershell/runbook_business_contract.py connection
 
       - name: Run PowerShell release/deny postcondition contract
-        if: matrix.python-version == '3.13'
         shell: bash
         run: python tests/powershell/runbook_business_contract.py disposition
 
       - name: Run PowerShell read-only diagnostic contract
-        if: matrix.python-version == '3.13'
         shell: bash
         run: |
           set -euo pipefail
@@ -325,7 +321,6 @@ jobs:
           PY
 
       - name: Run RBAC opt-in and permission-error count contracts
-        if: matrix.python-version == '3.13'
         shell: bash
         run: |
           set -euo pipefail
@@ -368,7 +363,6 @@ jobs:
           PY
 
       - name: Run missing-cmdlet diagnostic fallback contract
-        if: matrix.python-version == '3.13'
         shell: bash
         run: |
           set -euo pipefail
@@ -436,7 +430,6 @@ jobs:
           PY
 
       - name: Run PowerShell structured error contract
-        if: matrix.python-version == '3.13'
         shell: bash
         run: |
           set -euo pipefail
@@ -454,11 +447,9 @@ jobs:
           PY
 
       - name: Validate deterministic release artifacts
-        if: matrix.python-version == '3.13'
         shell: bash
         run: |
           set -euo pipefail
-          python tools/stamp_runbook.py --check
           build_one=$(mktemp -d)
           build_two=$(mktemp -d)
           package_check=$(mktemp -d)
@@ -467,29 +458,30 @@ jobs:
           SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
           export SOURCE_COMMIT
           SOURCE_COMMIT=$(git rev-parse HEAD)
-          (umask 022; LC_ALL=en_US.utf8 tools/build_release.sh "$build_one")
+          (umask 022; LC_ALL=C tools/build_release.sh "$build_one")
           (umask 077; LC_ALL=C.utf8 tools/build_release.sh "$build_two")
           diff -qr "$build_one" "$build_two"
-          app_version=$(python -c 'import json; print(json.load(open("app/ms_quarantine_for_splunk_soar.json"))["app_version"])')
-          tar -xzf "$build_one/ms-defender-quarantine-manager-${app_version}.tgz" \
-            -C "$package_check"
-          python -m compileall -q \
-            "$package_check/ms-quarantine-for-splunk-soar/ms_quarantine_for_splunk_soar_connector.py" \
-            "$package_check/ms-quarantine-for-splunk-soar/ms_quarantine_for_splunk_soar_utils.py" \
-            "$package_check/ms-quarantine-for-splunk-soar/ms_quarantine_for_splunk_soar_ingestion.py" \
-            "$package_check/ms-quarantine-for-splunk-soar/ms_quarantine_for_splunk_soar_es_ingestion.py"
+          (cd "$build_one" && sha256sum -c SHA256SUMS)
+          app_version=$(jq -er .app_version "$build_one/BUILD_METADATA.json")
+          package="$build_one/ms-defender-quarantine-manager-${app_version}.tgz"
+          tar -xzf "$package" -C "$package_check"
+          app="$package_check/MS Defender Quarantine Manager"
+          python -m json.tool "$app/manifest.json" > /dev/null
+          python -m compileall -q "$app/src"
+          python tools/render_sdk_notice.py "$package" "$package_check/NOTICE"
+          cmp "$package_check/NOTICE" "$app/NOTICE"
+          cmp runbook/runbook.ps1 "$build_one/ms-defender-quarantine-manager-runbook-${app_version}.ps1"
           mkdir -p release-artifacts
           cp "$build_one"/* release-artifacts/
 
       - name: Upload deterministic release artifacts
-        if: matrix.python-version == '3.13'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ms-defender-quarantine-manager-release
           path: release-artifacts/
 
   soar-quality:
-    name: SOAR pre-submission checks
+    name: Legacy reference submission checks (not the SDK artifact)
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
@@ -515,7 +507,7 @@ jobs:
       - name: Run connector quality hooks
         run: python tools/soar_checks.py quality
 
-      - name: Check bundled notices
+      - name: Check legacy reference notices
         run: python tools/render_notice.py --check
 
       - name: Run upstream static, docs and release-note checks

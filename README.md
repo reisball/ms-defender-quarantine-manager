@@ -10,7 +10,7 @@ This is a community-maintained connector, not a Splunk or Microsoft support offe
 
 | Component | Where it runs |
 |---|---|
-| SOAR app (`ms-defender-quarantine-manager-<version>.tgz`) | Splunk SOAR (native execution, 8.5.0 or later) |
+| SOAR app (`ms-defender-quarantine-manager-<version>.tgz`) | Splunk SOAR (native execution, 8.7.0 or later; Python 3.13) |
 | Runbook (`ms-defender-quarantine-manager-runbook-<version>.ps1`) | Azure Automation, deployed separately; installing the app does not update Azure |
 | [Native SAA example playbook](examples/MS_Quarantine_SAA_Example/README.md) (optional) | Splunk SOAR, imported separately |
 
@@ -44,7 +44,7 @@ permissions and [Operation](docs/operations.md) for how outcomes are confirmed.
 | Topic | Guide |
 |---|---|
 | Prerequisites, permissions and asset setup | [Installation](docs/installation.md) |
-| App/runbook pairing and upgrade order | [Compatibility](docs/compatibility.md) |
+| App/runbook pairing and setup | [Compatibility](docs/compatibility.md) |
 | Intake, playbook input data, ES, limits and retries | [Email import](docs/ingestion.md) |
 | Release, Deny and timeouts | [Operation](docs/operations.md) |
 | Errors and diagnostics | [Troubleshooting](docs/troubleshooting.md) |

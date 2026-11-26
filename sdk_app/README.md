@@ -4,7 +4,7 @@ Imports Microsoft Defender for Office 365 quarantine messages with a release req
 
 ## Setup
 
-This SDK build targets Splunk SOAR 8.7 or later with Python 3.13. Deploy the companion Azure Automation runbook separately, then configure its webhook and Azure job-reader credentials in a new SOAR asset. Run **test connectivity** before enabling polling.
+This SDK build targets Splunk SOAR 8.7 or later with Python 3.13. Deploy the companion Azure Automation runbook separately, then configure its webhook and Azure job-reader credentials in a new SOAR asset. Set a SOAR container label and run **test connectivity** before enabling polling. Intake requires native SOAR session authentication; Automation Broker is unsupported.
 
 For Enterprise Security, configure native ES ingestion on the SOAR asset. This app supports the SOAR-proxied path that links findings to a SOAR container. Direct ES ingestion is not supported: it cannot link an existing SOAR container, which is needed for Vault evidence and downstream actions.
 

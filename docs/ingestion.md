@@ -69,9 +69,9 @@ Use this section only when the asset targets **ES findings**. This path uploads 
 
 No custom ES field registration is needed. For Release/Deny, use `container:data.quarantine_identity` from the linked SOAR container.
 
-- Configure the ES target and security domain. Urgency and investigation type are optional.
+- Configure the ES target, security domain and SOAR container label. Urgency and investigation type are optional.
 - **on es poll** requires an ES target. **on poll** uses the asset's target selection.
-- Original-mail and attachment links use the external SOAR URL (`es_soar_base_url` or the platform URL). It must be HTTPS and reachable by analysts; check downloads from the analyst interface.
+- Original-mail and attachment links use the external SOAR URL published by the platform. It must be HTTPS and reachable by analysts; check downloads from the analyst interface.
 - ES receives headers (max 8,192 characters per original header value), body text (max 256,000 characters, plain text preferred over HTML), and attachment links. Attachment content is not sent.
 - Drilldowns are optional. Searches need `name`, `search`, `earliest` and `latest`. Dashboard drilldowns need `app`, `dashboard_id` and `name`. Tokens need a name and a string value.
 

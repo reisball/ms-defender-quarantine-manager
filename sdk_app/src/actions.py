@@ -18,6 +18,7 @@ from soar_sdk.app import App
 from soar_sdk.asset import BaseAsset
 from soar_sdk.exceptions import ActionFailure, AssetMisconfiguration
 from soar_sdk.logging import getLogger
+from soar_sdk.meta.actions import ActionMeta
 from soar_sdk.params import Param, Params
 
 from .ms_quarantine_for_splunk_soar_utils import (
@@ -33,6 +34,8 @@ from .ms_quarantine_for_splunk_soar_utils import (
     parse_strict_integer,
 )
 
+from .special_actions import register_special
+
 logger = getLogger()
 _GUID = r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
 _IDENTITY = re.compile(rf"{_GUID}\\{_GUID}")
@@ -46,6 +49,13 @@ _DIAGNOSTIC_ERRORS = frozenset(
         DIAGNOSTIC_RBAC_PARTIAL_ERROR_CODE,
     }
 )
+
+
+class ConnectivitySummary(ActionOutput):
+    app_version: str
+    runbook_version: str
+    runbook_build_id: str
+    version_warning: str
 
 
 class DispositionParams(Params):
@@ -704,9 +714,7 @@ def register_actions(
 ) -> None:
     """Register the four SDK actions on the app's existing App instance."""
 
-    @app.test_connectivity()
-    def test_connectivity(asset: BaseAsset) -> None:
-        """Verify Azure authentication, webhook, job polling and protected Exchange list output."""
+    def test_connectivity(_params: Params, _soar, asset: BaseAsset) -> ActionResult:
         azure = azure_factory(asset)
         try:
             logger.progress("Step 1/3: Acquiring Azure AD Management API token.")
@@ -720,22 +728,42 @@ def register_actions(
 
         version, build = output.get("runbook_version"), output.get("runbook_build_id")
         logger.progress("Step 3/3: Validated the protected list result.")
+        evidence = {}
+        if re.fullmatch(_VERSION, app_version):
+            evidence["app_version"] = app_version
         if isinstance(version, str) and re.fullmatch(_VERSION, version):
-            logger.progress(f"Runbook version: {version}.")
+            evidence["runbook_version"] = version
         if isinstance(build, str) and re.fullmatch(_BUILD, build):
-            logger.progress(f"Runbook build: {build}.")
-        if not (
-            re.fullmatch(_VERSION, app_version)
-            and isinstance(version, str)
-            and re.fullmatch(_VERSION, version)
-        ):
-            logger.progress(
-                "Warning: App/runbook version comparison unavailable; verify the installed pair against the release package."
+            evidence["runbook_build_id"] = build
+
+        message = "Connectivity test passed."
+        if not {"app_version", "runbook_version"} <= evidence.keys():
+            evidence["version_warning"] = (
+                "App/runbook version comparison unavailable; verify the installed pair against the release package."
             )
         elif app_version != version:
-            logger.progress(
-                f"Warning: App version {app_version} differs from runbook version {version}. Install the runbook from the same release before enabling automation."
+            evidence["version_warning"] = (
+                f"App version {app_version} differs from runbook version {version}. "
+                "Install the runbook from the same release before enabling automation."
             )
+        if warning := evidence.get("version_warning"):
+            message += " Warning: " + warning
+        result = ActionResult(True, message)
+        result.set_summary(evidence)
+        return result
+
+    register_special(
+        app,
+        ActionMeta(
+            action="test connectivity",
+            identifier="test_connectivity",
+            type="test",
+            description="Verify Azure authentication, webhook, job polling and protected Exchange list output.",
+            read_only=True,
+        ),
+        ConnectivitySummary,
+        test_connectivity,
+    )
 
     # The SDK uses output_class to emit the schema when the handler omits a
     # return annotation. Its result adapter accepts ActionResult, preserving

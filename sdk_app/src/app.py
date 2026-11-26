@@ -1,6 +1,7 @@
 # Copyright 2026 Kai Seidenschnur
 # Licensed under the Apache License, Version 2.0.
 
+from pydantic import ConfigDict
 from soar_sdk.app import App
 from soar_sdk.asset import AssetField, BaseAsset
 
@@ -10,6 +11,8 @@ from .version import APP_VERSION
 
 
 class Asset(BaseAsset):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     webhook_url: str = AssetField(
         description="Connection: HTTPS webhook URL with token; no redirects",
         sensitive=True,

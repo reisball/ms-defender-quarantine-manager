@@ -17,10 +17,10 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def source_snapshot(destination, *, extras=()):
-    """Project the verified release TGZ into the root layout upstream expects."""
+    """Project the verified legacy reference TGZ into the root layout upstream expects."""
     with tempfile.TemporaryDirectory(prefix="msqsoar-package-") as temporary:
         out = Path(temporary)
-        subprocess.run(["bash", str(ROOT / "tools/build_release.sh"), str(out)], cwd=ROOT, check=True)
+        subprocess.run(["bash", str(ROOT / "tools/build_legacy_reference.sh"), str(out)], cwd=ROOT, check=True)
         commit = json.loads((out / "BUILD_METADATA.json").read_bytes())["source_commit"]
         package, = out.glob("*.tgz")
         with tarfile.open(package) as archive:

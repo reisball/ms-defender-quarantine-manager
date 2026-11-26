@@ -4,7 +4,7 @@
 
 ## Requirements
 
-- Splunk SOAR 8.5.0 or later with **native** execution and authenticated access to its local REST API. Automation Broker is not supported. The app runs on Python 3.9 or 3.13 (SOAR 8.7 and later use 3.13).
+- Splunk SOAR 8.7.0 or later with Python 3.13 and **native** execution. Intake requires a native SOAR session with authenticated access to its local REST API. Automation Broker is not supported.
 - An Azure Automation Account with a system-assigned Managed Identity and a PowerShell 7 runtime with .NET AES-GCM and RSA-OAEP-SHA-256 support (use a supported Azure PowerShell 7.4 runtime), including the ExchangeOnlineManagement module. Windows PowerShell 5.1 cannot process protected list/export.
 - An Entra App Registration that can read Azure Automation job status and output.
 - Exchange/Defender quarantine permissions for the Managed Identity.
@@ -19,15 +19,13 @@ Two identities are involved, and neither substitutes for the other:
 
 ## Install order
 
-For a new installation or an upgrade, follow this order:
-
-Pause intake and avoid manual list/export while updating the pair. Plaintext list/export is not supported by the new runbook.
+Set up the app and runbook from the same build. Only protected list/export is supported.
 
 1. Publish the matching runbook in Azure and confirm it is published.
 2. Install the matching SOAR app.
 3. Activate the compatible playbook.
 
-Check the [compatibility matrix](compatibility.md) before upgrading.
+Check the [compatibility matrix](compatibility.md) before enabling intake.
 
 ## 1. Configure Azure Automation
 
@@ -71,9 +69,9 @@ Microsoft references: [Automation RBAC operations](https://learn.microsoft.com/e
 
 ## 4. Install the app and create an asset
 
-Install `ms-defender-quarantine-manager-<version>.tgz` in SOAR app management and create an asset. The Linux x86-64 package includes the app-local cryptography dependencies for both declared Python runtimes; do not install anything into the SOAR host interpreter.
+Install `ms-defender-quarantine-manager-<version>.tgz` in SOAR app management and create an asset. The SDK package includes its Python 3.13 dependencies; do not install anything into the SOAR host interpreter.
 
-This app has its own app UUID (`2e21b2c5-a6a6-4fb4-8df7-9dd1135ab08e`). Assets and state of an earlier, differently identified app (such as MS Quarantine Manager) are not migrated. When moving a tenant to this app, pause the old intake first and never run two ingesting assets for the same tenant.
+Create a new asset for this SDK app. Configure a container label in the SOAR asset's ingestion settings, including for linked ES findings. Never run two ingesting assets for the same tenant.
 
 | Asset field | Notes |
 |---|---|
@@ -85,7 +83,6 @@ This app has its own app UUID (`2e21b2c5-a6a6-4fb4-8df7-9dd1135ab08e`). Assets a
 | `worker_terminal_retention_days` | 1–365, default 30 |
 | `artifact_layout` and `artifact_field_*` | Email artifact layout and optional header fields. Use `combined` for playbooks. |
 | `poll_timeout_seconds`, `poll_interval_seconds` | Azure job wait (600–3600 s, default 600) and status interval (1–60 s, default 5) |
-| `es_soar_base_url` | Optional external HTTPS SOAR URL used for SOAR and ES import |
 
 Azure TLS certificates are always verified. If you use a private CA, add it to the platform trust store.
 
