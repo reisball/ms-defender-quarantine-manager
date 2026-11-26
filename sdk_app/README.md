@@ -10,13 +10,13 @@ The Automation Account’s **managed identity** connects to Exchange Online and 
 
 | Asset field | What to enter |
 |---|---|
-| `webhook_url` | Full HTTPS webhook URL for the published runbook, including its token. |
-| `azure_subscription_id` | Subscription ID of the Automation Account. |
-| `azure_resource_group` | Name of the resource group containing the Automation Account. |
-| `azure_automation_account` | Name of the Automation Account. |
-| `azure_tenant_id` | Entra directory (tenant) ID as a UUID, not a domain. |
-| `azure_client_id` | Application (client) ID of the Entra app registration. |
-| `azure_client_secret` | Client secret **value**, not its ID. |
+| HTTPS Webhook URL (with token) | Full HTTPS webhook URL for the published runbook, including its token. |
+| Subscription ID (Azure Automation Account) | Subscription ID of the Automation Account. |
+| Resource Group Name (Azure Automation Account) | Name of the resource group containing the Automation Account. |
+| Automation Account Name | Name of the Automation Account. |
+| Directory (tenant) ID — Microsoft Entra app registration | Entra directory (tenant) ID as a UUID, not a domain. |
+| Application (client) ID — Microsoft Entra app registration | Application (client) ID of the Entra app registration. |
+| Client Secret Value — Microsoft Entra app registration | Client secret **value**, not its ID. |
 
 Set the Exchange tenant domain in **Exchange organization** or in the Automation Account’s `ExchangeOrganization` variable; one is required. The active-message limit controls how many unresolved messages the asset can track; it is not a per-poll limit. Artifact layout and mail-field options control how metadata appears in the SOAR event. Azure job interval and timeout control the wait for the runbook, not the import schedule. See [all optional settings and defaults](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#optional-asset-fields).
 

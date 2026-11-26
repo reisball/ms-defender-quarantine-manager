@@ -14,15 +14,15 @@ class Asset(BaseAsset):
     model_config = ConfigDict(hide_input_in_errors=True)
 
     webhook_url: str = AssetField(
-        description="Connection: HTTPS webhook URL with token; no redirects",
+        description="HTTPS Webhook URL (with token)",
         sensitive=True,
     )
-    azure_subscription_id: str = AssetField(description="Connection: Azure subscription ID")
-    azure_resource_group: str = AssetField(description="Connection: Azure resource group")
-    azure_automation_account: str = AssetField(description="Connection: Azure Automation Account")
-    azure_tenant_id: str = AssetField(description="Connection: Azure API tenant ID (not Exchange)")
-    azure_client_id: str = AssetField(description="Connection: Azure API client ID (not Exchange)")
-    azure_client_secret: str = AssetField(description="Connection: Azure API secret VALUE (not Exchange)", sensitive=True)
+    azure_subscription_id: str = AssetField(description="Subscription ID (Azure Automation Account)")
+    azure_resource_group: str = AssetField(description="Resource Group Name (Azure Automation Account)")
+    azure_automation_account: str = AssetField(description="Automation Account Name")
+    azure_tenant_id: str = AssetField(description="Directory (tenant) ID — Microsoft Entra app registration")
+    azure_client_id: str = AssetField(description="Application (client) ID — Microsoft Entra app registration")
+    azure_client_secret: str = AssetField(description="Client Secret Value — Microsoft Entra app registration", sensitive=True)
     exchange_organization: str | None = AssetField(
         description="Connection: Exchange domain (blank = variable)",
         default=None,

@@ -66,13 +66,13 @@ Fill in the fields below, then run **Test Connectivity**. It verifies Azure job 
 
 | Field | What to enter |
 |---|---|
-| `webhook_url` | Full HTTPS webhook URL for the published runbook, including its token. HTTP and redirects are rejected. |
-| `azure_subscription_id` | Subscription ID of the Automation Account. |
-| `azure_resource_group` | Name of the resource group containing the Automation Account. |
-| `azure_automation_account` | Name of the Automation Account. |
-| `azure_tenant_id` | Entra directory (tenant) ID as a UUID, not a domain name. |
-| `azure_client_id` | Application (client) ID of the Entra app registration from step 4. |
-| `azure_client_secret` | Client secret **value**, not the secret ID. |
+| HTTPS Webhook URL (with token) | Full HTTPS webhook URL for the published runbook, including its token. HTTP and redirects are rejected. |
+| Subscription ID (Azure Automation Account) | Subscription ID of the Automation Account. |
+| Resource Group Name (Azure Automation Account) | Name of the resource group containing the Automation Account. |
+| Automation Account Name | Name of the Automation Account. |
+| Directory (tenant) ID — Microsoft Entra app registration | Entra directory (tenant) ID as a UUID, not a domain name. |
+| Application (client) ID — Microsoft Entra app registration | Application (client) ID of the Entra app registration from step 4. |
+| Client Secret Value — Microsoft Entra app registration | Client secret **value**, not the secret ID. |
 
 #### Optional asset fields
 
