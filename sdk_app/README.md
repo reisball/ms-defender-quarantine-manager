@@ -1,19 +1,38 @@
 # MS Defender Quarantine Manager
 
-Imports Microsoft Defender for Office 365 quarantine messages with a release request into Splunk SOAR. The original EML and attachments are saved in the Vault before investigation automation starts. An analyst or playbook can then inspect the message, release it to all original recipients, or deny the request.
+When a recipient requests release of a quarantined email, this app imports the message into Splunk SOAR for investigation. The original email and its attachments are available in the Vault. Importing a message does not release it.
 
-## Setup
+## Configure the asset
 
-This SDK build targets Splunk SOAR 8.7 or later with Python 3.13. Deploy the companion Azure Automation runbook separately, then configure its webhook and Azure job-reader credentials in a new SOAR asset. Set a SOAR container label and run **test connectivity** before enabling polling. Intake requires native SOAR session authentication; Automation Broker is unsupported.
+Use Splunk SOAR 8.7 or later with Python 3.13. Publish the matching [Azure Automation runbook](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#1-configure-azure-automation) before configuring the asset.
 
-For Enterprise Security, configure native ES ingestion on the SOAR asset. This app supports the SOAR-proxied path that links findings to a SOAR container. Direct ES ingestion is not supported: it cannot link an existing SOAR container, which is needed for Vault evidence and downstream actions.
+The Automation Account’s **managed identity** connects to Exchange Online and needs [quarantine permissions](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#2-grant-exchange-permissions). The separate **Entra app registration** configured below only [reads Azure job status and output](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#3-configure-azure-job-access). The webhook starts the runbook.
 
-## Operation
+| Asset field | What to enter |
+|---|---|
+| `webhook_url` | Full HTTPS webhook URL for the published runbook, including its token. |
+| `azure_subscription_id` | Subscription ID of the Automation Account. |
+| `azure_resource_group` | Name of the resource group containing the Automation Account. |
+| `azure_automation_account` | Name of the Automation Account. |
+| `azure_tenant_id` | Entra directory (tenant) ID as a UUID, not a domain. |
+| `azure_client_id` | Application (client) ID of the Entra app registration. |
+| `azure_client_secret` | Client secret **value**, not its ID. |
 
-- **Poll Now** or scheduled polling considers the first 50 Requested quarantine messages. Failed imports are not automatically replayed. Inspect any existing SOAR event, Vault files or ES finding before using Poll Now to retry.
-- **Inspect release environment** is read-only; optional tenant-wide RBAC diagnostics require opt-in.
-- **Release quarantine message** and **deny quarantine release** use the exact `container:data.quarantine_identity`. A timeout does not cancel an Azure job. Inspect pending or unknown outcomes before retrying.
+Leave **Exchange organization** blank to use the runbook’s `ExchangeOrganization` variable, or enter the Exchange tenant domain. The active-message limit controls how many unresolved messages the asset can track; it is not a per-poll limit. Artifact layout and mail-field options control how metadata appears in the SOAR event. Azure job interval and timeout control the wait for the runbook, not the import schedule. See [all optional settings and defaults](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#optional-asset-fields).
 
-The runbook lists with `Get-QuarantineMessage -ReleaseStatus Requested`, exports with `Export-QuarantineMessage` and writes dispositions using `Release-QuarantineMessage -ReleaseToAll` (add `-ActionType Deny` for denial).
+## Verify the first import
 
-See the [project documentation](https://github.com/reisball/ms-defender-quarantine-manager#documentation) for the Azure runbook, Exchange permissions and troubleshooting. Do not include webhook URLs, credentials or quarantined email in support reports.
+1. Save the asset and run **Test Connectivity**. It checks Azure job access and reads the quarantine list; it does not release mail.
+2. In **Ingest Settings**, choose a SOAR container label and leave the schedule off. Use one ingesting asset per tenant.
+3. With a known release request in Microsoft Defender, click **Poll Now**. Check that the SOAR event contains the original EML, its attachments in the Vault, and the selected email fields. If there are no pending release requests, no event is expected.
+4. Set the schedule once the manual import works. For findings instead of SOAR events, see the separate [Enterprise Security setup](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/ingestion.md#enterprise-security).
+
+## Act on a request
+
+Use `container:data.quarantine_identity` as the identity for these actions:
+
+- **Deny quarantine release** rejects the recipient’s release request.
+- **Release quarantine message** releases the email to **all original recipients**.
+- **Inspect release environment** checks the message and runbook without changing the message. Additional tenant RBAC diagnostics are opt-in.
+
+A timeout does not cancel the Azure job. Inspect a pending or unknown result before retrying a disposition. For a failed import or other errors, see [Troubleshooting](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/troubleshooting.md).
