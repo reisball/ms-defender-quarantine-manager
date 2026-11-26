@@ -8,17 +8,30 @@ Use Splunk SOAR 8.7 or later with Python 3.13. Publish the matching [Azure Autom
 
 The Automation Account’s **managed identity** connects to Exchange Online and needs [quarantine permissions](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#2-grant-exchange-permissions). The separate **Entra app registration** configured below only [reads Azure job status and output](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#3-create-an-azure-job-reader-role). The webhook starts the runbook.
 
+### Required Fields
+
 | Asset field | What to enter |
 |---|---|
-| HTTPS Webhook URL (with token) | Full HTTPS webhook URL for the published runbook, including its token. |
-| Subscription ID (Azure Automation Account) | Subscription ID of the Automation Account. |
-| Resource Group Name (Azure Automation Account) | Name of the resource group containing the Automation Account. |
-| Automation Account Name | Name of the Automation Account. |
-| Directory (tenant) ID — Microsoft Entra app registration | Entra directory (tenant) ID as a UUID, not a domain. |
-| Application (client) ID — Microsoft Entra app registration | Application (client) ID of the Entra app registration. |
-| Client Secret Value — Microsoft Entra app registration | Client secret **value**, not its ID. |
+| HTTPS Webhook URL (with token) | Paste the complete HTTPS URL for the webhook attached to the published runbook. Copy it when you create the webhook; Azure displays it only once. [Create a webhook](https://learn.microsoft.com/en-us/azure/automation/automation-webhooks). |
+| Subscription ID (Azure Automation Account) | Find the subscription listed on the Automation Account’s Overview page. Open that subscription and copy its ID (a GUID), not its display name. |
+| Resource Group Name (Azure Automation Account) | Copy the resource group name shown on the Automation Account’s Overview page. Use the name, not the full resource ID. |
+| Automation Account Name | Copy the name of the Automation Account resource, not the name of the runbook inside it. |
+| Directory (tenant) ID — Microsoft Entra app registration | Open the job-reader app in Microsoft Entra **App registrations** and copy **Directory (tenant) ID** from **Overview**. Use the GUID, not a domain name. [Register an app](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app). |
+| Application (client) ID — Microsoft Entra app registration | From the same app’s **Overview**, copy **Application (client) ID**, not **Object ID**. |
+| Client Secret Value — Microsoft Entra app registration | In that same app registration, open **Certificates & secrets** and copy the new secret’s **Value**, not its **Secret ID**. [Add a client secret](https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-credentials?tabs=client-secret). |
 
-Set the Exchange tenant domain in **Exchange organization** or in the Automation Account’s `ExchangeOrganization` variable; one is required. The active-message limit controls how many unresolved messages the asset can track; it is not a per-poll limit. Artifact layout and mail-field options control how metadata appears in the SOAR event. Azure job interval and timeout control the wait for the runbook, not the import schedule. See [all optional settings and defaults](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#optional-asset-fields).
+### Configuration Settings
+
+| Asset field | What it controls |
+|---|---|
+| Connection: Exchange domain (blank = variable) | Enter the Exchange tenant domain (for example, `contoso.onmicrosoft.com`), or leave it blank if the Automation Account has an `ExchangeOrganization` variable. One is required. |
+| Email import: Maximum active messages (1-50; default 10) | Maximum unresolved messages tracked at once, not a limit on messages per poll. |
+| Email import: Completed-entry retention (whole days, 1-365) | Keeps completed tracking entries for 30 days by default. A message can be imported again if it reappears after its entry expires. |
+| Mail fields: Group selected fields: combined or separate | Use `combined` (default) for one email artifact per event, or `separate` for individual artifacts. |
+| Mail fields: From, To, Subject, email date, Message-ID | Included by default. Turn off any fields your workflow does not need. |
+| Mail fields: Cc, Reply-To, received date, quarantine identity | Off by default. Enable them if a playbook or analyst needs those fields in the email artifacts. |
+| Advanced: Job status check (whole seconds, 1-60; default 5) | Time between status checks for an Azure job. This does not change the SOAR import schedule. |
+| Advanced: Job timeout (whole seconds, 600-3600; default 600) | How long the app waits for an Azure job; reaching this limit does not cancel the job. |
 
 ## Verify the first import
 
@@ -26,13 +39,3 @@ Set the Exchange tenant domain in **Exchange organization** or in the Automation
 2. In **Ingest Settings**, choose a SOAR container label and leave the schedule off. Use one ingesting asset per tenant.
 3. With a known release request in Microsoft Defender, click **Poll Now**. Check that the SOAR event contains the original EML, its attachments in the Vault, and the selected email fields. If there are no pending release requests, no event is expected.
 4. Set the schedule once the manual import works. For findings instead of SOAR events, see the separate [Enterprise Security setup](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/ingestion.md#enterprise-security).
-
-## Act on a request
-
-Use `container:data.quarantine_identity` as the identity for these actions:
-
-- **Deny quarantine release** rejects the recipient’s release request.
-- **Release quarantine message** releases the email to **all original recipients**.
-- **Inspect release environment** checks the message and runbook without changing the message. Additional tenant RBAC diagnostics are opt-in.
-
-A timeout does not cancel the Azure job. Inspect a pending or unknown result before retrying a disposition. For a failed import or other errors, see [Troubleshooting](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/troubleshooting.md).
