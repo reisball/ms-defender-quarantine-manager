@@ -25,7 +25,7 @@ The asset's client secret is used only for Azure job reads. Exchange always uses
 **inspect release environment** reads one quarantine identity's current Microsoft status and the loaded Exchange module details. It never releases or denies.
 
 - Leave `include_rbac` false unless you need to diagnose tenant permissions.
-- The result can include `cmdlet_proxy_diagnostics`: static, redacted excerpts of the loaded `Release-QuarantineMessage` definition (max 32,768 characters per command; excerpts max 16,384 characters and 512 lines). This is not a capture of the HTTP request.
+- The result can include `cmdlet_proxy_diagnostics`: the SHA-256 fingerprint and character count of the loaded cmdlet definition, when available. It includes neither source excerpts nor HTTP request data.
 
 Do not add this action as a required playbook step.
 

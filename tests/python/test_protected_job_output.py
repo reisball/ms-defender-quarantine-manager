@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+from threading import Event
+import time
 from types import SimpleNamespace
 
 from cryptography.hazmat.primitives import serialization
@@ -154,6 +156,7 @@ class OutputStream:
         self.chunks = chunks
         self.opened = False
         self.closed = False
+        self.closed_event = Event()
         self.read_count = 0
 
     def stream(self, size, decode_content):
@@ -165,9 +168,10 @@ class OutputStream:
 
     def close(self):
         self.closed = True
+        self.closed_event.set()
 
     def release_conn(self):
-        self.closed = True
+        self.close()
 
 
 def mock_output(monkeypatch, utils, stream, status=200, headers=None, on_send=None):
@@ -246,8 +250,32 @@ def test_output_cannot_succeed_after_shared_deadline(monkeypatch, late_at):
     assert error.value.phase == "output"
     assert error.value.last_status == "Completed"
     assert error.value.job_id == JOB_ID
-    assert stream.closed and stream.opened == (late_at != "headers")
+    assert stream.closed_event.wait(2) and stream.opened == (late_at != "headers")
     assert len(calls) == 1 and calls[0]["timeout"] == 1.0
+
+
+def test_blocking_output_read_does_not_hold_caller_past_deadline(monkeypatch):
+    utils = make_utils()
+    entered, unblock = Event(), Event()
+
+    def chunks():
+        entered.set()
+        assert unblock.wait(5)
+        yield b'{"action":"reconcile"}'
+        pytest.fail("abandoned reader requested another chunk")
+
+    stream = OutputStream(chunks())
+    calls = mock_output(monkeypatch, utils, stream)
+    try:
+        with pytest.raises(JobTimeoutError) as error:
+            utils.get_job_output(JOB_ID, "reconcile", deadline=time.monotonic() + 0.5)
+        assert error.value.phase == "output"
+        assert entered.is_set() and not stream.closed
+        assert len(calls) == 1
+    finally:
+        unblock.set()
+        assert stream.closed_event.wait(2)
+    assert stream.read_count == 1
 
 
 @pytest.mark.parametrize("status,headers,message", [

@@ -132,7 +132,9 @@ jobs:
 
       - name: Run PowerShell release/deny postcondition contract
         shell: bash
-        run: python tests/powershell/runbook_business_contract.py disposition
+        run: |
+          python tests/powershell/runbook_business_contract.py disposition
+          pwsh -NoLogo -NoProfile -File ./tests/powershell/test_runbook_postcondition_contract.ps1
 
       - name: Run PowerShell read-only diagnostic contract
         shell: bash

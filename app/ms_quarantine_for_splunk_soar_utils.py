@@ -20,7 +20,9 @@ import hashlib
 import json
 import re
 import time
+from concurrent.futures import Future, wait
 from email.utils import parsedate_to_datetime
+from threading import Event, Thread
 from types import SimpleNamespace
 from typing import Optional
 from urllib.parse import parse_qsl, quote, quote_plus, urlsplit
@@ -737,7 +739,8 @@ class MSQuarantineForSplunkSOARUtils:
                         message += f": {self.redact_sensitive_text(response.text, max_chars=500)}"
                     raise AutomationError(message)
                 elif output:
-                    body = self._read_output_body(response, deadline, job_id, last_status)
+                    output_response, response = response, None
+                    body = self._read_output_until_deadline(output_response, deadline, job_id, last_status)
                     return SimpleNamespace(text=body)
                 else:
                     return response
@@ -750,7 +753,45 @@ class MSQuarantineForSplunkSOARUtils:
             self._sleep_for_retry(delay, deadline, f"Waiting for Azure Automation job {job_id}; {last_error}.")
         self._job_timeout(job_id, phase, last_status, last_error)
 
-    def _read_output_body(self, response, deadline, job_id, last_status):
+    def _read_output_until_deadline(self, response, deadline, job_id, last_status):
+        # Requests' read timeout is an inactivity timeout, not a wall-clock
+        # budget. The download worker owns the stream and never invokes SOAR
+        # callbacks or starts a retry. The caller can release its action lock
+        # even if the current socket read cannot be interrupted.
+        if getattr(response, "raw", None) is None:
+            return self._read_output_body(response, deadline, job_id, last_status)
+        done = Future()
+        abandoned = Event()
+
+        def download():
+            try:
+                try:
+                    body = self._read_output_body(response, deadline, job_id, last_status, abandoned)
+                finally:
+                    response.close()
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                done.set_exception(exc)
+            else:
+                done.set_result(body)
+
+        try:
+            Thread(target=download, name="azure-job-output", daemon=True).start()
+        except BaseException:
+            response.close()
+            raise
+        try:
+            while (remaining := deadline - time.monotonic()) > 0:
+                if wait([done], timeout=min(5, remaining)).done:
+                    if time.monotonic() < deadline:
+                        return done.result()
+                    break
+                if time.monotonic() < deadline:
+                    self._progress(f"Waiting for Azure Automation job {job_id} output.")
+            self._job_timeout(job_id, "output", last_status)
+        finally:
+            abandoned.set()
+
+    def _read_output_body(self, response, deadline, job_id, last_status, abandoned=None):
         """Buffer only bounded, uncompressed bytes while the job budget remains."""
         encoding = response.headers.get("Content-Encoding", "identity").strip().lower()
         if encoding not in {"", "identity"}:
@@ -764,6 +805,8 @@ class MSQuarantineForSplunkSOARUtils:
             bound = str(limit)
             if (len(digits), digits) > (len(bound), bound):
                 raise AutomationError(oversized)
+        if (abandoned is not None and abandoned.is_set()) or time.monotonic() >= deadline:
+            self._job_timeout(job_id, "output", last_status)
         body = bytearray()
         # An adapter can also return a response with already-buffered content.
         if getattr(response, "raw", None) is not None:
@@ -772,13 +815,12 @@ class MSQuarantineForSplunkSOARUtils:
             cached = getattr(response, "content", None)
             chunks = (cached if cached is not None else response.text.encode("utf-8"),)
         for chunk in chunks:
-            if time.monotonic() >= deadline:
+            if (abandoned is not None and abandoned.is_set()) or time.monotonic() >= deadline:
                 self._job_timeout(job_id, "output", last_status)
             if len(body) + len(chunk) > limit:
                 raise AutomationError(oversized)
             body.extend(chunk)
-            self._progress(f"Waiting for Azure Automation job {job_id} output.")
-            if time.monotonic() >= deadline:
+            if abandoned is not None and abandoned.is_set():
                 self._job_timeout(job_id, "output", last_status)
         if time.monotonic() >= deadline:
             self._job_timeout(job_id, "output", last_status)

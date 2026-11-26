@@ -335,8 +335,8 @@ $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "1.1.0"
-$RunbookSourceRevision    = "sha256:670f5cbf724cde60bb8e5aab28d42deb84ab3dda1fe1b092cb433e187dd510c0"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.1.0+sha256.670f5cbf724cde60bb8e5aab28d42deb84ab3dda1fe1b092cb433e187dd510c0"
+$RunbookSourceRevision    = "sha256:638ab2e97f5e10f01c3ce5c42993306f7988daf404f4f0f1593cf8f5f6a5e39f"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.1.0+sha256.638ab2e97f5e10f01c3ce5c42993306f7988daf404f4f0f1593cf8f5f6a5e39f"
 $ReleaseContractId        = "identity_releasetoall"
 $PostconditionMaxAttempts = 7
 $PostconditionPollSeconds = 10
@@ -941,6 +941,16 @@ function Get-RoleNameFromEntry {
     return ""
 }
 
+function Assert-RbacQueryRows {
+    param([object[]] $Rows)
+
+    foreach ($row in $Rows) {
+        if ($row -is [System.Management.Automation.ErrorRecord]) {
+            throw $row
+        }
+    }
+}
+
 function Invoke-ManagementRoleContractQuery {
     param(
         [string] $QueryName,
@@ -956,15 +966,16 @@ function Invoke-ManagementRoleContractQuery {
                 Get-ManagementRole `
                     -Cmdlet $CmdletName `
                     -CmdletParameters $Parameters `
-                    -ErrorAction Stop
+                    -ErrorAction Stop 2>&1
             )
         } else {
             $roles = @(
                 Get-ManagementRole `
                     -Cmdlet $CmdletName `
-                    -ErrorAction Stop
+                    -ErrorAction Stop 2>&1
             )
         }
+        Assert-RbacQueryRows -Rows $roles
         $roleNames = @(
             $roles |
                 ForEach-Object { [string] $_.Name } |
@@ -985,15 +996,16 @@ function Invoke-ManagementRoleContractQuery {
                     Get-ManagementRoleEntry `
                         -Identity "*\$CmdletName" `
                         -Parameters $Parameters `
-                        -ErrorAction Stop
+                        -ErrorAction Stop 2>&1
                 )
             } else {
                 $entries = @(
                     Get-ManagementRoleEntry `
                         -Identity "*\$CmdletName" `
-                        -ErrorAction Stop
+                        -ErrorAction Stop 2>&1
                 )
             }
+            Assert-RbacQueryRows -Rows $entries
             $roleNames = @(
                 $entries |
                     ForEach-Object {
@@ -1196,8 +1208,9 @@ function Get-QuarantineRbacDiagnosticEvidence {
         $quarantineRole = @(
             Get-ManagementRole `
                 -Identity "Quarantine" `
-                -ErrorAction Stop
+                -ErrorAction Stop 2>&1
         )
+        Assert-RbacQueryRows -Rows $quarantineRole
         $evidence.quarantine_role_present = (
             @($quarantineRole).Count -gt 0
         )
@@ -1222,8 +1235,21 @@ function Get-QuarantineRbacDiagnosticEvidence {
                 $candidateResults = @(
                     Get-ServicePrincipal `
                         -Identity $candidate `
-                        -ErrorAction Stop
+                        -ErrorAction Stop 2>&1
                 )
+                $queryErrors = @(
+                    $candidateResults | Where-Object {
+                        $_ -is [System.Management.Automation.ErrorRecord]
+                    }
+                )
+                if ($queryErrors.Count -gt 0) {
+                    Add-PermissionQueryError `
+                        -Errors $errors `
+                        -Query "exchange_service_principal" `
+                        -ErrorRecord $queryErrors[0]
+                    $servicePrincipalLookupHadError = $true
+                    continue
+                }
                 $servicePrincipalLookupSucceeded = $true
                 $registeredServicePrincipal = @(
                     $candidateResults |
@@ -1295,8 +1321,9 @@ function Get-QuarantineRbacDiagnosticEvidence {
             Get-ManagementRoleAssignment `
                 -Role "Quarantine" `
                 -Delegating:$false `
-                -ErrorAction Stop
+                -ErrorAction Stop 2>&1
         )
+        Assert-RbacQueryRows -Rows $assignments
         $roleAssignmentQuerySucceeded = $true
         $roleGroupNames = New-Object "System.Collections.Generic.List[string]"
         foreach ($assignment in @($assignments)) {
@@ -1371,8 +1398,9 @@ function Get-QuarantineRbacDiagnosticEvidence {
             $members = @(
                 Get-RoleGroupMember `
                     -Identity $groupName `
-                    -ErrorAction Stop
+                    -ErrorAction Stop 2>&1
             )
+            Assert-RbacQueryRows -Rows $members
             $evidence.role_group_membership_evaluated = $true
             if (@($expectedIdentityValues).Count -gt 0) {
                 $matchedMember = @(
@@ -3034,18 +3062,18 @@ try {
                 )
             }
             Add-StaticDiagnosticEvidence -Data $diagnosticResult
-            $proxyEvidence = Get-ReleaseProxyDiagnosticEvidence 3>$null 4>$null 5>$null 6>$null
+            $proxyEvidence = Get-ReleaseProxyDiagnosticEvidence 2>$null 3>$null 4>$null 5>$null 6>$null
             foreach ($key in $proxyEvidence.Keys) {
                 $diagnosticResult[$key] = $proxyEvidence[$key]
             }
             if ($diagnosticResult.inspection_error) {
                 $rbacDiagnosticEvidence = (
-                    Get-QuarantineRbacDiagnosticEvidence 3>$null 4>$null 5>$null 6>$null
+                    Get-QuarantineRbacDiagnosticEvidence 2>$null 3>$null 4>$null 5>$null 6>$null
                 )
             } else {
                 $rbacDiagnosticEvidence = (
                     Get-QuarantineRbacDiagnosticEvidence `
-                        -IncludeTenantRbac:$includeRbac 3>$null 4>$null 5>$null 6>$null
+                        -IncludeTenantRbac:$includeRbac 2>$null 3>$null 4>$null 5>$null 6>$null
                 )
             }
             Add-RbacDiagnosticEvidence `
