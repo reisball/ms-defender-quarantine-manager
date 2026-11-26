@@ -633,7 +633,9 @@ class MSQuarantineForSplunkSOARUtils:
                 stream=True,
             ) as response:
                 if response.status_code in (401, 403):
-                    raise JobSubmissionRejected(f"Azure refused REST job submission (HTTP {response.status_code}). Check the Entra app registration and its job-start permission.")
+                    raise JobSubmissionRejected(
+                        f"Azure refused REST job submission (HTTP {response.status_code}). Check the Entra app registration and its job-start permission."
+                    )
                 if response.status_code not in (200, 201, 202):
                     raise AutomationError(f"Azure REST job submission returned HTTP {response.status_code}. Check job history before retrying.")
         except requests.exceptions.RequestException:
