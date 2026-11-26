@@ -15,7 +15,7 @@ Start with the SOAR action result: its status, the Azure/Exchange error text and
 | Webhook response lost, no job ID | Check Azure job history; a job may still have started |
 | Import or publication failed | Inspect the container, artifacts or ES finding, fix the cause, then use [Poll Now](ingestion.md#failed-imports-and-poll-now) |
 | EML, MIME or size failure | The message exceeds a [limit](ingestion.md#limits) or is malformed; it is not published |
-| Active-message limit is full | Check the Microsoft status of tracked messages; only `Released`/`Denied` frees a slot |
+| Active-message limit is full | Check the Microsoft status of tracked messages; confirmed `Released` or `Denied`, or a confirmed missing message whose last known expiry has passed, frees a slot |
 | ES mail or file links fail | Check that the external SOAR URL is HTTPS and reachable, and that analysts have access |
 
 The asset's client secret is used only for Azure job reads. Exchange always uses the Automation Account's Managed Identity.

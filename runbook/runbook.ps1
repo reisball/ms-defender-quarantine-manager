@@ -15,16 +15,16 @@
              is reported by manual diagnose when it can be read.
 
     Supported actions:
-        list    -> Get-QuarantineMessage -ReleaseStatus Requested
-        export  -> Export-QuarantineMessage -Identity <identity>
+        protected_list_v1   -> Get-QuarantineMessage -ReleaseStatus Requested
+        protected_export_v1 -> Export-QuarantineMessage -Identity <identity>
         diagnose -> Read-only runtime/cmdlet/identity/RBAC inspection
-        reconcile -> Single read-only status refresh for the active window
+        reconcile -> Single read-only exact-identity refresh (NotFound on a successful empty read)
         release -> Release-QuarantineMessage -Identity <identity> -ReleaseToAll -Confirm:$false
         deny    -> Release-QuarantineMessage -Identity <identity> -ReleaseToAll -ActionType Deny -Confirm:$false
 
     Expected webhook body (JSON):
         { "action": "protected_list_v1", "output_public_key": "<base64 DER RSA public key>" }
-        { "action": "export",  "identity": "GUID1\\GUID2" }
+        { "action": "protected_export_v1", "identity": "GUID1\\GUID2", "output_public_key": "<base64 DER RSA public key>" }
         { "action": "diagnose", "identity": "GUID1\\GUID2", "include_rbac": false }
         { "action": "reconcile", "identity": "GUID1\\GUID2" }
         { "action": "release", "identity": "GUID1\\GUID2" }
@@ -69,6 +69,8 @@
             { "action": "export", "mode": "chunked_complete", "identity": "...", "chunk_count": 3, "eml_base64_length": 123456, "decoded_size": 92592, "sha256": "..." }
         diagnose:
             { "action": "diagnose", "identity": "...", "status": "inspected", "observed_release_status": "Requested", "cmdlet_contract_id": "identity_releasetoall", "rbac_diagnostics_status": "complete", "release_to_all_roles": "Quarantine", "service_principal_registered": true, "role_assignment_matches_identity": true }
+        reconcile:
+            { "action": "reconcile", "identity": "...", "observed_identity": "...", "observed_release_status": "NotFound" }
         release:
             { "action": "release", "identity": "...", "status": "released", "observed_release_status": "Released", "observed_identity": "..." }
         deny:
@@ -125,8 +127,8 @@
         Stop). Deny uses -Identity <identity> -ReleaseToAll -ActionType Deny
         -Confirm:$false -ErrorAction Stop. No
         synthetic parameter-binding probe or other pre-flight capability
-        gate can veto the call; a genuine PowerShell binding error surfaces
-        with its original message and error record. Tenant RBAC
+        gate can veto the call; the error response retains the redacted,
+        bounded native message and selected error record metadata. Tenant RBAC
         introspection is deliberately not a prerequisite for the operational
         call: a least-privileged disposition identity may run the exact command
         without being allowed to enumerate Exchange management roles. Full
@@ -150,8 +152,9 @@
 
     Optional manual diagnostics:
         Only diagnose collects optional runtime, connection and command
-        diagnostics, proxy details, and (with include_rbac=true) tenant RBAC
-        evidence.
+        diagnostics and proxy metadata (including source hashes, not source
+        text). Connection URIs are reported as origins only. Set include_rbac
+        to true to request tenant RBAC evidence.
         Diagnostics are never a prerequisite for normal commands. Missing RBAC
         diagnostic cmdlets are reported explicitly as not evaluated.
 
@@ -332,15 +335,13 @@ $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "1.1.0"
-$RunbookSourceRevision    = "sha256:118dc4e49256ef8b05bd8d03eff2a5e545b0cc02789f128c36f43bb2c87d8144"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.1.0+sha256.118dc4e49256ef8b05bd8d03eff2a5e545b0cc02789f128c36f43bb2c87d8144"
+$RunbookSourceRevision    = "sha256:670f5cbf724cde60bb8e5aab28d42deb84ab3dda1fe1b092cb433e187dd510c0"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.1.0+sha256.670f5cbf724cde60bb8e5aab28d42deb84ab3dda1fe1b092cb433e187dd510c0"
 $ReleaseContractId        = "identity_releasetoall"
-$DenyContractId           = "identity_releasetoall_actiontype_deny"
 $PostconditionMaxAttempts = 7
 $PostconditionPollSeconds = 10
 $DiagnosticMaxRecords     = 20
 $DiagnosticMaxChars       = 2048
-$DiagnosticTraceMaxChars  = 8192
 $MaxJwtHeaderSegmentChars = 8 * 1024
 $RbacDiagnosticMaxGroups  = 20
 $PermissionQueryErrorMaxRecords = 20
@@ -499,51 +500,6 @@ function ConvertTo-BoundedScalarText {
         -MaxChars $MaxChars
 }
 
-function ConvertTo-DiagnosticJson {
-    param([object[]] $Records)
-
-    $json = ConvertTo-Json `
-        -InputObject ([object[]] $Records) `
-        -Depth 8 `
-        -Compress
-    if ($json.Length -le $DiagnosticTraceMaxChars) {
-        return $json
-    }
-
-    # Keep valid JSON while progressively reducing the retained head/tail.
-    # Never substring JSON: a syntactically broken trace is worse than a
-    # smaller but explicit trace.
-    for ([int] $edgeCount = 5; $edgeCount -ge 1; $edgeCount--) {
-        $bounded = @($Records | Select-Object -First $edgeCount)
-        $tailCount = [System.Math]::Min(
-            $edgeCount,
-            [System.Math]::Max(0, @($Records).Count - $edgeCount)
-        )
-        $retainedCount = $edgeCount + $tailCount
-        if (@($Records).Count -gt $retainedCount) {
-            $bounded += @{
-                truncated_records = @($Records).Count - $retainedCount
-            }
-        }
-        if ($tailCount -gt 0) {
-            $bounded += @($Records | Select-Object -Last $tailCount)
-        }
-        $boundedJson = ConvertTo-Json `
-            -InputObject ([object[]] $bounded) `
-            -Depth 8 `
-            -Compress
-        if ($boundedJson.Length -le $DiagnosticTraceMaxChars) {
-            return $boundedJson
-        }
-    }
-    return (ConvertTo-Json `
-        -InputObject ([object[]] @(@{
-            truncated_records = @($Records).Count
-            reason = "trace_exceeded_safe_output_bound"
-        })) `
-        -Compress)
-}
-
 function ConvertFrom-Base64UrlText {
     param([string] $Value)
 
@@ -681,25 +637,6 @@ function Get-OriginalErrorMessage {
         $message = [string] $ErrorRecord.Exception.Message
     }
     return ConvertTo-SecretRedactedText -Text $message
-}
-
-function Join-OriginalRecordText {
-    param([object[]] $Records)
-
-    $messages = New-Object "System.Collections.Generic.List[string]"
-    foreach ($record in @($Records)) {
-        if ($null -eq $record) {
-            continue
-        }
-        $message = Get-OriginalErrorMessage -ErrorRecord $record
-        # ErrorVariable can expose the same ErrorRecord more than once when a
-        # terminating error also crosses the catch boundary. Suppress only an
-        # exactly identical transport duplicate; never rewrite the text.
-        if (-not $messages.Contains($message)) {
-            $messages.Add($message)
-        }
-    }
-    return ($messages -join "`n")
 }
 
 function ConvertTo-CanonicalQuarantineIdentity {
@@ -1743,31 +1680,7 @@ function Get-ReleaseProxyDiagnosticEvidence {
                     $entry.source_sha256 = Get-Sha256Hex -Bytes (
                         [System.Text.Encoding]::UTF8.GetBytes($source)
                     )
-                    $safe = ConvertTo-SecretRedactedText -Text $source
-                    $entry.source_chars = $safe.Length
-                    $entry.source_truncated = $safe.Length -gt 32768
-                    $entry.source = $safe.Substring(0, [Math]::Min(32768, $safe.Length))
-                    # Retain late forwarding code even if the full source is clipped.
-                    $lines = $safe -split '\r?\n'
-                    $selected = [System.Collections.Generic.SortedSet[int]]::new()
-                    for ($i = 0; $i -lt $lines.Count; $i++) {
-                        if ($lines[$i] -match 'ActionType|PSBoundParameters|Execute-Command|Invoke-RestMethod|Invoke-WebRequest|ConvertTo-Json|GetSteppablePipeline|Invoke-Command') {
-                            for ($j = [Math]::Max(0, $i - 3); $j -le [Math]::Min($lines.Count - 1, $i + 3); $j++) {
-                                $null = $selected.Add($j)
-                            }
-                        }
-                    }
-                    $entry.excerpt_lines_truncated = $false
-                    $excerpt = (@($selected | ForEach-Object {
-                        $line = $lines[$_]
-                        if ($line.Length -gt 512) {
-                            $line = $line.Substring(0, 512) + " [line truncated]"
-                            $entry.excerpt_lines_truncated = $true
-                        }
-                        "{0}: {1}" -f ($_ + 1), $line
-                    }) -join "`n")
-                    $entry.excerpts_truncated = $excerpt.Length -gt 16384
-                    $entry.forwarding_excerpts = $excerpt.Substring(0, [Math]::Min(16384, $excerpt.Length))
+                    $entry.source_chars = $source.Length
                     $entry.status = if ($source) { "collected" } else { "no_script_source" }
                 }
             } catch {
@@ -1775,7 +1688,7 @@ function Get-ReleaseProxyDiagnosticEvidence {
                     ConvertTo-SecretRedactedText -Text (Get-OriginalErrorMessage -ErrorRecord $_)
                 ) -MaxChars 1024
             }
-            if ($entry.status -ne "collected" -or $entry.source_truncated -or $entry.excerpts_truncated -or $entry.excerpt_lines_truncated) {
+            if ($entry.status -ne "collected") {
                 $report.status = "partial"
             }
             $report.commands += $entry
@@ -1790,6 +1703,20 @@ function Get-ReleaseProxyDiagnosticEvidence {
         cmdlet_proxy_diagnostics_status = $report.status
         cmdlet_proxy_diagnostics = ($report | ConvertTo-Json -Depth 8 -Compress)
     }
+}
+
+function ConvertTo-DiagnosticConnectionOrigin {
+    param([string] $Value)
+
+    [uri] $uri = $null
+    if (
+        [uri]::TryCreate($Value, [UriKind]::Absolute, [ref] $uri) -and
+        $uri.Scheme -in @("https", "http") -and $uri.Host
+    ) {
+        # SchemeAndServer excludes userinfo, path, query and fragment.
+        return $uri.GetComponents([UriComponents]::SchemeAndServer, [UriFormat]::UriEscaped)
+    }
+    return "[unavailable]"
 }
 
 function Get-ExchangeConnectionMetadataEvidence {
@@ -1822,9 +1749,12 @@ function Get-ExchangeConnectionMetadataEvidence {
             )) {
                 $property = $connection.PSObject.Properties[$propertyName]
                 if ($null -ne $property -and $null -ne $property.Value) {
-                    $fields.Add(
-                        "$propertyName=$([string] $property.Value)"
-                    )
+                    $value = if ($propertyName -eq "ConnectionUri") {
+                        ConvertTo-DiagnosticConnectionOrigin -Value $property.Value
+                    } else {
+                        ConvertTo-RedactedBoundedScalarText -Value $property.Value
+                    }
+                    $fields.Add("$propertyName=$value")
                 }
             }
             if ($fields.Count -gt 0) {
@@ -1891,7 +1821,7 @@ function Get-PassiveExchangeEvidence {
         { Get-ExchangeConnectionMetadataEvidence }
     )) {
         try {
-            $collected = & $collector
+            $collected = & $collector 3>$null 4>$null 5>$null 6>$null
             foreach ($key in $collected.Keys) {
                 $evidence[$key] = $collected[$key]
             }
@@ -1936,9 +1866,7 @@ function Close-ExchangeSessionBestEffort {
 
 function Add-StaticDiagnosticEvidence {
     param(
-        [hashtable] $Data,
-        [ValidateSet("Release", "Deny")]
-        [string] $DispositionAction = "Release"
+        [hashtable] $Data
     )
 
     $Data.runbook_version = [string] $RunbookVersion
@@ -1952,27 +1880,15 @@ function Add-StaticDiagnosticEvidence {
             $Data[$key] = $source[$key]
         }
     }
-    if ($DispositionAction -eq "Release") {
-        $Data.cmdlet_contract_id = $ReleaseContractId
-        $Data.cmdlet_expected_argument_names = "Identity,ReleaseToAll"
-        $Data.cmdlet_parameter_names = (
-            "Identity,ReleaseToAll,Confirm,ErrorAction"
-        )
-        $Data.cmdlet_invocation_form = (
-            "Release-QuarantineMessage -Identity <identity> -ReleaseToAll " +
-            "-Confirm:`$false -ErrorAction Stop"
-        )
-    } else {
-        $Data.cmdlet_contract_id = $DenyContractId
-        $Data.cmdlet_expected_argument_names = "Identity,ReleaseToAll,ActionType"
-        $Data.cmdlet_parameter_names = (
-            "Identity,ReleaseToAll,ActionType,Confirm,ErrorAction"
-        )
-        $Data.cmdlet_invocation_form = (
-            "Release-QuarantineMessage -Identity <identity> -ReleaseToAll " +
-            "-ActionType Deny -Confirm:`$false -ErrorAction Stop"
-        )
-    }
+    $Data.cmdlet_contract_id = $ReleaseContractId
+    $Data.cmdlet_expected_argument_names = "Identity,ReleaseToAll"
+    $Data.cmdlet_parameter_names = (
+        "Identity,ReleaseToAll,Confirm,ErrorAction"
+    )
+    $Data.cmdlet_invocation_form = (
+        "Release-QuarantineMessage -Identity <identity> -ReleaseToAll " +
+        "-Confirm:`$false -ErrorAction Stop"
+    )
 }
 
 function ConvertTo-RedactedBoundedScalarText {
@@ -2016,9 +1932,26 @@ function Invoke-QuarantineDisposition {
     }
 }
 
+function Get-ExactQuarantineMessage {
+    param([string] $Identity)
+
+    # Buffer both streams and reject any native error before exposing a row.
+    # Providers can emit a nonterminating error despite -ErrorAction Stop.
+    # Neither a row nor an empty read proves Exchange state in that case.
+    $records = @(
+        Get-QuarantineMessage -Identity $Identity -ErrorAction Stop 2>&1 3>$null 4>$null 5>$null 6>$null
+    )
+    foreach ($record in $records) {
+        if ($record -is [System.Management.Automation.ErrorRecord]) {
+            throw $record
+        }
+    }
+    return $records
+}
+
 function Read-QuarantineStatus {
     param([string] $Identity, [switch] $AllowMissing)
-    $messages = @(Get-QuarantineMessage -Identity $Identity -ErrorAction Stop 3>$null 4>$null 5>$null 6>$null)
+    $messages = @(Get-ExactQuarantineMessage -Identity $Identity)
     if ($AllowMissing -and $messages.Count -eq 0) {
         return @{ ObservedIdentity = $Identity; ObservedStatus = "NotFound" }
     }
@@ -2460,22 +2393,25 @@ if (-not $WebhookData.RequestBody) {
     Write-ErrorResult -Action "unknown" -Message "WebhookData.RequestBody is empty."
 }
 
-# Parse the request body
+# Progress is not a redirectable stream; suppress it in this script scope.
+$ProgressPreference = "SilentlyContinue"
+
+# Parse exactly one JSON document without unrolling a root array.
+$body = $null
 try {
-    $body = $WebhookData.RequestBody | ConvertFrom-Json
+    if ($WebhookData.RequestBody -is [string]) {
+        $body = ConvertFrom-Json -InputObject $WebhookData.RequestBody -NoEnumerate -ErrorAction Stop
+    }
 } catch {
+    # The parser can echo an excerpt of the webhook body in its exception.
     Write-ErrorResult `
         -Action "unknown" `
         -ErrorCode "invalid_webhook_json" `
         -ErrorContext "webhook_json_parse" `
-        -ErrorRecord $_
+        -Message "WebhookData.RequestBody is not valid JSON."
 }
-if (
-    $null -eq $body -or
-    $body -is [array] -or
-    $body -is [string] -or
-    $body -is [ValueType]
-) {
+# The [pscustomobject] accelerator also matches wrapped non-object roots.
+if ($body -isnot [System.Management.Automation.PSCustomObject]) {
     Write-ErrorResult `
         -Action "unknown" `
         -ErrorCode "invalid_webhook_body_type" `
@@ -2806,7 +2742,7 @@ if ($action -eq "diagnose") {
 # veto the connection or the disposition, and no version is invented.
 try {
     $loadedExchangeModule = (
-        Get-Module ExchangeOnlineManagement -ErrorAction Stop |
+        Get-Module ExchangeOnlineManagement -ErrorAction Stop 3>$null 4>$null 5>$null 6>$null |
             Sort-Object -Property Version -Descending |
             Select-Object -First 1
     )
@@ -3030,11 +2966,7 @@ try {
             $inspectedAt = [datetimeoffset]::UtcNow
             $rbacDiagnosticEvidence = $null
             try {
-                $diagnosticMessages = @(
-                    Get-QuarantineMessage `
-                        -Identity $identity `
-                        -ErrorAction Stop
-                )
+                $diagnosticMessages = @(Get-ExactQuarantineMessage -Identity $identity)
             } catch {
                 $diagnosticDetails = @{
                     identity                = $identity
@@ -3051,7 +2983,7 @@ try {
                 }
                 Add-StaticDiagnosticEvidence -Data $diagnosticDetails
                 $rbacDiagnosticEvidence = (
-                    Get-QuarantineRbacDiagnosticEvidence
+                    Get-QuarantineRbacDiagnosticEvidence 3>$null 4>$null 5>$null 6>$null
                 )
                 Add-RbacDiagnosticEvidence `
                     -Data $diagnosticDetails `
@@ -3101,21 +3033,19 @@ try {
                     "$(@($diagnosticMessages).Count) results."
                 )
             }
-            Add-StaticDiagnosticEvidence `
-                -Data $diagnosticResult `
-                -DispositionAction "Release"
-            $proxyEvidence = Get-ReleaseProxyDiagnosticEvidence
+            Add-StaticDiagnosticEvidence -Data $diagnosticResult
+            $proxyEvidence = Get-ReleaseProxyDiagnosticEvidence 3>$null 4>$null 5>$null 6>$null
             foreach ($key in $proxyEvidence.Keys) {
                 $diagnosticResult[$key] = $proxyEvidence[$key]
             }
             if ($diagnosticResult.inspection_error) {
                 $rbacDiagnosticEvidence = (
-                    Get-QuarantineRbacDiagnosticEvidence
+                    Get-QuarantineRbacDiagnosticEvidence 3>$null 4>$null 5>$null 6>$null
                 )
             } else {
                 $rbacDiagnosticEvidence = (
                     Get-QuarantineRbacDiagnosticEvidence `
-                        -IncludeTenantRbac:$includeRbac
+                        -IncludeTenantRbac:$includeRbac 3>$null 4>$null 5>$null 6>$null
                 )
             }
             Add-RbacDiagnosticEvidence `

@@ -702,3 +702,67 @@ def test_distinct_worker_temp_dirs_contend_on_same_ledger_lock(tmp_path, monkeyp
         pass
     assert not (tmp_path / "first").exists()
     assert not (tmp_path / "second").exists()
+
+
+@pytest.mark.parametrize("action, expected", [("release_quarantine_message", "released"), ("deny_quarantine_release", "denied")])
+@pytest.mark.parametrize("scenario", ["preflight_failure", "confirmed", "unexpected_result_error"])
+def test_sdk_disposition_keeps_submission_evidence(action, expected, scenario):
+    azure = Mock()
+    azure.redact_sensitive_text.side_effect = lambda value, **_: value
+    azure.fire_webhook.return_value = "fixture-job"
+    azure.wait_for_action_result.return_value = {"status": expected, "observed_release_status": expected}
+    if scenario == "preflight_failure":
+        azure.get_mgmt_token.side_effect = AutomationError("Reader unavailable")
+    if scenario == "unexpected_result_error":
+        azure.wait_for_action_result.side_effect = RuntimeError("Unexpected failure")
+
+    fixture_app = new_app()
+    register_actions(fixture_app, app_version="1.1.0", azure_factory=lambda _: azure)
+    handler = fixture_app.actions_manager.get_action(action)
+    sink = Mock()
+    fixture_app.actions_manager.add_result = sink
+    success = handler(handler.meta.parameters(identity=IDENTITY), asset=SimpleNamespace(azure_tenant_id=IDENTITY.split("\\")[0]))
+    summary = sink.call_args.args[0].get_summary()
+    if scenario == "preflight_failure":
+        azure.fire_webhook.assert_not_called()
+        assert not success
+        assert summary["outcome"] == "not_executed"
+    else:
+        assert azure.method_calls[0][0] == "get_mgmt_token"
+        azure.fire_webhook.assert_called_once()
+        assert summary["azure_job_id"] == "fixture-job"
+        assert summary["outcome"] == ("confirmed" if success else "unknown")
+        assert bool(success) == (scenario == "confirmed")
+
+
+def test_sdk_poll_refreshes_expiry_before_reconcile(setup):
+    message = {"Identity": IDENTITY, "ReleaseStatus": "Requested", "Expires": "2020-01-01T00:00:00Z", "SenderAddress": "sender@example.invalid", "RecipientAddress": "recipient@example.invalid"}
+    default = setup.azure.run_action.side_effect
+
+    def action(name, **kwargs):
+        if name == "list":
+            return {"messages": [message], "count": 1}
+        return default(name, **kwargs)
+
+    setup.azure.run_action.side_effect = action
+    assert setup.run().get_status()
+    message["Expires"] = "2100-01-01T00:00:00Z"
+    assert setup.run().get_status()
+    (row,) = setup.state.data[INGEST_STATE_KEY]["records"].values()
+    assert row["expires_at"].startswith("2100-01-01")
+
+
+@pytest.mark.parametrize("observed_status", ["Requested", ""])
+def test_sdk_inspect_requires_observed_status(observed_status):
+    azure = Mock()
+    azure.redact_sensitive_text.side_effect = lambda value, **_: value
+    azure.run_action.return_value = {
+        "status": "inspected",
+        "observed_identity": IDENTITY,
+        "observed_release_status": observed_status,
+    }
+    fixture_app = new_app()
+    register_actions(fixture_app, app_version="1.1.0", azure_factory=lambda _: azure)
+    handler = fixture_app.actions_manager.get_action("inspect_release_environment")
+    fixture_app.actions_manager.add_result = Mock()
+    assert bool(handler(handler.meta.parameters(identity=IDENTITY), asset=object())) == bool(observed_status)

@@ -66,9 +66,8 @@ def test_private_helpers_enum_and_source_without_execution(tmp_path):
         assert row['status'] == 'collected'
         assert row['module_name'] == 'ProxyDiagnosticFixture'
         assert len(row['source_sha256']) == 64
-    assert 'PSBoundParameters' in report['commands'][0]['forwarding_excerpts']
+    assert all('source' not in row and 'forwarding_excerpts' not in row for row in report['commands'])
     assert SECRET not in result['cmdlet_proxy_diagnostics']
-    assert 'ConvertTo-Json' in report['commands'][1]['source']
     c = t.make_connector()
     ar = t.patch_ar(c)
     with t.req_mock.Mocker() as m:
@@ -78,16 +77,13 @@ def test_private_helpers_enum_and_source_without_execution(tmp_path):
     assert ar.get_summary()['cmdlet_proxy_diagnostics_status'] == 'collected'
 
 
-def test_truncation_keeps_late_forwarding_evidence(tmp_path):
+def test_large_proxy_source_is_hashed_but_not_emitted(tmp_path):
     result = diagnose(tmp_path, MODULE.replace('# PADDING', '# ' + 'x' * 40000))
-    report = json.loads(result['cmdlet_proxy_diagnostics'])
-    assert report['status'] == 'partial'
-    command = report['commands'][0]
-    assert command['source_truncated'] is True
-    assert len(command['source']) == 32768
-    assert command['excerpt_lines_truncated'] is True
-    assert 'Execute-Command forwards $PSBoundParameters' in command['forwarding_excerpts']
-    assert len(command['forwarding_excerpts']) <= 16384
+    command = json.loads(result['cmdlet_proxy_diagnostics'])['commands'][0]
+    assert command['source_chars'] > 32768
+    assert len(command['source_sha256']) == 64
+    assert 'source' not in command
+    assert 'forwarding_excerpts' not in command
 
 
 def test_no_module_is_explicitly_partial_and_validate_set_survives(tmp_path):

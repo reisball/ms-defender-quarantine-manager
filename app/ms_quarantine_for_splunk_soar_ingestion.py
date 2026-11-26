@@ -440,8 +440,15 @@ class NativeIngestionMixin:
                 continue
             if row["identity"] not in listed_requested:
                 unlisted.append((key, row))
-            elif row.get("last_status_error") or row.get("observed_release_status") != "requested":
-                self._ingest_update(key, observed_release_status="requested", last_status_error="")
+            else:
+                expiry = self._ingest_expiry(listed_requested[row["identity"]].get("Expires"))
+                updates = {}
+                if expiry is not None and expiry.isoformat() != row.get("expires_at"):
+                    updates["expires_at"] = expiry.isoformat()
+                if row.get("last_status_error") or row.get("observed_release_status") != "requested":
+                    updates.update(observed_release_status="requested", last_status_error="")
+                if updates:
+                    self._ingest_update(key, **updates)
         # Least-recently checked first: slow jobs must not starve later rows.
         oldest = datetime.min.replace(tzinfo=timezone.utc)
         unlisted.sort(key=lambda item: self._parse_state_timestamp(item[1].get("updated_at")) or oldest)
@@ -454,7 +461,7 @@ class NativeIngestionMixin:
             self.save_progress("Checking tracked quarantine message status.")
             try:
                 result = self._utils.run_action("reconcile", identity=row["identity"])
-                observed = str(result.get("observed_release_status") or "").lower()
+                observed = str(result.get("observed_release_status", result.get("release_status")) or "").lower()
                 if not observed:
                     raise AutomationError("Current quarantine status is unavailable.")
             except Exception as exc:
@@ -731,7 +738,9 @@ class NativeIngestionMixin:
                 result = self._utils.run_action("list", page_size=POLL_CANDIDATE_WINDOW)
                 messages = self._normalise_list_result(result)[:POLL_CANDIDATE_WINDOW]
                 listed_requested = {
-                    message["Identity"].strip().lower() for message in messages if str(message.get("ReleaseStatus", "")).lower() == "requested"
+                    message["Identity"].strip().lower(): message
+                    for message in messages
+                    if str(message.get("ReleaseStatus", "")).lower() == "requested"
                 }
                 # The list is read-only. Do not publish if a subsequent exact
                 # lookup detects a shared failure. List absence alone proves nothing.

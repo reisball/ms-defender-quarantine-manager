@@ -425,7 +425,7 @@ def _inspect(params: InspectReleaseEnvironmentParams, asset: BaseAsset, azure_fa
         data = _redact_data(azure, output) if isinstance(output, dict) else {}
         data.update(
             error_code=code,
-            runbook_version=_redact_data(azure, exc.result.get("runbook_version", "")),
+            runbook_version=_redact_data(azure, exc.result.get("runbook_version") or data.get("runbook_version", "")),
         )
         summary = _inspect_summary(data)
         summary.update(status=data.get("status", "inspection_failed"), handling="read_only")
@@ -439,6 +439,17 @@ def _inspect(params: InspectReleaseEnvironmentParams, asset: BaseAsset, azure_fa
     except AutomationError as exc:
         return _result(False, _map_error(azure, exc, "inspect release environment"), params)
 
+    observed_identity = output.get("observed_identity")
+    observed_status = output.get("observed_release_status")
+    if (
+        output.get("status") != "inspected"
+        or not isinstance(observed_identity, str)
+        or observed_identity.strip().casefold() != identity.casefold()
+        or not isinstance(observed_status, str)
+        or not observed_status.strip()
+        or (include_rbac and output.get("rbac_diagnostics_status") != "complete")
+    ):
+        return _result(False, "Runbook did not confirm the requested inspection.", params)
     data = _redact_data(azure, output)
     summary = _inspect_summary(data)
     message = (
@@ -519,6 +530,10 @@ def _run_disposition(
     identity: str,
     azure: MSQuarantineForSplunkSOARUtils,
 ) -> ActionResult:
+    try:
+        azure.get_mgmt_token()
+    except AutomationError as exc:
+        return _disposition_failure(params, action, identity, "not_executed", "azure_reader_unavailable", _map_error(azure, exc, action))
     job_id = ""
     logger.progress(f"Starting Azure Automation action={action}.")
     try:
@@ -551,17 +566,39 @@ def _run_disposition(
             last_status=azure.redact_sensitive_text(getattr(exc, "last_status", "") or ""),
         )
 
-    data = _redact_data(azure, dict(output, azure_job_id=job_id, outcome="confirmed"))
-    message = data.get("message") or f"Quarantine {action} confirmed by Exchange."
-    data["message"] = message
-    summary = {
-        "status": data["status"],
-        "outcome": "confirmed",
-        "azure_job_id": data["azure_job_id"],
-        "observed_release_status": data["observed_release_status"],
-        "runbook_version": data.get("runbook_version", ""),
-    }
-    return _result(True, message, params, data, summary)
+    except Exception:
+        return _disposition_failure(
+            params,
+            action,
+            identity,
+            "unknown",
+            "outcome_unknown",
+            "Could not confirm the Azure submission or result. Verify Exchange status before retrying.",
+            job_id=azure.redact_sensitive_text(job_id),
+        )
+
+    try:
+        data = _redact_data(azure, dict(output, azure_job_id=job_id, outcome="confirmed"))
+        message = data.get("message") or f"Quarantine {action} confirmed by Exchange."
+        data["message"] = message
+        summary = {
+            "status": data["status"],
+            "outcome": "confirmed",
+            "azure_job_id": data["azure_job_id"],
+            "observed_release_status": data["observed_release_status"],
+            "runbook_version": data.get("runbook_version", ""),
+        }
+        return _result(True, message, params, data, summary)
+    except Exception:
+        return _disposition_failure(
+            params,
+            action,
+            identity,
+            "unknown",
+            "outcome_unknown",
+            "Could not validate the completed Azure job. Verify Exchange status before retrying.",
+            job_id=azure.redact_sensitive_text(job_id),
+        )
 
 
 def _dispose(params: DispositionParams, asset: BaseAsset, action: str, azure_factory: Callable) -> ActionResult:

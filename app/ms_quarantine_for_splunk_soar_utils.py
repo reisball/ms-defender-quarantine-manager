@@ -21,6 +21,7 @@ import json
 import re
 import time
 from email.utils import parsedate_to_datetime
+from types import SimpleNamespace
 from typing import Optional
 from urllib.parse import parse_qsl, quote, quote_plus, urlsplit
 
@@ -107,6 +108,10 @@ PROTECTED_OUTPUT_MODE = "msq-protected-v1"
 MAX_PROTECTED_RECORD_CHARS = 1024 * 1024
 MAX_CHUNK_COUNT = 200
 MAX_DECODED_EML_BYTES = 24 * 1024 * 1024
+# A full export incurs two Base64 expansions (EML and encrypted records),
+# plus record framing. Keep headroom over its ~43 MiB wire size.
+MAX_JOB_OUTPUT_BYTES = 64 * 1024 * 1024
+JOB_OUTPUT_READ_BYTES = 64 * 1024
 MAX_INLINE_DECODED_EML_BYTES = 10 * 1024 * 1024
 EXCHANGE_AUTH_METHOD = "ManagedIdentity"
 EXCHANGE_SETTING_MAX_CHARS = 256
@@ -386,6 +391,15 @@ class OversizedExportError(AutomationError):
 # ---------------------------------------------------------------------------
 
 
+class _AzureSession(requests.Session):
+    def resolve_redirects(self, response, request, **kwargs):
+        # Requests still tries to populate Response.next when redirects are
+        # disabled, consuming the body. Streamed output must not do that.
+        if kwargs.get("yield_requests") and kwargs.get("stream"):
+            return iter(())
+        return super().resolve_redirects(response, request, **kwargs)
+
+
 class MSQuarantineForSplunkSOARUtils:
     """
     Handles all communication with Azure Automation on behalf of the connector.
@@ -429,7 +443,7 @@ class MSQuarantineForSplunkSOARUtils:
         self.progress_callback = progress_callback
         self._next_progress_at = 0.0
 
-        self._session = requests.Session()
+        self._session = _AzureSession()
         self._mgmt_token = None  # cached for current action
 
     def new_poll_deadline(self) -> float:
@@ -683,28 +697,32 @@ class MSQuarantineForSplunkSOARUtils:
 
     def _read_job_response(self, job_id, phase, deadline, last_status=""):
         """Retry only transient reads; never resubmit the writing webhook."""
-        url = self._job_url(job_id) if phase == "status" else self._job_output_url(job_id)
+        output = phase == "output"
+        url = self._job_output_url(job_id) if output else self._job_url(job_id)
         token_refreshed = False
         retries = 0
         last_error = ""
         while time.monotonic() < deadline:
             self._progress(f"Waiting for Azure Automation job {job_id} ({phase}, {last_status or 'pending'}).")
             headers = self._mgmt_headers(deadline)
+            if output:
+                # The byte ceiling must not rely on the inflater's behavior.
+                headers["Accept-Encoding"] = "identity"
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
+            response = None
             try:
                 response = self._session.get(
                     url,
                     headers=headers,
-                    timeout=min(15 if phase == "status" else 30, remaining),
+                    timeout=min(30 if output else 15, remaining),
                     verify=True,
                     allow_redirects=False,
+                    stream=output,
                 )
-            except requests.exceptions.RequestException as exc:
-                last_error = self._transport_error_message("Transient job read failure", exc)
-                delay = max(float(self._poll_interval), 1.0)
-            else:
+                if output and time.monotonic() >= deadline:
+                    self._job_timeout(job_id, phase, last_status)
                 if response.status_code == 401 and not token_refreshed:
                     self._mgmt_token = None
                     token_refreshed = True
@@ -714,14 +732,60 @@ class MSQuarantineForSplunkSOARUtils:
                     delay = self._throttle_delay(response, retries)
                     retries += 1
                 elif not 200 <= response.status_code < 300:
-                    raise AutomationError(
-                        f"Job {job_id} {phase} API returned HTTP {response.status_code}: "
-                        f"{self.redact_sensitive_text(response.text, max_chars=500)}"
-                    )
+                    message = f"Job {job_id} {phase} API returned HTTP {response.status_code}"
+                    if not output:
+                        message += f": {self.redact_sensitive_text(response.text, max_chars=500)}"
+                    raise AutomationError(message)
+                elif output:
+                    body = self._read_output_body(response, deadline, job_id, last_status)
+                    return SimpleNamespace(text=body)
                 else:
                     return response
+            except requests.exceptions.RequestException as exc:
+                last_error = self._transport_error_message("Transient job read failure", exc)
+                delay = max(float(self._poll_interval), 1.0)
+            finally:
+                if output and getattr(response, "raw", None) is not None:
+                    response.close()
             self._sleep_for_retry(delay, deadline, f"Waiting for Azure Automation job {job_id}; {last_error}.")
         self._job_timeout(job_id, phase, last_status, last_error)
+
+    def _read_output_body(self, response, deadline, job_id, last_status):
+        """Buffer only bounded, uncompressed bytes while the job budget remains."""
+        encoding = response.headers.get("Content-Encoding", "identity").strip().lower()
+        if encoding not in {"", "identity"}:
+            raise AutomationError("Azure job output returned an unsupported HTTP content encoding.")
+        limit = MAX_JOB_OUTPUT_BYTES
+        oversized = f"Azure job output exceeded the {limit}-byte download limit."
+        length = response.headers.get("Content-Length", "").strip()
+        if length.isascii() and length.isdecimal():
+            # Compare decimal strings to avoid converting untrusted giant integers.
+            digits = length.lstrip("0")
+            bound = str(limit)
+            if (len(digits), digits) > (len(bound), bound):
+                raise AutomationError(oversized)
+        body = bytearray()
+        # An adapter can also return a response with already-buffered content.
+        if getattr(response, "raw", None) is not None:
+            chunks = response.iter_content(JOB_OUTPUT_READ_BYTES)
+        else:
+            cached = getattr(response, "content", None)
+            chunks = (cached if cached is not None else response.text.encode("utf-8"),)
+        for chunk in chunks:
+            if time.monotonic() >= deadline:
+                self._job_timeout(job_id, "output", last_status)
+            if len(body) + len(chunk) > limit:
+                raise AutomationError(oversized)
+            body.extend(chunk)
+            self._progress(f"Waiting for Azure Automation job {job_id} output.")
+            if time.monotonic() >= deadline:
+                self._job_timeout(job_id, "output", last_status)
+        if time.monotonic() >= deadline:
+            self._job_timeout(job_id, "output", last_status)
+        try:
+            return body.decode(getattr(response, "encoding", None) or "utf-8-sig", errors="replace")
+        except LookupError:
+            return body.decode("utf-8-sig", errors="replace")
 
     def _job_timeout(self, job_id, phase, last_status, detail=""):
         raise JobTimeoutError(
