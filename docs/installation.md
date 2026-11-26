@@ -42,13 +42,16 @@ See also: [Create a custom Azure RBAC role](https://learn.microsoft.com/en-us/az
 
 ### 4. Register the Microsoft Entra app
 
-Create an app registration and a client secret. Assign the job-reader role to the app’s service principal **at the Automation Account scope**. The app registration reads jobs; the webhook starts them.
+Create an app registration and a client secret. Assign the job-reader role to the app’s service principal **at the Automation Account scope**. For REST start, also grant `Microsoft.Automation/automationAccounts/jobs/write` at the Automation Account scope.
 
 See also: [Register an application](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app), [add a client secret](https://learn.microsoft.com/en-us/entra/identity-platform/how-to-add-credentials?tabs=client-secret), and [Security](security.md).
 
-### 5. Publish the runbook and create the webhook
+### 5. Publish the runbook and configure the start method
 
-Import and publish `ms-defender-quarantine-manager-runbook-<version>.ps1` using PowerShell 7.4 with `ExchangeOnlineManagement`. Create a webhook for the published runbook and save its full HTTPS URL securely. Azure displays it only once.
+Import and publish `ms-defender-quarantine-manager-runbook-<version>.ps1` using PowerShell 7.4 with `ExchangeOnlineManagement`.
+
+- **Webhook:** Create a webhook for the published runbook and save its full HTTPS URL securely. Azure displays it only once. In the asset select `webhook` (the default) and enter the URL.
+- **Azure REST API:** In the asset select `rest` and enter the published runbook name. Leave the webhook URL blank. Ensure the Entra application has job write and read permissions.
 
 Set the Exchange tenant domain either in the SOAR asset’s `exchange_organization` field or in the Automation Account’s `ExchangeOrganization` variable. If both are unset, the runbook cannot connect to Exchange.
 
@@ -62,11 +65,14 @@ See also: [App and runbook version pairs](compatibility.md).
 
 Fill in the fields below, then run **Test Connectivity**. It verifies Azure job access and reads messages with release requests; it does not release mail.
 
-#### Required asset fields
+#### Runbook start fields
+
+Select **Runbook start method**. For **Webhook** (the default), enter the **HTTPS Webhook URL (with token)**. For **Azure REST API**, enter the **Published runbook name (Azure REST API)** and leave the webhook URL blank.
+
+#### Required asset fields (both methods)
 
 | Field | What to enter |
 |---|---|
-| HTTPS Webhook URL (with token) | Full HTTPS webhook URL for the published runbook, including its token. HTTP and redirects are rejected. |
 | Subscription ID (Azure Automation Account) | Subscription ID of the Automation Account. |
 | Resource Group Name (Azure Automation Account) | Name of the resource group containing the Automation Account. |
 | Automation Account Name | Name of the Automation Account. |

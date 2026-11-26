@@ -230,14 +230,17 @@ function Get-ManagementRoleAssignment { throw "Unexpected diagnostic provider ca
 function Get-RoleGroupMember { throw "Unexpected diagnostic provider call." }
 function Invoke-RestMethod { throw "Unexpected diagnostic provider call." }
 
-function Invoke-OfflineWebhook {
-    param([object] $RequestBody)
+function Invoke-OfflineRunbook {
+    param([hashtable] $RunbookParameters)
     $VerbosePreference = "Continue"
     $DebugPreference = "Continue"
     $InformationPreference = "Continue"
-    $output = @(& $runbookPath -WebhookData @{ RequestBody = $RequestBody } *>&1)
+    $output = @(& $runbookPath @RunbookParameters *>&1)
     if (@($output | Where-Object { [string] $_ -like "*fixture-provider-stream*" }).Count) {
         throw "A raw diagnostic provider stream was emitted."
+    }
+    if (@($output | Where-Object { [string] $_ -like "*fixture-payload-must-not-leak*" }).Count) {
+        throw "The runbook echoed request payload text."
     }
     $lines = @($output | Where-Object { $_ -is [string] })
     if ($lines.Count -ne 1 -or @($output | Where-Object {
@@ -246,6 +249,11 @@ function Invoke-OfflineWebhook {
         throw "Expected one JSON result and no raw provider error records."
     }
     return ConvertFrom-Json $lines[0] -ErrorAction Stop
+}
+
+function Invoke-OfflineWebhook {
+    param([object] $RequestBody)
+    Invoke-OfflineRunbook @{ WebhookData = @{ RequestBody = $RequestBody } }
 }
 
 foreach ($case in @(
@@ -266,6 +274,34 @@ foreach ($case in @(
     }
     if ($result.message -like "*broken fixture*") { throw "JSON parser echoed request text." }
 }
+$privatePayload = '{"action":"fixture-payload-must-not-leak"}'
+foreach ($case in @(
+    @{ Parameters = @{}; Expected = "missing_request_input" },
+    @{
+        Parameters = @{ RequestJson = $privatePayload; WebhookData = @{ RequestBody = $privatePayload } }
+        Expected = "ambiguous_request_input"
+    },
+    @{
+        Parameters = @{ RequestJson = ""; WebhookData = @{ RequestBody = $privatePayload } }
+        Expected = "ambiguous_request_input"
+    },
+    @{ Parameters = @{ RequestJson = "  " }; Expected = "empty_request_json" },
+    @{
+        Parameters = @{ RequestJson = '{ "fixture-payload-must-not-leak"' }
+        Expected = "invalid_request_json"
+    },
+    @{ Parameters = @{ RequestJson = "[{}]" }; Expected = "invalid_request_body_type" },
+    @{ Parameters = @{ RequestJson = "{}" }; Expected = "missing_action" },
+    @{
+        Parameters = @{ RequestJson = '{"action":"reconcile","identity":17}' }
+        Expected = "invalid_identity_type"
+    }
+)) {
+    $result = Invoke-OfflineRunbook $case.Parameters
+    if (-not $result.error -or $result.error_code -ne $case.Expected) {
+        throw "Unexpected request validation result: $($result.error_code); expected $($case.Expected)."
+    }
+}
 if ($global:DefensiveFixtureProviderCalls -ne 0) { throw "An invalid request loaded the Exchange module." }
 
 function Invoke-ExactReadFixture {
@@ -281,6 +317,25 @@ $global:DefensiveFixtureReadMode = "row"
 $observation = Invoke-ExactReadFixture "reconcile"
 if ($observation.error -or $observation.observed_release_status -ne "Requested") {
     throw "Reconcile did not accept the clean exact read."
+}
+$restRequest = @{
+    action = "reconcile"
+    identity = $fixtureIdentity
+    auth_method = "ManagedIdentity"
+    organization = "rest-fixture.onmicrosoft.com"
+}
+$restObservation = Invoke-OfflineRunbook @{ RequestJson = ($restRequest | ConvertTo-Json -Compress) }
+if ($restObservation.error -or $restObservation.observed_identity -ne $observation.observed_identity -or
+    $restObservation.observed_release_status -ne $observation.observed_release_status) {
+    throw "REST RequestJson did not use the same exact-read path as WebhookData."
+}
+$restRequest.action = "diagnose"
+$restDiagnosis = Invoke-OfflineRunbook @{ RequestJson = ($restRequest | ConvertTo-Json -Compress) }
+if ($restDiagnosis.status -ne "inspected" -or
+    $restDiagnosis.exchange_auth_method_source -ne "request_json" -or
+    $restDiagnosis.exchange_organization_source -ne "request_json" -or
+    $restDiagnosis.exchange_organization -ne "rest-fixture.onmicrosoft.com") {
+    throw "REST diagnosis did not report the REST request source for explicit connection settings."
 }
 $diagnosed = Invoke-ExactReadFixture "diagnose"
 if ($diagnosed.status -ne "inspected" -or $diagnosed.exchange_connection_metadata -ne (

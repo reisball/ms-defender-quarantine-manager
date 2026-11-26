@@ -26,6 +26,7 @@ from .ms_quarantine_for_splunk_soar_utils import (
     DIAGNOSTIC_RBAC_PARTIAL_ERROR_CODE,
     AutomationError,
     JobFailedError,
+    JobSubmissionRejected,
     JobTimeoutError,
     MSQuarantineForSplunkSOARUtils,
     RunbookActionError,
@@ -229,7 +230,6 @@ class InspectSummary(ActionOutput):
 def build_azure(asset: BaseAsset) -> MSQuarantineForSplunkSOARUtils:
     """Build a fresh Azure client from the SDK asset, without making requests."""
     field_names = {
-        "webhook_url": "webhook_url",
         "tenant_id": "azure_tenant_id",
         "client_id": "azure_client_id",
         "client_secret": "azure_client_secret",  # pragma: allowlist secret -- asset field name, not a value
@@ -237,7 +237,15 @@ def build_azure(asset: BaseAsset) -> MSQuarantineForSplunkSOARUtils:
         "resource_group": "azure_resource_group",
         "automation_account": "azure_automation_account",
     }
-    required = {}
+    method = getattr(asset, "runbook_start_method", None) or "webhook"
+    if method not in ("webhook", "rest"):
+        raise AssetMisconfiguration("Choose webhook or rest as the runbook start method.")
+    runbook = getattr(asset, "runbook_name", None) if method == "rest" else None
+    if method == "rest" and (not isinstance(runbook, str) or not runbook.strip()):
+        raise AssetMisconfiguration("The published runbook name is required for Azure REST API.")
+    if method == "webhook":
+        field_names["webhook_url"] = "webhook_url"
+    required = {} if method == "webhook" else {"webhook_url": ""}
     for arg, field in field_names.items():
         value = getattr(asset, field, None)
         if not isinstance(value, str) or not value.strip():
@@ -259,6 +267,7 @@ def build_azure(asset: BaseAsset) -> MSQuarantineForSplunkSOARUtils:
     try:
         return MSQuarantineForSplunkSOARUtils(
             **required,
+            runbook_name=runbook.strip() if runbook else None,
             poll_interval=seconds("poll_interval_seconds", 5, 1, 60),
             poll_timeout=seconds("poll_timeout_seconds", 600, 600, 3600),
             retain_chunked_base64=False,
@@ -537,9 +546,11 @@ def _run_disposition(
     job_id = ""
     logger.progress(f"Starting Azure Automation action={action}.")
     try:
-        job_id = azure.fire_webhook(action, identity=identity)
+        job_id = azure.start_job(action, identity=identity)
         logger.progress(f"Waiting for Azure Automation action={action} result.")
         output = azure.wait_for_action_result(job_id, action=action, identity=identity)
+    except JobSubmissionRejected as exc:
+        return _disposition_failure(params, action, identity, "not_executed", "azure_submission_rejected", _map_error(azure, exc, action))
     except AutomationError as exc:
         # The transport has already validated error envelopes and their requested identity.
         raw_data = exc.result if isinstance(exc, RunbookActionError) else {}
@@ -661,7 +672,7 @@ def register_connectivity(app: App, *, app_version: str, azure_factory: Callable
         try:
             logger.progress("Step 1/3: Acquiring Azure AD Management API token.")
             azure.get_mgmt_token()
-            logger.progress("Step 2/3: Starting protected list and waiting for completion.")
+            logger.progress("Step 2/3: Starting protected list via the configured method and waiting for completion.")
             output = azure.run_action("list", validate_result=_validate_list)
         except AutomationError as exc:
             raise ActionFailure(_map_error(azure, exc, "test connectivity")) from None

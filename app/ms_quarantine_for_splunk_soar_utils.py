@@ -26,6 +26,7 @@ from threading import Event, Thread
 from types import SimpleNamespace
 from typing import Optional
 from urllib.parse import parse_qsl, quote, quote_plus, urlsplit
+from uuid import uuid4
 
 import requests
 
@@ -338,6 +339,10 @@ class WebhookError(AutomationError):
     pass
 
 
+class JobSubmissionRejected(AutomationError):
+    """Azure explicitly rejected authorization before starting a job."""
+
+
 class JobTimeoutError(AutomationError):
     """Raised when job polling exceeds the configured timeout."""
 
@@ -407,7 +412,7 @@ class MSQuarantineForSplunkSOARUtils:
     Handles all communication with Azure Automation on behalf of the connector.
 
     Flow for each action:
-        1. fire_webhook()   → returns job_id
+        1. start_job()      → returns job_id
         2. poll_job()       → waits until terminal state
         3. get_job_output() → returns parsed JSON result from Write-Output
     """
@@ -426,12 +431,22 @@ class MSQuarantineForSplunkSOARUtils:
         retain_chunked_base64: bool = True,
         exchange_organization: Optional[str] = None,
         progress_callback=None,
+        *,
+        runbook_name: Optional[str] = None,
     ):
         self._connection_settings = normalize_exchange_connection_settings(
             exchange_organization,
         )
         self.selection_release_status = "Requested"
-        self._webhook_url = validate_webhook_url(webhook_url)
+        self._webhook_url = validate_webhook_url(webhook_url) if runbook_name is None else None
+        if runbook_name is not None:
+            if not GUID_RE.fullmatch(subscription_id):
+                raise ValueError("Azure subscription ID must be a UUID for REST job start.")
+            if not re.fullmatch(r"[\w().-]{1,90}", resource_group) or resource_group.endswith("."):
+                raise ValueError("Azure resource group name is invalid for REST job start.")
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{4,48}[A-Za-z0-9]", automation_account):
+                raise ValueError("Azure Automation Account name is invalid for REST job start.")
+        self._runbook_name = runbook_name
         self._tenant_id = tenant_id
         self._client_id = client_id
         self._client_secret = client_secret
@@ -547,9 +562,13 @@ class MSQuarantineForSplunkSOARUtils:
                 },
                 timeout=timeout,
                 verify=True,
+                allow_redirects=False,
             )
         except requests.exceptions.RequestException as exc:
             raise TokenError(self._transport_error_message("Token request failed", exc)) from exc
+
+        if 300 <= response.status_code < 400:
+            raise TokenError(f"Azure AD token request returned HTTP {response.status_code}; redirects are not followed.")
 
         if not response.ok:
             try:
@@ -578,6 +597,57 @@ class MSQuarantineForSplunkSOARUtils:
     # -----------------------------------------------------------------------
     # Webhook
     # -----------------------------------------------------------------------
+
+    def _job_input(self, action, identity, page_size, include_rbac, output_public_key):
+        body = {"action": action}
+        if action in PROTECTED_READ_ACTIONS:
+            if not output_public_key:
+                raise AutomationError("Protected list/export requires a per-job public key.")
+            body = {"action": f"protected_{action}_v1", "output_public_key": output_public_key}
+        body.update(self._connection_settings)
+        if identity:
+            body["identity"] = identity
+        if page_size is not None:
+            body["page_size"] = page_size
+        if include_rbac is not None:
+            body["include_rbac"] = include_rbac
+        return body
+
+    def start_job(self, action, identity=None, page_size=None, include_rbac=None, *, output_public_key=None):
+        """Submit once through the configured transport without fallback."""
+        if self._runbook_name is None:
+            if output_public_key is not None:
+                return self.fire_webhook(action, identity, page_size, output_public_key=output_public_key)
+            return self.fire_webhook(action, identity, page_size, include_rbac=include_rbac)
+        body = self._job_input(action, identity, page_size, include_rbac, output_public_key)
+        headers = self._mgmt_headers()
+        job_id = str(uuid4())
+        url = self._job_url(job_id, api_version="2024-10-23")
+        try:
+            with self._session.put(
+                url,
+                headers=headers,
+                json={"properties": {"runbook": {"name": self._runbook_name}, "parameters": {"RequestJson": json.dumps(body)}}},
+                timeout=30,
+                allow_redirects=False,
+                stream=True,
+            ) as response:
+                if response.status_code in (401, 403):
+                    raise JobSubmissionRejected(
+                        f"Azure refused REST job submission (HTTP {response.status_code}). Check the Entra app registration and its job-start permission."
+                    )
+                if response.status_code not in (200, 201, 202):
+                    raise AutomationError(f"Azure REST job submission returned HTTP {response.status_code}. Check job history before retrying.")
+        except requests.exceptions.RequestException:
+            error = AutomationError("Azure REST job submission could not be confirmed. Check job history before retrying.")
+            error.job_id = job_id
+            raise error from None
+        except JobSubmissionRejected:
+            raise
+        except AutomationError as error:
+            error.job_id = job_id
+            raise
+        return job_id
 
     def fire_webhook(
         self,
@@ -608,18 +678,7 @@ class MSQuarantineForSplunkSOARUtils:
         Raises:
             WebhookError on failure.
         """
-        body = {"action": action}
-        if action in PROTECTED_READ_ACTIONS:
-            if not output_public_key:
-                raise AutomationError("Protected list/export requires a per-job public key.")
-            body = {"action": f"protected_{action}_v1", "output_public_key": output_public_key}
-        body.update(self._connection_settings)
-        if identity:
-            body["identity"] = identity
-        if page_size is not None:
-            body["page_size"] = page_size
-        if include_rbac is not None:
-            body["include_rbac"] = include_rbac
+        body = self._job_input(action, identity, page_size, include_rbac, output_public_key)
 
         try:
             response = self._session.post(
@@ -669,25 +728,21 @@ class MSQuarantineForSplunkSOARUtils:
     # Job polling
     # -----------------------------------------------------------------------
 
-    def _job_url(self, job_id: str) -> str:
-        """Build the Management API URL for a specific job."""
-        path = JOB_API_PATH.format(
-            subscription_id=self._subscription_id,
-            resource_group=self._resource_group,
-            automation_account=self._automation_account,
-            job_id=job_id,
+    def _job_path(self, job_id: str, template: str) -> str:
+        return template.format(
+            subscription_id=quote(self._subscription_id, safe=""),
+            resource_group=quote(self._resource_group, safe=""),
+            automation_account=quote(self._automation_account, safe=""),
+            job_id=quote(job_id, safe=""),
         )
-        return f"{MGMT_BASE}{path}?api-version={MGMT_API_VERSION}"
+
+    def _job_url(self, job_id: str, *, api_version: str = MGMT_API_VERSION) -> str:
+        """Build the Management API URL for a specific job."""
+        return f"{MGMT_BASE}{self._job_path(job_id, JOB_API_PATH)}?api-version={api_version}"
 
     def _job_output_url(self, job_id: str) -> str:
         """Build the Management API URL for a job's output."""
-        path = JOB_OUTPUT_API_PATH.format(
-            subscription_id=self._subscription_id,
-            resource_group=self._resource_group,
-            automation_account=self._automation_account,
-            job_id=job_id,
-        )
-        return f"{MGMT_BASE}{path}?api-version={MGMT_API_VERSION}"
+        return f"{MGMT_BASE}{self._job_path(job_id, JOB_OUTPUT_API_PATH)}?api-version={MGMT_API_VERSION}"
 
     def _mgmt_headers(self, deadline=None) -> dict:
         """Return headers, including any token acquisition in the wait budget."""
@@ -1282,9 +1337,9 @@ class MSQuarantineForSplunkSOARUtils:
         *,
         validate_result=None,
     ) -> dict:
-        """Submit exactly one webhook, then wait for its result."""
+        """Submit exactly one job, then wait for its result."""
         if action not in PROTECTED_READ_ACTIONS:
-            job_id = self.fire_webhook(action, identity, page_size, include_rbac=include_rbac)
+            job_id = self.start_job(action, identity, page_size, include_rbac=include_rbac)
             return self.wait_for_action_result(job_id, action, identity, validate_result=validate_result)
         try:
             from cryptography.hazmat.primitives import serialization
@@ -1299,7 +1354,7 @@ class MSQuarantineForSplunkSOARUtils:
             ).decode("ascii")
         except (ImportError, ValueError) as exc:
             raise AutomationError("Protected output cryptography is unavailable; no job was started.") from exc
-        job_id = self.fire_webhook(action, identity, page_size, output_public_key=public_key)
+        job_id = self.start_job(action, identity, page_size, output_public_key=public_key)
         return self.wait_for_action_result(
             job_id,
             action,

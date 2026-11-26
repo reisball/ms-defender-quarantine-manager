@@ -13,8 +13,14 @@ from .version import APP_VERSION
 class Asset(BaseAsset):
     model_config = ConfigDict(hide_input_in_errors=True)
 
-    webhook_url: str = AssetField(
+    runbook_start_method: str | None = AssetField(
+        description="Runbook start method", default="webhook", value_list=["webhook", "rest"], required=False
+    )
+    runbook_name: str | None = AssetField(description="Published runbook name (Azure REST API)", default=None, required=False)
+    webhook_url: str | None = AssetField(
         description="HTTPS Webhook URL (with token)",
+        default=None,
+        required=False,
         sensitive=True,
     )
     azure_subscription_id: str = AssetField(description="Subscription ID (Azure Automation Account)")
