@@ -104,6 +104,28 @@ def test_mixed_rbac_role_error_is_partial_without_leaking_credentials():
     assert details["permission_query_errors"][0]["query"] == "read.management_roles"
 
 
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="PowerShell is not installed")
+@pytest.mark.parametrize("error_only", [True, False])
+def test_alternate_principal_requires_clean_guid_match(error_only):
+    script = Path(__file__).resolve().parents[1] / "powershell" / "test_runbook_diagnostics.ps1"
+    mode = "alternate_principal_error_only" if error_only else "alternate_principal_mixed"
+    result = subprocess.run(
+        ["pwsh", "-NoLogo", "-NoProfile", "-File", str(script), "-AssignmentMode", mode],
+        check=True, text=True, capture_output=True, timeout=30,
+    )
+    assert not result.stderr
+    assert "SyntheticRbacCredentialMarker" not in result.stdout
+    assert "RejectThisUnconfirmedPrincipal" not in result.stdout
+    envelope = json.loads(result.stdout)
+    data = envelope if error_only else envelope["details"]
+    assert data["service_principal_registered"] is True
+    assert data["rbac_diagnostics_status"] == ("complete" if error_only else "partial")
+    assert data["permission_query_error_count"] == (0 if error_only else 1)
+    if not error_only:
+        assert envelope["error_code"] == "diagnostic_rbac_partial"
+        assert data["permission_query_errors"][0]["query"] == "exchange_service_principal"
+
+
 # Each tuple specifies the complete preserved text around the redacted value.
 # Unterminated quotes stop at the physical line boundary, never the next line.
 MALFORMED_HEADERS = [

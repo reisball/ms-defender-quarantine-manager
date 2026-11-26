@@ -335,8 +335,8 @@ $ExportScanBlockChars     = 256 * 1024
 $Base64AllowedWhitespacePattern = "[\x09\x0A\x0D\x20]"
 $Base64UnsupportedWhitespacePattern = "[^\S\x09\x0A\x0D\x20]"
 $RunbookVersion           = "1.1.0"
-$RunbookSourceRevision    = "sha256:638ab2e97f5e10f01c3ce5c42993306f7988daf404f4f0f1593cf8f5f6a5e39f"
-$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.1.0+sha256.638ab2e97f5e10f01c3ce5c42993306f7988daf404f4f0f1593cf8f5f6a5e39f"
+$RunbookSourceRevision    = "sha256:4a860c37bf603206335676c3d6f76e283b58a6339fa3927d5a7f14aa9221f744"
+$RunbookBuildId           = "ms-quarantine-for-splunk-soar-runbook-1.1.0+sha256.4a860c37bf603206335676c3d6f76e283b58a6339fa3927d5a7f14aa9221f744"
 $ReleaseContractId        = "identity_releasetoall"
 $PostconditionMaxAttempts = 7
 $PostconditionPollSeconds = 10
@@ -1243,11 +1243,17 @@ function Get-QuarantineRbacDiagnosticEvidence {
                     }
                 )
                 if ($queryErrors.Count -gt 0) {
-                    Add-PermissionQueryError `
-                        -Errors $errors `
-                        -Query "exchange_service_principal" `
-                        -ErrorRecord $queryErrors[0]
                     $servicePrincipalLookupHadError = $true
+                    if ($queryErrors.Count -eq $candidateResults.Count) {
+                        # Error-only is equivalent to a terminating lookup failure.
+                        $servicePrincipalLookupError = $queryErrors[0]
+                    } else {
+                        # Mixed output is ambiguous even if another lookup succeeds.
+                        Add-PermissionQueryError `
+                            -Errors $errors `
+                            -Query "exchange_service_principal" `
+                            -ErrorRecord $queryErrors[0]
+                    }
                     continue
                 }
                 $servicePrincipalLookupSucceeded = $true
