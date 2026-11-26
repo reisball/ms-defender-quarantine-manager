@@ -4,95 +4,70 @@
 
 ## Requirements
 
-- Splunk SOAR 8.7.0 or later with Python 3.13 and **native** execution. Intake requires a native SOAR session with authenticated access to its local REST API. Automation Broker is not supported.
-- An Azure Automation Account with a system-assigned Managed Identity and a PowerShell 7 runtime with .NET AES-GCM and RSA-OAEP-SHA-256 support (use a supported Azure PowerShell 7.4 runtime), including the ExchangeOnlineManagement module. Windows PowerShell 5.1 cannot process protected list/export.
-- An Entra App Registration that can read Azure Automation job status and output.
-- Exchange/Defender quarantine permissions for the Managed Identity.
-- For ES ingestion: a connected ES environment; see [ES-only setup](ingestion.md#enterprise-security).
-
-Two identities are involved, and neither substitutes for the other:
-
-| Identity | Used for |
-|---|---|
-| App Registration (configured in the SOAR asset) | Reading Azure Automation job status and output |
-| Automation Account Managed Identity | Connecting to Exchange Online and running quarantine commands |
+- Splunk SOAR 8.7.0 or later with Python 3.13 and native execution. Intake requires authenticated access to the local SOAR REST API. Automation Broker is not supported.
+- An Azure Automation Account with a PowerShell 7.4 runtime environment and the `ExchangeOnlineManagement` module installed in that environment.
+- The Automation Account’s **system-assigned managed identity** runs the quarantine commands in Exchange Online. See [Grant Exchange permissions](#2-grant-exchange-permissions).
+- A separate **Microsoft Entra app registration** lets SOAR read Azure Automation job status and output. See [Configure Azure job access](#3-configure-azure-job-access).
 
 ## Install order
 
-Set up the app and runbook from the same build. Only protected list/export is supported.
-
-1. Publish the matching runbook in Azure and confirm it is published.
-2. Install the matching SOAR app.
-3. Activate the compatible playbook.
-
-Check the [compatibility matrix](compatibility.md) before enabling intake.
+Publish the runbook first, then install the SOAR app from the same release. See the [compatibility matrix](compatibility.md) before enabling intake.
 
 ## 1. Configure Azure Automation
 
-1. Create an Automation Account and enable its system-assigned Managed Identity.
-2. Add ExchangeOnlineManagement to the account's PowerShell runtime.
-3. Import and publish `ms-defender-quarantine-manager-runbook-<version>.ps1`.
-4. Create a webhook for the runbook and copy its URL. Azure shows it only once.
-5. Optionally, set the `ExchangeOrganization` Automation Variable to your tenant domain, such as `contoso.onmicrosoft.com`. A value in the SOAR asset takes precedence.
+1. Enable the Automation Account’s system-assigned managed identity.
+2. Import `ms-defender-quarantine-manager-runbook-<version>.ps1`, select the PowerShell 7.4 runtime with `ExchangeOnlineManagement`, and publish the runbook.
+3. Create a webhook for the runbook and save its HTTPS URL securely. Azure displays it only once.
 
 ## 2. Grant Exchange permissions
 
-The runbook connects with `Connect-ExchangeOnline -ManagedIdentity -Organization <tenant-domain>`. Grant the Managed Identity the `Exchange.ManageAsApp` app role, for example:
+Grant the Automation Account’s managed identity the `Exchange.ManageAsApp` application role for app-only sign-in. Then add its Exchange service principal to a role group that allows it to list and export quarantined messages and to release messages or deny release requests. Sign-in permission alone does not grant quarantine access.
 
-```powershell
-Connect-MgGraph -Scopes "AppRoleAssignment.ReadWrite.All"
-$MI = Get-MgServicePrincipal -Filter "DisplayName eq '<automation-account-name>'"
-$ExoSP = Get-MgServicePrincipal -Filter "AppId eq '00000002-0000-0ff1-ce00-000000000000'"
-$Role = $ExoSP.AppRoles | Where-Object { $_.Value -eq "Exchange.ManageAsApp" }
-New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $MI.Id `
-  -PrincipalId $MI.Id -ResourceId $ExoSP.Id -AppRoleId $Role.Id
-```
-
-`Exchange.ManageAsApp` only allows app-only sign-in. The quarantine rights themselves come from an Exchange / Email & collaboration role group that contains the Managed Identity's Exchange service principal. Azure resource roles do not grant Exchange quarantine rights.
-
-Microsoft references: [Managed Identity authentication](https://learn.microsoft.com/en-us/powershell/exchange/connect-exo-powershell-managed-identity), [role groups for service principals](https://learn.microsoft.com/en-us/powershell/exchange/app-only-auth-powershell-v2#option-2-assign-custom-role-groups-to-the-application-using-service-principals), [quarantine permissions](https://learn.microsoft.com/en-us/defender-office-365/scc-permissions).
+See Microsoft’s [managed identity setup](https://learn.microsoft.com/en-us/powershell/exchange/connect-exo-powershell-managed-identity), [role group assignment](https://learn.microsoft.com/en-us/powershell/exchange/app-only-auth-powershell-v2#option-2-assign-custom-role-groups-to-the-application-using-service-principals), and [quarantine permissions](https://learn.microsoft.com/en-us/defender-office-365/scc-permissions).
 
 ## 3. Configure Azure job access
 
-Create an Entra App Registration with a client secret. Create a custom Azure RBAC role with exactly these **Actions** and no **DataActions**:
+Create a Microsoft Entra app registration with a client secret. Assign its service principal a [custom Azure RBAC role](https://learn.microsoft.com/en-us/azure/role-based-access-control/custom-roles) scoped to the **Automation Account**, with exactly these Actions and no DataActions:
 
-| Action | Used for |
-|---|---|
-| `Microsoft.Automation/automationAccounts/jobs/read` | Read the status of the known job: `GET .../jobs/{jobName}`. |
-| `Microsoft.Automation/automationAccounts/jobs/output/read` | Read its result: `GET .../jobs/{jobName}/output`. |
+- `Microsoft.Automation/automationAccounts/jobs/read` — read job status.
+- `Microsoft.Automation/automationAccounts/jobs/output/read` — read job output.
 
-Make the custom role available in the resource group containing the Automation Account, then assign it to the service principal **on that Automation Account**, not at the resource group or subscription. The account is the narrowest practical assignment scope because the webhook creates new job IDs dynamically. Record the tenant ID, the client ID and the secret **value** (not the secret ID).
-
-The HTTPS webhook URL starts jobs; these ARM permissions do not grant job creation, control or writes. Do not grant **Automation Job Operator** to the job-reader identity: it includes job creation. When replacing an existing assignment, check the principal's effective access on the account, including inherited and group assignments. A custom read role does not cancel a write permission granted elsewhere. In a shared account, the reader can read output for other runbooks too; use a dedicated account for quarantine and review who inherits job-output access.
-
-Microsoft references: [Automation RBAC operations](https://learn.microsoft.com/en-us/azure/automation/automation-role-based-access-control), [Jobs – Get](https://learn.microsoft.com/en-us/rest/api/automation/job/get), [Jobs – Get Output](https://learn.microsoft.com/en-us/rest/api/automation/job/get-output), [custom roles](https://learn.microsoft.com/en-us/azure/role-based-access-control/custom-roles).
+The webhook starts jobs. The app registration only reads them; it does not need Automation Job Operator. See [Security](security.md) for inherited access and shared-account risks.
 
 ## 4. Install the app and create an asset
 
-Install `ms-defender-quarantine-manager-<version>.tgz` in SOAR app management and create an asset. The SDK package includes its Python 3.13 dependencies; do not install anything into the SOAR host interpreter.
+Install `ms-defender-quarantine-manager-<version>.tgz` in SOAR and create a new asset. Fill in the fields below, then run **Test Connectivity**. It verifies Azure job access and reads messages with release requests; it does not release mail.
 
-Create a new asset for this SDK app. Configure a container label in the SOAR asset's ingestion settings, including for linked ES findings. Never run two ingesting assets for the same tenant.
+### Required asset fields
 
-| Asset field | Notes |
+| Field | What to enter |
 |---|---|
-| `webhook_url` | Direct **HTTPS** webhook URL including its token. HTTP and redirects are rejected. |
-| `azure_subscription_id`, `azure_resource_group`, `azure_automation_account` | Location of the Automation Account |
-| `azure_tenant_id`, `azure_client_id`, `azure_client_secret` | App Registration from step 3 (not an Exchange login); use the Entra tenant UUID, not a domain alias |
-| `exchange_organization` | Optional; falls back to the `ExchangeOrganization` Automation Variable |
-| `on_poll_max_containers` | Active-message limit, 1–50, default 10. See [email import](ingestion.md#active-message-limit). |
-| `worker_terminal_retention_days` | 1–365, default 30 |
-| `artifact_layout` and `artifact_field_*` | Email artifact layout and optional header fields. Use `combined` for playbooks. |
-| `poll_timeout_seconds`, `poll_interval_seconds` | Azure job wait (600–3600 s, default 600) and status interval (1–60 s, default 5) |
+| `webhook_url` | Full HTTPS webhook URL for the published runbook, including its token. HTTP and redirects are rejected. |
+| `azure_subscription_id` | Subscription ID of the Automation Account. |
+| `azure_resource_group` | Name of the resource group containing the Automation Account. |
+| `azure_automation_account` | Name of the Automation Account. |
+| `azure_tenant_id` | Entra directory (tenant) ID as a UUID, not a domain name. |
+| `azure_client_id` | Application (client) ID of the Entra app registration from step 3. |
+| `azure_client_secret` | Client secret **value**, not the secret ID. |
 
-Azure TLS certificates are always verified. If you use a private CA, add it to the platform trust store.
+### Optional asset fields
 
-Run **test connectivity**. It checks Azure job access and reads `Requested` messages. It does not release mail or test other integrations.
+| Field | What it controls |
+|---|---|
+| `exchange_organization` | Exchange tenant domain, such as `contoso.onmicrosoft.com`. If blank, the runbook uses the `ExchangeOrganization` Automation Variable. |
+| `on_poll_max_containers` | Maximum tracked messages still awaiting a Microsoft outcome: 1–50, default 10. This is not a per-poll limit. |
+| `worker_terminal_retention_days` | How long resolved messages remain tracked: 1–365 days, default 30. A message that reappears after expiry can be imported again. |
+| `artifact_layout` | `combined` (default) creates one email artifact per SOAR event. `separate` uses separate artifacts. See [artifact layouts and playbook input](ingestion.md#playbook-input-combined-layout). |
+| `artifact_field_*` | Choose which email fields to include. From, To, Subject, email date, and Message-ID are enabled by default; Cc, Reply-To, received date, and quarantine identity are off by default. |
+| `poll_timeout_seconds` | Maximum wait for an Azure job: 600–3600 seconds, default 600. |
+| `poll_interval_seconds` | Time between Azure job status checks: 1–60 seconds, default 5. This is separate from the SOAR import schedule. |
 
 ## 5. Configure ingestion
 
-- In the asset's **Ingest Settings**, select the intake target and configure the polling schedule. Disable the schedule to pause automatic imports; **Poll Now** runs a manual import.
-- **SOAR events:** Set the container label and leave native ES intake off. No ES fields or drilldowns are needed.
-- **ES findings (optional):** Enable native ES intake, set the security domain and complete the [ES-only setup](ingestion.md#enterprise-security).
-- Keep the asset's tenant, organization and ingest target unchanged while it has tracked messages.
-- For playbooks, use the combined layout and the [playbook input data](ingestion.md#playbook-input-combined-layout). The app does not configure or activate playbooks.
-- For ES, complete the [ES setup](ingestion.md#enterprise-security).
+### SOAR ingest
+
+In the asset’s **Ingest Settings**, select a container label and set the schedule. Leave the schedule off for manual imports with **Poll Now**. Use only one ingesting asset per tenant. See [Email import](ingestion.md) for polling behavior and playbook inputs.
+
+### ES ingest (optional)
+
+For ES findings instead of SOAR events, follow the separate [ES ingestion setup](ingestion.md#enterprise-security).
