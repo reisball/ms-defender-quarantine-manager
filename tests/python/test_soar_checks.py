@@ -136,7 +136,7 @@ def test_static_orchestration_reports_and_blocks_failures(
 
 
 def test_snapshot_uses_the_packaged_commit_for_documentation(source, tmp_path, monkeypatch):
-    files = ("README.md", "manual_readme_content.md", "release_notes/unreleased.md")
+    files = ("README.md", "release_notes/unreleased.md")
     settings = ("tools/soar-tooling/quality.toml", "tools/soar-tooling/quality-pre-commit.yaml")
     for relative in (*files, *settings):
         path = source / relative

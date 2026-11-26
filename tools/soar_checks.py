@@ -37,7 +37,7 @@ def source_snapshot(destination, *, extras=()):
                 with archive.extractfile(member) as source:
                     with target.open("xb") as output:
                         output.write(source.read())
-        docs = ("README.md", "manual_readme_content.md", "release_notes/unreleased.md")
+        docs = ("README.md", "release_notes/unreleased.md")
         for relative, projected in (tuple((path, path) for path in docs) + extras):
             target = destination / projected
             target.parent.mkdir(parents=True, exist_ok=True)
