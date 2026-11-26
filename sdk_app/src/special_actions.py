@@ -32,9 +32,7 @@ def register_special(
     meta.summary_type = summary_type
 
     @action_protocol
-    def handler(
-        params: Params | None = None, soar: SOARClient | None = None, *, asset=None
-    ) -> bool:
+    def handler(params: Params | None = None, soar: SOARClient | None = None, *, asset=None) -> bool:
         safe_params = {}
         try:
             validated = meta.parameters.model_validate({} if params is None else params)
@@ -45,20 +43,12 @@ def register_special(
                 # Asset validation may retain decrypted input in an exception.
                 # Do not inspect or attach it. Nothing has been dispatched yet.
                 result = (
-                    invalid_asset(validated)
-                    if invalid_asset is not None
-                    else ActionResult(
-                        False, "Invalid asset configuration.", safe_params
-                    )
+                    invalid_asset(validated) if invalid_asset is not None else ActionResult(False, "Invalid asset configuration.", safe_params)
                 )
             else:
-                result = execute(
-                    validated, app.soar_client if soar is None else soar, config
-                )
+                result = execute(validated, app.soar_client if soar is None else soar, config)
         except ValidationError:
-            result = ActionResult(
-                False, "Invalid action parameters or asset configuration.", safe_params
-            )
+            result = ActionResult(False, "Invalid action parameters or asset configuration.", safe_params)
         except ActionFailure as exc:
             result = ActionResult(False, exc.message, safe_params)
         except Exception:

@@ -30,8 +30,8 @@ from .ms_quarantine_for_splunk_soar_mail import (
     parse_artifact_asset_config,
 )
 from .ms_quarantine_for_splunk_soar_utils import AutomationError
-
 from .special_actions import register_special
+
 
 logger = getLogger()
 
@@ -88,9 +88,7 @@ class _IntakeStateBackend:
         self.manager.save_state_to_file(self.key, state)
 
     def poll_lock(self):
-        return _execution_lock(
-            "ingest", self.key, parent=Path(self.manager.get_state_dir())
-        )
+        return _execution_lock("ingest", self.key, parent=Path(self.manager.get_state_dir()))
 
 
 class _LinkedES:
@@ -109,14 +107,9 @@ class _LinkedES:
     def request(self, method: str, path: str, **kwargs) -> dict:
         if method == "GET":
             data = self.soar.get(path).json()
-        elif (
-            method == "POST"
-            and path == "/rest/enterprise_security/findings/bulk_create"
-        ):
+        elif method == "POST" and path == "/rest/enterprise_security/findings/bulk_create":
             body = kwargs["json"]
-            data = self.soar.create_findings_bulk(
-                body["findings"], body["container_ids"]
-            )
+            data = self.soar.create_findings_bulk(body["findings"], body["container_ids"])
         else:
             raise AutomationError("Unexpected SDK ES operation.")
         if not isinstance(data, dict):
@@ -149,12 +142,8 @@ class SDKIntake(NativeIngestionMixin, QuarantineMail):
         self.params = params
         self.config = asset.model_dump()
         self._utils = azure_factory(asset)
-        self._on_poll_max_containers = self._asset_integer(
-            "on_poll_max_containers", 10, 50
-        )
-        self._worker_terminal_retention_days = self._asset_integer(
-            "worker_terminal_retention_days", 30, 365
-        )
+        self._on_poll_max_containers = self._asset_integer("on_poll_max_containers", 10, 50)
+        self._worker_terminal_retention_days = self._asset_integer("worker_terminal_retention_days", 30, 365)
         self._asset_artifact_options = parse_artifact_asset_config(self.config)
         self._ingest_runtime = {"asset_id": self.get_asset_id()}
         self._client = _LinkedES(soar)
@@ -176,9 +165,7 @@ class SDKIntake(NativeIngestionMixin, QuarantineMail):
         settings = super()._ingest_settings()
         self._asset_label = settings.get("container_label")
         if not isinstance(self._asset_label, str) or not self._asset_label.strip():
-            raise AutomationError(
-                "A container label must be configured for native intake."
-            )
+            raise AutomationError("A container label must be configured for native intake.")
         return settings
 
     def _ingest_es_client(self):
@@ -188,10 +175,7 @@ class SDKIntake(NativeIngestionMixin, QuarantineMail):
         # This SDK namespace is for fresh assets. Never read a legacy ledger.
         if INGEST_STATE_KEY not in state:
             return {"scope": self._ingest_scope(), "records": {}, "version": 2}
-        if (
-            not isinstance(state[INGEST_STATE_KEY], dict)
-            or state[INGEST_STATE_KEY].get("version") != 2
-        ):
+        if not isinstance(state[INGEST_STATE_KEY], dict) or state[INGEST_STATE_KEY].get("version") != 2:
             raise AutomationError("Unexpected SDK intake state version.")
         return super()._ingest_load(state)
 
@@ -265,18 +249,10 @@ def _asset_id(soar: SOARClient) -> str:
 def register_polling(app: App, *, azure_factory=build_azure) -> None:
     def run(params, soar: SOARClient, asset: BaseAsset, *, es: bool) -> ActionResult:
         params_dict = params.model_dump()
-        if (
-            is_onprem_broker_install()
-            or not soar.client.headers.get("X-CSRFToken")
-            or not soar.client.cookies.get("sessionid")
-        ):
-            raise ActionFailure(
-                "Native SOAR session authentication is required for intake; Automation Broker is not supported."
-            )
+        if is_onprem_broker_install() or not soar.client.headers.get("X-CSRFToken") or not soar.client.cookies.get("sessionid"):
+            raise ActionFailure("Native SOAR session authentication is required for intake; Automation Broker is not supported.")
         if soar._get_es_finding_context() is not None:
-            raise ActionFailure(
-                "Direct ES ingestion does not support linked SOAR containers; use SOAR-proxied ES ingestion."
-            )
+            raise ActionFailure("Direct ES ingestion does not support linked SOAR containers; use SOAR-proxied ES ingestion.")
         asset_id = _asset_id(soar)
         result = _PollResult(params_dict, es=es)
         backend = _IntakeStateBackend(app.actions_manager, asset_id)

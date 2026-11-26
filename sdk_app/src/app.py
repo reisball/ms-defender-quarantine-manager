@@ -17,24 +17,12 @@ class Asset(BaseAsset):
         description="Connection: HTTPS webhook URL with token; no redirects",
         sensitive=True,
     )
-    azure_subscription_id: str = AssetField(
-        description="Connection: Azure subscription ID"
-    )
-    azure_resource_group: str = AssetField(
-        description="Connection: Azure resource group"
-    )
-    azure_automation_account: str = AssetField(
-        description="Connection: Azure Automation Account"
-    )
-    azure_tenant_id: str = AssetField(
-        description="Connection: Azure API tenant ID (not Exchange)"
-    )
-    azure_client_id: str = AssetField(
-        description="Connection: Azure API client ID (not Exchange)"
-    )
-    azure_client_secret: str = AssetField(
-        description="Connection: Azure API secret VALUE (not Exchange)", sensitive=True
-    )
+    azure_subscription_id: str = AssetField(description="Connection: Azure subscription ID")
+    azure_resource_group: str = AssetField(description="Connection: Azure resource group")
+    azure_automation_account: str = AssetField(description="Connection: Azure Automation Account")
+    azure_tenant_id: str = AssetField(description="Connection: Azure API tenant ID (not Exchange)")
+    azure_client_id: str = AssetField(description="Connection: Azure API client ID (not Exchange)")
+    azure_client_secret: str = AssetField(description="Connection: Azure API secret VALUE (not Exchange)", sensitive=True)
     exchange_organization: str | None = AssetField(
         description="Connection: Exchange domain (blank = variable)",
         default=None,
@@ -53,33 +41,15 @@ class Asset(BaseAsset):
         default="combined",
         value_list=["combined", "separate"],
     )
-    artifact_field_from: bool | None = AssetField(
-        description="Mail fields: From", default=True
-    )
-    artifact_field_to: bool | None = AssetField(
-        description="Mail fields: To", default=True
-    )
-    artifact_field_cc: bool | None = AssetField(
-        description="Mail fields: Cc", default=False
-    )
-    artifact_field_reply_to: bool | None = AssetField(
-        description="Mail fields: Reply-To", default=False
-    )
-    artifact_field_subject: bool | None = AssetField(
-        description="Mail fields: Subject", default=True
-    )
-    artifact_field_email_date: bool | None = AssetField(
-        description="Mail fields: email date", default=True
-    )
-    artifact_field_received_date: bool | None = AssetField(
-        description="Mail fields: received date", default=False
-    )
-    artifact_field_message_id: bool | None = AssetField(
-        description="Mail fields: Message-ID", default=True
-    )
-    artifact_field_quarantine_identity: bool | None = AssetField(
-        description="Mail fields: quarantine identity", default=False
-    )
+    artifact_field_from: bool | None = AssetField(description="Mail fields: From", default=True)
+    artifact_field_to: bool | None = AssetField(description="Mail fields: To", default=True)
+    artifact_field_cc: bool | None = AssetField(description="Mail fields: Cc", default=False)
+    artifact_field_reply_to: bool | None = AssetField(description="Mail fields: Reply-To", default=False)
+    artifact_field_subject: bool | None = AssetField(description="Mail fields: Subject", default=True)
+    artifact_field_email_date: bool | None = AssetField(description="Mail fields: email date", default=True)
+    artifact_field_received_date: bool | None = AssetField(description="Mail fields: received date", default=False)
+    artifact_field_message_id: bool | None = AssetField(description="Mail fields: Message-ID", default=True)
+    artifact_field_quarantine_identity: bool | None = AssetField(description="Mail fields: quarantine identity", default=False)
     poll_interval_seconds: float | None = AssetField(
         description="Advanced: Job status check (whole seconds, 1-60; default 5)",
         default=5.0,

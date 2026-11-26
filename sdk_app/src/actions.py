@@ -33,8 +33,8 @@ from .ms_quarantine_for_splunk_soar_utils import (
     WebhookError,
     parse_strict_integer,
 )
-
 from .special_actions import register_special
+
 
 logger = getLogger()
 _GUID = r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
@@ -122,9 +122,7 @@ class InspectReleaseEnvironmentOutput(ActionOutput):
     permission_queries_read_only: bool
     include_rbac: bool
     rbac_included: bool
-    rbac_diagnostics_status: str = OutputField(
-        example_values=["complete", "partial", "not_evaluated", "not_requested"]
-    )
+    rbac_diagnostics_status: str = OutputField(example_values=["complete", "partial", "not_evaluated", "not_requested"])
     rbac_diagnostics_reason: str
     rbac_empty_contracts: list[str]
     rbac_required_cmdlets: list[str]
@@ -163,30 +161,14 @@ class InspectReleaseEnvironmentOutput(ActionOutput):
 
 class ReleaseQuarantineMessageOutput(ActionOutput):
     status: str = OutputField(example_values=["released", "already_released"])
-    message: str = OutputField(
-        example_values=["Quarantine release confirmed by Exchange."]
-    )
-    identity: str = OutputField(
-        example_values=[
-            "c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"
-        ]
-    )
+    message: str = OutputField(example_values=["Quarantine release confirmed by Exchange."])
+    identity: str = OutputField(example_values=["c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"])
     action: str = OutputField(example_values=["release"])
     runbook_version: str = OutputField(example_values=["1.1.0"])
-    azure_job_id: str = OutputField(
-        example_values=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]
-    )
-    last_job_status: str = OutputField(
-        example_values=["Running", "Stopped", "Completed"]
-    )
-    observed_release_status: str = OutputField(
-        example_values=["Released", "PreparingToRelease"]
-    )
-    observed_identity: str = OutputField(
-        example_values=[
-            "c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"
-        ]
-    )
+    azure_job_id: str = OutputField(example_values=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"])
+    last_job_status: str = OutputField(example_values=["Running", "Stopped", "Completed"])
+    observed_release_status: str = OutputField(example_values=["Released", "PreparingToRelease"])
+    observed_identity: str = OutputField(example_values=["c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"])
     outcome: str
     error_code: str
     error: bool
@@ -195,30 +177,14 @@ class ReleaseQuarantineMessageOutput(ActionOutput):
 
 class DenyQuarantineReleaseOutput(ActionOutput):
     status: str = OutputField(example_values=["denied", "already_denied"])
-    message: str = OutputField(
-        example_values=["Quarantine deny confirmed by Exchange."]
-    )
-    identity: str = OutputField(
-        example_values=[
-            "c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"
-        ]
-    )
+    message: str = OutputField(example_values=["Quarantine deny confirmed by Exchange."])
+    identity: str = OutputField(example_values=["c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"])
     action: str = OutputField(example_values=["deny"])
     runbook_version: str = OutputField(example_values=["1.1.0"])
-    azure_job_id: str = OutputField(
-        example_values=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]
-    )
-    last_job_status: str = OutputField(
-        example_values=["Running", "Stopped", "Completed"]
-    )
-    observed_release_status: str = OutputField(
-        example_values=["Denied", "PreparingToRelease"]
-    )
-    observed_identity: str = OutputField(
-        example_values=[
-            "c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"
-        ]
-    )
+    azure_job_id: str = OutputField(example_values=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"])
+    last_job_status: str = OutputField(example_values=["Running", "Stopped", "Completed"])
+    observed_release_status: str = OutputField(example_values=["Denied", "PreparingToRelease"])
+    observed_identity: str = OutputField(example_values=["c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7"])
     outcome: str
     error_code: str
     error: bool
@@ -266,7 +232,7 @@ def build_azure(asset: BaseAsset) -> MSQuarantineForSplunkSOARUtils:
         "webhook_url": "webhook_url",
         "tenant_id": "azure_tenant_id",
         "client_id": "azure_client_id",
-        "client_secret": "azure_client_secret",
+        "client_secret": "azure_client_secret",  # pragma: allowlist secret -- asset field name, not a value
         "subscription_id": "azure_subscription_id",
         "resource_group": "azure_resource_group",
         "automation_account": "azure_automation_account",
@@ -283,17 +249,11 @@ def build_azure(asset: BaseAsset) -> MSQuarantineForSplunkSOARUtils:
         if value is None:
             return default
         try:
-            value = (
-                int(value)
-                if isinstance(value, float) and value.is_integer()
-                else parse_strict_integer(value)
-            )
+            value = int(value) if isinstance(value, float) and value.is_integer() else parse_strict_integer(value)
         except ValueError:
             raise AssetMisconfiguration(f"'{field}' must be a whole number.") from None
         if not lower <= value <= upper:
-            raise AssetMisconfiguration(
-                f"'{field}' must be between {lower} and {upper}."
-            )
+            raise AssetMisconfiguration(f"'{field}' must be between {lower} and {upper}.")
         return value
 
     try:
@@ -325,48 +285,30 @@ def _validate_list(output: dict) -> None:
     messages = output.get("messages")
     if isinstance(messages, dict):
         messages = [messages]
-    if not isinstance(messages, list) or any(
-        not isinstance(item, dict) for item in messages
-    ):
-        raise AutomationError(
-            "Runbook protocol error: 'messages' must contain JSON objects."
-        )
+    if not isinstance(messages, list) or any(not isinstance(item, dict) for item in messages):
+        raise AutomationError("Runbook protocol error: 'messages' must contain JSON objects.")
     count = output.get("count")
     if count is not None:
         try:
             count = parse_strict_integer(count)
         except ValueError as exc:
-            raise AutomationError(
-                "Runbook protocol error: 'count' must be an integer."
-            ) from exc
+            raise AutomationError("Runbook protocol error: 'count' must be an integer.") from exc
         if not isinstance(output["messages"], dict) and count != len(messages):
-            raise AutomationError(
-                "Runbook protocol error: 'count' does not match the 'messages' array length."
-            )
+            raise AutomationError("Runbook protocol error: 'count' does not match the 'messages' array length.")
     for item in messages:
         identity = item.get("Identity")
         if not isinstance(identity, str) or not _IDENTITY.fullmatch(identity):
-            raise AutomationError(
-                r"Runbook protocol error: list Identity must be an exact GUID1\GUID2."
-            )
+            raise AutomationError(r"Runbook protocol error: list Identity must be an exact GUID1\GUID2.")
         recipients = item.get("RecipientAddress")
         if recipients is None or isinstance(recipients, str):
             continue
-        if not isinstance(recipients, list) or not all(
-            value is None or isinstance(value, str) for value in recipients
-        ):
-            raise AutomationError(
-                "Runbook protocol error: RecipientAddress must be a string, an array of strings, or null."
-            )
+        if not isinstance(recipients, list) or not all(value is None or isinstance(value, str) for value in recipients):
+            raise AutomationError("Runbook protocol error: RecipientAddress must be a string, an array of strings, or null.")
 
 
-def _map_error(
-    azure: MSQuarantineForSplunkSOARUtils, exc: AutomationError, label: str
-) -> str:
+def _map_error(azure: MSQuarantineForSplunkSOARUtils, exc: AutomationError, label: str) -> str:
     if isinstance(exc, RunbookActionError):
-        message = azure.redact_sensitive_text(
-            exc.result.get("message") or str(exc), max_chars=None
-        )
+        message = azure.redact_sensitive_text(exc.result.get("message") or str(exc), max_chars=None)
     else:
         error = azure.redact_sensitive_text(exc)
         if isinstance(exc, TokenError):
@@ -426,13 +368,9 @@ def _inspect_summary(data: dict) -> dict:
             "rbac_diagnostics_reason",
         )
     }
-    summary["cmdlet_proxy_diagnostics_status"] = data.get(
-        "cmdlet_proxy_diagnostics_status", "not_available"
-    )
+    summary["cmdlet_proxy_diagnostics_status"] = data.get("cmdlet_proxy_diagnostics_status", "not_available")
     summary["missing_cmdlets"] = (
-        [x for x in (data.get("missing_cmdlets") or []) if isinstance(x, str)]
-        if isinstance(data.get("missing_cmdlets"), list)
-        else []
+        [x for x in (data.get("missing_cmdlets") or []) if isinstance(x, str)] if isinstance(data.get("missing_cmdlets"), list) else []
     )
     for name in (
         "missing_cmdlet_count",
@@ -444,9 +382,7 @@ def _inspect_summary(data: dict) -> dict:
     ):
         count = data.get(
             name,
-            summary.get("permission_query_error_count", 0)
-            if name == "permission_query_error_retained_count"
-            else 0,
+            summary.get("permission_query_error_count", 0) if name == "permission_query_error_retained_count" else 0,
         )
         try:
             summary[name] = parse_strict_integer(count or 0)
@@ -470,9 +406,7 @@ def _inspect_summary(data: dict) -> dict:
     return summary
 
 
-def _inspect(
-    params: InspectReleaseEnvironmentParams, asset: BaseAsset, azure_factory: Callable
-) -> ActionResult:
+def _inspect(params: InspectReleaseEnvironmentParams, asset: BaseAsset, azure_factory: Callable) -> ActionResult:
     try:
         identity = _identity(params.identity)
         azure = azure_factory(asset)
@@ -480,19 +414,13 @@ def _inspect(
         return _result(False, str(exc), params)
 
     include_rbac = params.include_rbac is True
-    logger.progress(
-        f"Starting read-only Azure Automation diagnosis (include_rbac={include_rbac})."
-    )
+    logger.progress(f"Starting read-only Azure Automation diagnosis (include_rbac={include_rbac}).")
     try:
-        output = azure.run_action(
-            "diagnose", identity=identity, include_rbac=include_rbac
-        )
+        output = azure.run_action("diagnose", identity=identity, include_rbac=include_rbac)
     except RunbookActionError as exc:
         code = exc.result.get("error_code")
         if not isinstance(code, str) or code not in _DIAGNOSTIC_ERRORS:
-            return _result(
-                False, _map_error(azure, exc, "inspect release environment"), params
-            )
+            return _result(False, _map_error(azure, exc, "inspect release environment"), params)
         output = exc.result.get("details")
         data = _redact_data(azure, output) if isinstance(output, dict) else {}
         data.update(
@@ -500,9 +428,7 @@ def _inspect(
             runbook_version=_redact_data(azure, exc.result.get("runbook_version", "")),
         )
         summary = _inspect_summary(data)
-        summary.update(
-            status=data.get("status", "inspection_failed"), handling="read_only"
-        )
+        summary.update(status=data.get("status", "inspection_failed"), handling="read_only")
         return _result(
             False,
             _map_error(azure, exc, "inspect release environment"),
@@ -511,9 +437,7 @@ def _inspect(
             summary,
         )
     except AutomationError as exc:
-        return _result(
-            False, _map_error(azure, exc, "inspect release environment"), params
-        )
+        return _result(False, _map_error(azure, exc, "inspect release environment"), params)
 
     data = _redact_data(azure, output)
     summary = _inspect_summary(data)
@@ -525,9 +449,7 @@ def _inspect(
 
 
 @contextmanager
-def _execution_lock(
-    namespace: str, resource: str, *, parent: Path | None = None
-) -> Iterator[None]:
+def _execution_lock(namespace: str, resource: str, *, parent: Path | None = None) -> Iterator[None]:
     """Use a private process-held lock on the shared local execution host."""
     uid = os.geteuid()
     root = Path(gettempdir()) if parent is None else parent
@@ -542,11 +464,7 @@ def _execution_lock(
         fd = os.open(key, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
         try:
             info = os.fstat(fd)
-            if (
-                not stat.S_ISREG(info.st_mode)
-                or info.st_uid != uid
-                or info.st_mode & 0o077
-            ):
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_mode & 0o077:
                 raise PermissionError("Execution lock file is not private.")
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             yield
@@ -591,13 +509,7 @@ def _disposition_failure(
         "azure_job_id": job_id,
         "last_job_status": last_status,
     }
-    summary.update(
-        {
-            key: data[key]
-            for key in ("runbook_version", "observed_release_status")
-            if data.get(key)
-        }
-    )
+    summary.update({key: data[key] for key in ("runbook_version", "observed_release_status") if data.get(key)})
     return _result(False, message, params, data, summary)
 
 
@@ -635,12 +547,8 @@ def _run_disposition(
             azure.redact_sensitive_text(code),
             message,
             data=_redact_data(azure, raw_data),
-            job_id=azure.redact_sensitive_text(
-                job_id or getattr(exc, "job_id", "") or ""
-            ),
-            last_status=azure.redact_sensitive_text(
-                getattr(exc, "last_status", "") or ""
-            ),
+            job_id=azure.redact_sensitive_text(job_id or getattr(exc, "job_id", "") or ""),
+            last_status=azure.redact_sensitive_text(getattr(exc, "last_status", "") or ""),
         )
 
     data = _redact_data(azure, dict(output, azure_job_id=job_id, outcome="confirmed"))
@@ -656,15 +564,11 @@ def _run_disposition(
     return _result(True, message, params, data, summary)
 
 
-def _dispose(
-    params: DispositionParams, asset: BaseAsset, action: str, azure_factory: Callable
-) -> ActionResult:
+def _dispose(params: DispositionParams, asset: BaseAsset, action: str, azure_factory: Callable) -> ActionResult:
     try:
         identity = _identity(params.identity)
     except ValueError as exc:
-        return _disposition_failure(
-            params, action, "", "not_executed", "invalid_identity", str(exc)
-        )
+        return _disposition_failure(params, action, "", "not_executed", "invalid_identity", str(exc))
     raw_tenant = getattr(asset, "azure_tenant_id", "")
     tenant = raw_tenant.strip().lower() if isinstance(raw_tenant, str) else ""
     if not re.fullmatch(_GUID, tenant):
@@ -712,9 +616,7 @@ def _dispose(
         return _run_disposition(params, action, identity, azure)
 
 
-def register_actions(
-    app: App, *, app_version: str, azure_factory: Callable = build_azure
-) -> None:
+def register_actions(app: App, *, app_version: str, azure_factory: Callable = build_azure) -> None:
     """Register the four SDK actions on the app's existing App instance."""
 
     def test_connectivity(_params: Params, _soar, asset: BaseAsset) -> ActionResult:
@@ -722,9 +624,7 @@ def register_actions(
         try:
             logger.progress("Step 1/3: Acquiring Azure AD Management API token.")
             azure.get_mgmt_token()
-            logger.progress(
-                "Step 2/3: Starting protected list and waiting for completion."
-            )
+            logger.progress("Step 2/3: Starting protected list and waiting for completion.")
             output = azure.run_action("list", validate_result=_validate_list)
         except AutomationError as exc:
             raise ActionFailure(_map_error(azure, exc, "test connectivity")) from None
@@ -741,9 +641,7 @@ def register_actions(
 
         message = "Connectivity test passed."
         if not {"app_version", "runbook_version"} <= evidence.keys():
-            evidence["version_warning"] = (
-                "App/runbook version comparison unavailable; verify the installed pair against the release package."
-            )
+            evidence["version_warning"] = "App/runbook version comparison unavailable; verify the installed pair against the release package."
         elif app_version != version:
             evidence["version_warning"] = (
                 f"App version {app_version} differs from runbook version {version}. "
@@ -798,9 +696,7 @@ def register_actions(
                 output=output,
             ),
             DispositionSummary,
-            lambda params, _soar, asset: _dispose(
-                params, asset, operation, azure_factory
-            ),
+            lambda params, _soar, asset: _dispose(params, asset, operation, azure_factory),
             invalid_asset=lambda params: _disposition_failure(
                 params,
                 operation,

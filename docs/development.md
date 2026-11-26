@@ -35,73 +35,14 @@ script does not replace the sequence.
 
 The MIME parser overrides CPython's private `BytesFeedParser._new_message` hook and reads `_msgstack` to enforce the node and depth limits before allocation. Re-run `tools/check_mime_parser_compat.py` and the MIME tests when adding a Python runtime.
 
-## Legacy reference checks and SDK submission
+## SDK release quality checks
 
-The retained legacy-only upstream hooks expect a flat classic connector at
-the checkout root. CI still runs them against a separately built historical
-reference projection via `tools/build_legacy_reference.sh`. They are not the
-release pipeline, do not validate the SDK package for upstream submission,
-and do not imply support for a classic installation or upgrade. SDK release
-checks instead exercise the locked SDK tests and validate its generated
-manifest and wheel archive. Upstream SDK submission and SOAR installation
-remain separate validation steps.
-
-Run the checks from a committed checkout. Both tooling environments use
-Python 3.13, separately from the app runtime and from each other: the app linter
-requires Pydantic 1; the static/doc hooks use a SOAR SDK requiring Pydantic 2.
-
-```bash
-(
-    set -e
-    # Use uv 0.13.10 and pre-commit 4.5.1, as in CI.
-    tooling=$(mktemp -d /tmp/msqsoar-tools.XXXXXX)
-    for tool in hooks lint; do
-        uv venv --python 3.13 "$tooling/$tool"
-        uv pip sync --python "$tooling/$tool/bin/python" \
-            --build-constraints tools/soar-tooling/build-constraints.txt \
-            "tools/soar-tooling/$tool.txt"
-    done
-    python tools/soar_checks.py quality
-    (
-        export PATH="$tooling/hooks/bin:$PATH"
-        python tools/soar_checks.py copyright
-        SOAR_CHECK_REPORT="$tooling/static.json" python tools/soar_checks.py static
-        python tools/soar_checks.py docs
-        python tools/soar_checks.py notes
-    )
-    (PATH="$tooling/lint/bin:$PATH" python tools/soar_checks.py lint)
-    python3 tools/render_notice.py --check
-)
-```
-
-The lock inputs pin upstream Git commits, and the corresponding `.txt` files
-pin the resolved Python 3.13 dependencies. The build constraints also pin
-the isolated build dependencies of the Git-based tools. When updating tools, regenerate with
-`uv pip compile --python-version 3.13 --build-constraints tools/soar-tooling/build-constraints.txt tools/soar-tooling/<tool>.in -o tools/soar-tooling/<tool>.txt`,
-then test both environments independently.
-
-The pinned legacy quality hooks run on the historical reference and its submission Markdown,
-not against the release builder or the separate Azure runbook. They check Ruff
-lint/formatting, JSON/YAML, HTML lint, the manual Markdown fragment, Semgrep's
-live Python registry rules, merge markers and secrets. The hook revisions and
-quality settings are taken from the selected source commit; Semgrep's remote
-`p/python` rule content can change independently of its executable. The
-template's Conventional Commits hook is a commit-message hook, not a gate on
-GitHub's generated merge commit. The maintained README keeps its GitHub tables;
-the upstream Markdown formatter without GFM would turn them into prose.
-The docs hook generates an upstream README in scratch space, not over this
-repository's maintained README. HTML is linted but not reformatted by the hook:
-`tools/render_readme.py` owns its exact bytes. The copyright audit runs on a
-copy with the actual owner as an explicit argument; it is a manual
-submission check because the upstream updater uses the calendar year.
-Do not run the unmodified legacy template's dependency/NOTICE generation on
-this layout: it assumes a root `requirements.txt` and would replace the NOTICE
-for the bundled wheels. The linter checks errors and uses a disposable
-app copy seeded with the pinned tooling and the exact bundled Python 3.13
-wheels; upstream dependency checks stay enabled. The static report retains raw
-results; upstream reads the live registries when available and can fall back
-to bundled snapshots. `static-strict` additionally fails if registration is
-pending. A non-strict pass is not upstream acceptance or native SOAR validation.
+CI runs the pinned pre-commit quality hooks against the generated SDK archive,
+excluding third-party wheels (whose inventory, attribution and hashes are
+verified by the build). Run the same hooks locally with pre-commit 4.5.1 and
+`python tools/soar_checks.py sdk-quality path/to/package.tgz`.
+The legacy reference tooling remains manual and does not gate SDK releases.
+Splunk-hosted integration and registration checks are not covered by this CI.
 
 The SDK release NOTICE includes separate reviewed Rust attribution for the
 Linux cryptography and pydantic-core wheel pairs, including their exact wheel

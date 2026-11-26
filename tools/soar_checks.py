@@ -59,6 +59,37 @@ def quality():
         return subprocess.call(["pre-commit", "run", "--all-files", "--show-diff-on-failure"], cwd=snapshot)
 
 
+def sdk_quality(package):
+    """Run the pinned quality hooks on the shipped SDK source and metadata."""
+    with tempfile.TemporaryDirectory(prefix="msdq-sdk-quality-") as temporary:
+        snapshot = Path(temporary)
+        with tarfile.open(package) as archive:
+            for member in archive.getmembers():
+                parts = Path(member.name).parts
+                if not parts or parts[0] != "MS Defender Quarantine Manager" or ".." in parts:
+                    raise ValueError(f"Unexpected SDK archive path: {member.name}")
+                relative = parts[1:]
+                if not relative or relative[0] == "wheels" or member.isdir():
+                    continue
+                if not member.isfile():
+                    raise ValueError(f"Unexpected SDK archive member: {member.name}")
+                target = snapshot.joinpath(*relative)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with archive.extractfile(member) as source, target.open("xb") as output:
+                    output.write(source.read())
+        (snapshot / "pyproject.toml").write_bytes(
+            (ROOT / "tools/soar-tooling/sdk-quality.toml").read_bytes()
+        )
+        (snapshot / ".pre-commit-config.yaml").write_bytes(
+            (ROOT / "tools/soar-tooling/quality-pre-commit.yaml").read_bytes()
+        )
+        subprocess.run(["git", "init", "-q"], cwd=snapshot, check=True)
+        subprocess.run(["git", "add", "--all"], cwd=snapshot, check=True)
+        return subprocess.call(
+            ["pre-commit", "run", "--all-files", "--show-diff-on-failure"], cwd=snapshot
+        )
+
+
 def copyright_audit():
     """Report changes suggested by the time-dependent vendor copyright hook."""
     with tempfile.TemporaryDirectory(prefix="msqsoar-copyright-", dir="/tmp") as temporary:
@@ -202,8 +233,15 @@ def static(strict=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("check", choices=["quality", "copyright", "lint", "docs", "notes", "static", "static-strict"])
+    parser.add_argument("check", choices=["sdk-quality", "quality", "copyright", "lint", "docs", "notes", "static", "static-strict"])
+    parser.add_argument("package", type=Path, nargs="?")
     args = parser.parse_args()
+    if args.check == "sdk-quality":
+        if args.package is None:
+            parser.error("sdk-quality requires an SDK package")
+        return sdk_quality(args.package)
+    if args.package is not None:
+        parser.error("package is only supported for sdk-quality")
     return {"quality": quality, "copyright": copyright_audit, "lint": lint, "docs": docs, "notes": release_notes, "static": static, "static-strict": lambda: static(strict=True)}[args.check]()
 
 

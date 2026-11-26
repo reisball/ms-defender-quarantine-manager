@@ -4,6 +4,7 @@
 """Stage the SDK project and shared transport/intake modules."""
 
 import argparse
+import json
 import subprocess
 import tomllib
 from pathlib import Path
@@ -104,7 +105,7 @@ def stage(destination: Path, commit: str | None) -> None:
         (destination / "pyproject.toml").read_text(encoding="utf-8")
     )
     with (destination / "src/version.py").open("x", encoding="utf-8") as stream:
-        stream.write(f"APP_VERSION = {project['project']['version']!r}\n")
+        stream.write(f"APP_VERSION = {json.dumps(project['project']['version'])}\n")
 
 
 def main() -> None:
