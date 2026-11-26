@@ -59,16 +59,3 @@ Import it through **Playbooks → Import Playbook** into a writable repository. 
 6. Open every block in the VPE, save and reopen. Then run the tests below with controlled messages before activating.
 
 The threshold of 30 is an example, not a recommended security policy.
-
-## Verification status
-
-| Check | Status |
-|---|---|
-| Native server-side validation of the JSON/Python pair | Passed (SOAR 8.8.0.282, SAA connector 2.2.6) |
-| Visual Playbook Editor | Passed on a locally mapped copy: all 13 blocks opened without datapath warnings; timeout, thresholds, Prompt and status settings were edited, saved, reopened and restored |
-| Runtime execution (SAA, Azure, Exchange actions) | **Not performed** |
-| End-to-end compatibility with the app/runbook | **Not verified** ([compatibility](../../docs/compatibility.md)) |
-
-The editor check used a pre-release source build (`1832021`), not a live test of the 1.0.0 packages. The repository copy replaces local assets and approvers with the placeholders above.
-
-Before activation, test at least the following: scores 0, 29, 30 and 100; a missing or invalid score; submission and analysis failures; Prompt Yes, No, timeout and failure; failed Release/Deny; and successful Release/Deny followed by closure.
