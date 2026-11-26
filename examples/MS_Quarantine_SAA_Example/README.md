@@ -2,7 +2,7 @@
 
 [Back to README](../../README.md)
 
-An inactive SOAR playbook template that analyzes each imported email with Splunk Attack Analyzer (SAA) and then releases or denies it using the MS Quarantine actions. It consists of 13 native Visual Playbook Editor (VPE) blocks, with no custom code and no notification integration.
+An inactive SOAR playbook template that analyzes each imported email with Splunk Attack Analyzer (SAA) and then releases or denies it using the MS Defender Quarantine Manager actions. It consists of 13 native Visual Playbook Editor (VPE) blocks, with no custom code and no notification integration.
 
 ## Flow
 

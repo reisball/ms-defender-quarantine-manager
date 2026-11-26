@@ -1,7 +1,7 @@
 # Copyright 2026 Kai Seidenschnur
 # Licensed under the Apache License, Version 2.0.
 #
-# MS Quarantine for Splunk SOAR - Splunk SOAR Connector (Azure Automation)
+# MS Defender Quarantine Manager - Splunk SOAR Connector (Azure Automation)
 # ================================================================
 #
 # Manages Microsoft Defender quarantined emails via Azure Automation.
@@ -1295,7 +1295,7 @@ class MSQuarantineForSplunkSOARConnector(NativeIngestionMixin, BaseConnector):
         name = subject or "[No subject]"
         return {
             "name": name,
-            "description": (f"{self._utils.selection_release_status} quarantine message ingested by MS Quarantine for Splunk SOAR."),
+            "description": (f"{self._utils.selection_release_status} quarantine message ingested by MS Defender Quarantine Manager."),
             "source_data_identifier": source_id,
             "severity": "medium",
             "data": {

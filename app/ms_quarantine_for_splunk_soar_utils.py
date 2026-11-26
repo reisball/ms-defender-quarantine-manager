@@ -1,7 +1,7 @@
 # Copyright 2026 Kai Seidenschnur
 # Licensed under the Apache License, Version 2.0.
 #
-# MS Quarantine for Splunk SOAR - Azure Automation Utils
+# MS Defender Quarantine Manager - Azure Automation Utils
 # ===============================================
 # Handles all HTTP communication:
 #   - Azure AD token acquisition (client credentials)

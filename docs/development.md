@@ -135,8 +135,8 @@ The builder checks generated help and verifies that every staged runtime byte co
 
 | Artifact | Contents |
 |---|---|
-| `ms-quarantine-for-splunk-soar-<version>.tgz` | One `ms-quarantine-for-splunk-soar/` directory with runtime modules, the manifest, icons, `readme.html`, `LICENSE`, `NOTICE` and the six pinned runtime wheels |
-| `ms-quarantine-for-splunk-soar-runbook-<version>.ps1` | Stamped `runbook/runbook.ps1` |
+| `ms-defender-quarantine-manager-<version>.tgz` | One `ms-quarantine-for-splunk-soar/` directory with runtime modules, the manifest, icons, `readme.html`, `LICENSE`, `NOTICE` and the six pinned runtime wheels |
+| `ms-defender-quarantine-manager-runbook-<version>.ps1` | Stamped `runbook/runbook.ps1` |
 
 Tests, Markdown, the runbook and example playbooks are not in the app archive. The SAA example is packaged separately as described in [its README](../examples/MS_Quarantine_SAA_Example/README.md#import-and-configure).
 

@@ -13,6 +13,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 APP = "ms-quarantine-for-splunk-soar"
+RELEASE_NAME = "ms-defender-quarantine-manager"
 WHEEL_LOCK = "tools/wheel-lock.json"
 WHEEL_INPUTS = json.loads((ROOT / WHEEL_LOCK).read_text())["wheels"]
 WHEEL_DIRS = {"wheels", "wheels/py3", "wheels/py39", "wheels/py313"}
@@ -369,9 +370,9 @@ def test_version_bump_syncs_both_artifacts_and_rejects_split_versions(source, tm
     assert_success(build(source, output))
     metadata = json.loads((output / "BUILD_METADATA.json").read_text())
     assert metadata["app_version"] == metadata["runbook_version"] == version
-    runbook_file = output / f"{APP}-runbook-{version}.ps1"
+    runbook_file = output / f"{RELEASE_NAME}-runbook-{version}.ps1"
     assert runbook_file.read_bytes() == synced_runbook
-    with tarfile.open(output / f"{APP}-{version}.tgz") as archive:
+    with tarfile.open(output / f"{RELEASE_NAME}-{version}.tgz") as archive:
         shipped = json.load(archive.extractfile(f"{APP}/ms_quarantine_for_splunk_soar.json"))
         assert shipped["app_version"] == version
         help_text = archive.extractfile(f"{APP}/readme.html").read().decode()

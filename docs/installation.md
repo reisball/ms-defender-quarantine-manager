@@ -33,7 +33,7 @@ Check the [compatibility matrix](compatibility.md) before upgrading.
 
 1. Create an Automation Account and enable its system-assigned Managed Identity.
 2. Add ExchangeOnlineManagement to the account's PowerShell runtime.
-3. Import and publish `ms-quarantine-for-splunk-soar-runbook-<version>.ps1`.
+3. Import and publish `ms-defender-quarantine-manager-runbook-<version>.ps1`.
 4. Create a webhook for the runbook and copy its URL. Azure shows it only once.
 5. Optionally, set the `ExchangeOrganization` Automation Variable to your tenant domain, such as `contoso.onmicrosoft.com`. A value in the SOAR asset takes precedence.
 
@@ -71,7 +71,7 @@ Microsoft references: [Automation RBAC operations](https://learn.microsoft.com/e
 
 ## 4. Install the app and create an asset
 
-Install `ms-quarantine-for-splunk-soar-<version>.tgz` in SOAR app management and create an asset. The Linux x86-64 package includes the app-local cryptography dependencies for both declared Python runtimes; do not install anything into the SOAR host interpreter.
+Install `ms-defender-quarantine-manager-<version>.tgz` in SOAR app management and create an asset. The Linux x86-64 package includes the app-local cryptography dependencies for both declared Python runtimes; do not install anything into the SOAR host interpreter.
 
 This app has its own app UUID (`2e21b2c5-a6a6-4fb4-8df7-9dd1135ab08e`). Assets and state of an earlier, differently identified app (such as MS Quarantine Manager) are not migrated. When moving a tenant to this app, pause the old intake first and never run two ingesting assets for the same tenant.
 

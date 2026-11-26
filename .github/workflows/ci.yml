@@ -471,7 +471,7 @@ jobs:
           (umask 077; LC_ALL=C.utf8 tools/build_release.sh "$build_two")
           diff -qr "$build_one" "$build_two"
           app_version=$(python -c 'import json; print(json.load(open("app/ms_quarantine_for_splunk_soar.json"))["app_version"])')
-          tar -xzf "$build_one/ms-quarantine-for-splunk-soar-${app_version}.tgz" \
+          tar -xzf "$build_one/ms-defender-quarantine-manager-${app_version}.tgz" \
             -C "$package_check"
           python -m compileall -q \
             "$package_check/ms-quarantine-for-splunk-soar/ms_quarantine_for_splunk_soar_connector.py" \
@@ -485,7 +485,7 @@ jobs:
         if: matrix.python-version == '3.13'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ms-quarantine-for-splunk-soar-release
+          name: ms-defender-quarantine-manager-release
           path: release-artifacts/
 
   soar-quality:

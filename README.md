@@ -10,8 +10,8 @@ This is a community-maintained connector, not a Splunk or Microsoft support offe
 
 | Component | Where it runs |
 |---|---|
-| SOAR app (`ms-quarantine-for-splunk-soar-<version>.tgz`) | Splunk SOAR (native execution, 8.5.0 or later) |
-| Runbook (`ms-quarantine-for-splunk-soar-runbook-<version>.ps1`) | Azure Automation, deployed separately; installing the app does not update Azure |
+| SOAR app (`ms-defender-quarantine-manager-<version>.tgz`) | Splunk SOAR (native execution, 8.5.0 or later) |
+| Runbook (`ms-defender-quarantine-manager-runbook-<version>.ps1`) | Azure Automation, deployed separately; installing the app does not update Azure |
 | [Native SAA example playbook](examples/MS_Quarantine_SAA_Example/README.md) (optional) | Splunk SOAR, imported separately |
 
 App and runbook share one version. Deploy them as a matching pair; see the [compatibility matrix](docs/compatibility.md).

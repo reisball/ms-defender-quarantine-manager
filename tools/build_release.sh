@@ -4,6 +4,7 @@ set -euo pipefail
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 output_dir=${1:-"${repo_dir}/dist"}
 app_dir_name="ms-quarantine-for-splunk-soar"
+release_name="ms-defender-quarantine-manager"
 python3 "${repo_dir}/tools/render_readme.py" --check
 cd "${repo_dir}"
 
@@ -114,7 +115,7 @@ runbook_version=$(python3 tools/stamp_runbook.py --check --manifest "${manifest}
 find "${build_tmp}/${app_dir_name}" -type d -exec chmod 0755 {} +
 find "${build_tmp}/${app_dir_name}" -type f -exec chmod 0644 {} +
 
-app_artifact="${build_tmp}/release/${app_dir_name}-${app_version}.tgz"
+app_artifact="${build_tmp}/release/${release_name}-${app_version}.tgz"
 tar --sort=name \
     --owner=0 --group=0 --numeric-owner \
     --mtime="@${source_epoch}" \
@@ -143,7 +144,7 @@ if [[ "${actual_members}" != "${expected_members}" ]]; then
     exit 1
 fi
 
-runbook_artifact="${build_tmp}/release/ms-quarantine-for-splunk-soar-runbook-${runbook_version}.ps1"
+runbook_artifact="${build_tmp}/release/${release_name}-runbook-${runbook_version}.ps1"
 mv "${build_tmp}/runbook.ps1" "${runbook_artifact}"
 
 jq -n \
