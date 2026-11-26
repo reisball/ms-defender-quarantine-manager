@@ -133,7 +133,7 @@ Tests, repository-only documentation, the runbook and example playbooks are not 
 4. Build twice, compare checksums and check the archive contents.
 5. Review the user documentation against the exact release candidate before publishing.
 
-Offline tests and a clean build do not prove that a live SOAR, Azure or Exchange deployment works. That requires the [deployment checklist](validation.md) on the exact pair.
+Offline tests and a clean build do not prove that a live SOAR, Azure or Exchange deployment works. Use the [installation guide](installation.md#7-create-and-test-the-soar-asset) to check connectivity on the exact pair.
 
 ## Pending: Azure sandbox size validation
 

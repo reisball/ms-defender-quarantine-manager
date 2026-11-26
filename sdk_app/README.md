@@ -6,7 +6,7 @@ When a recipient requests release of a quarantined email, this app imports the m
 
 Use Splunk SOAR 8.7 or later with Python 3.13. Publish the matching [Azure Automation runbook](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#5-publish-the-runbook-and-create-the-webhook) before configuring the asset.
 
-The Automation Account’s **managed identity** connects to Exchange Online and needs [quarantine permissions](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#2-grant-exchange-permissions). The separate **Entra app registration** configured below only [reads Azure job status and output](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#3-reuse-or-create-an-azure-job-reader-role). The webhook starts the runbook.
+The Automation Account’s **managed identity** connects to Exchange Online and needs [quarantine permissions](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#2-grant-exchange-permissions). The separate **Entra app registration** configured below only [reads Azure job status and output](https://github.com/reisball/ms-defender-quarantine-manager/blob/main/docs/installation.md#3-create-an-azure-job-reader-role). The webhook starts the runbook.
 
 | Asset field | What to enter |
 |---|---|

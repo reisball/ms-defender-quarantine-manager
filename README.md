@@ -36,7 +36,7 @@ permissions and [Operation](docs/operations.md) for how outcomes are confirmed.
 
 1. [Install](docs/installation.md): set up the Azure Automation Account and Exchange permissions, publish the runbook, then install the app and create one asset per tenant.
 2. Start with a small active-message limit and run **test connectivity**.
-3. Work through the [deployment checklist](docs/validation.md) with controlled test messages.
+3. Run [Test Connectivity](docs/installation.md#7-create-and-test-the-soar-asset) before enabling ingestion.
 4. Optionally connect an analysis playbook such as the [SAA example](examples/MS_Quarantine_SAA_Example/README.md).
 
 ## Documentation
@@ -48,7 +48,6 @@ permissions and [Operation](docs/operations.md) for how outcomes are confirmed.
 | Intake, playbook input data, ES, limits and retries | [Email import](docs/ingestion.md) |
 | Release, Deny and timeouts | [Operation](docs/operations.md) |
 | Errors and diagnostics | [Troubleshooting](docs/troubleshooting.md) |
-| Acceptance testing | [Deployment checklist](docs/validation.md) |
 | Identities, TLS and quarantined content | [Security](docs/security.md) |
 | Building, testing and releasing | [Development and release](docs/development.md) |
 

@@ -4,7 +4,7 @@
 
 ## Identities and credentials
 
-The asset's App Registration is a [read-only Azure job reader](installation.md#3-reuse-or-create-an-azure-job-reader-role). The separate bearer webhook starts jobs; keep it separate from the App Registration's permissions. The Automation Account's Managed Identity connects to Exchange and needs the quarantine permissions. A successful job read does not prove Exchange authorization. Exchange sign-in is Managed Identity only; passwords and client secrets are not accepted for Exchange.
+The asset's App Registration is a [read-only Azure job reader](installation.md#3-create-an-azure-job-reader-role). The separate bearer webhook starts jobs; keep it separate from the App Registration's permissions. The Automation Account's Managed Identity connects to Exchange and needs the quarantine permissions. A successful job read does not prove Exchange authorization. Exchange sign-in is Managed Identity only; passwords and client secrets are not accepted for Exchange.
 
 Keep credentials and the token-bearing webhook URL in the protected asset and Automation settings. Never put them in playbooks, logs, issues or Git.
 
@@ -20,7 +20,7 @@ List and export encrypt mail-bearing job records before writing them. SOAR creat
 
 This protects against readers of stored job output, not operators who can change the runbook or compromise either endpoint. Azure still sees job timing, sizes/count of encrypted records, and request metadata (action, organization, and the quarantine identity for an export). Reconcile and disposition can still report identities, statuses and bounded errors. Existing plaintext output from older jobs is not retroactively protected.
 
-Check effective Azure access at the account, resource-group and subscription scopes, including inherited and group assignments. A principal with job output or stream read access can read the records, and other runbooks in the same account may emit unprotected output. Prefer a dedicated account with the [scoped reader role](installation.md#3-reuse-or-create-an-azure-job-reader-role). Azure Automation documents up to 30 days of native job-log retention; forwarded diagnostic logs follow the destination's separate retention and access policy. See [Azure limits](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/azure-subscription-service-limits#automation-limits) and [diagnostic log forwarding](https://learn.microsoft.com/en-us/azure/automation/automation-manage-send-joblogs-log-analytics).
+Check effective Azure access at the account, resource-group and subscription scopes, including inherited and group assignments. A principal with job output or stream read access can read the records, and other runbooks in the same account may emit unprotected output. Prefer a dedicated account with the [scoped reader role](installation.md#3-create-an-azure-job-reader-role). Azure Automation documents up to 30 days of native job-log retention; forwarded diagnostic logs follow the destination's separate retention and access policy. See [Azure limits](https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/azure-subscription-service-limits#automation-limits) and [diagnostic log forwarding](https://learn.microsoft.com/en-us/azure/automation/automation-manage-send-joblogs-log-analytics).
 
 ## Disposition safety
 

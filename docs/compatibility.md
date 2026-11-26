@@ -22,4 +22,4 @@ that the builds match.
 ## First installation
 
 Create a new asset, follow the [install order](installation.md#install-order), and
-run the [deployment checklist](validation.md) on the exact app/runbook pair.
+run [Test Connectivity](installation.md#7-create-and-test-the-soar-asset) on the exact app/runbook pair.
